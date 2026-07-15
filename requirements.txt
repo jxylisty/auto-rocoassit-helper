@@ -1,7 +1,31 @@
-opencv-python==4.11.0.86
-pytesseract==0.3.10
-Pillow==10.0.1
-pyautogui==0.9.54
-numpy==1.26.4
-pywin32==306
-psutil==5.9.5
+# 核心依赖
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# 屏幕捕获
+mss>=9.0.0
+BetterCam>=1.0.0
+
+# 输入驱动
+interception-python>=1.13.0
+keyboard>=0.13.5
+
+# OCR
+pytesseract>=0.3.10
+
+# GUI
+pywebview>=4.0.0
+
+# Windows API
+pywin32>=306
+psutil>=5.9.0
+
+# 配置文件
+pyyaml>=6.0
+
+# 测试
+pytest>=7.0.0
+
+# 可选：YOLO检测
+# ultralytics>=8.0.0
