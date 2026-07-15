@@ -1,43 +1,100 @@
+# ========================================
+# 空仓库目录
+# ========================================
+auto-rocoassit-helper/
+
+# ========================================
 # Python
+# ========================================
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
+*.pyc
+*.pyo
+*.egg
 *.egg-info/
 .eggs/
-*.egg
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
 
-# IDE
+# ========================================
+# IDE / Editor
+# ========================================
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
+.project
+.pydevproject
+.spyderproject
 
-# 临时文件
-.tmp/
-*.tmp
-*.temp
-
+# ========================================
 # 虚拟环境
+# ========================================
 .venv/
 venv/
 ENV/
 env/
+.env
 
-# 临时截图
+# ========================================
+# 临时文件与缓存
+# ========================================
+.tmp/
+*.tmp
+*.temp
+*.log
+*.bak
+
+# ========================================
+# 运行时截图（高频生成，禁止提交）
+# ========================================
 capture_*.png
+capture_*.jpg
+screenshot_*.png
+screenshot_*.jpg
 
-# 空仓库
-auto-rocoassit-helper/
-
-# 数据文件（可选，根据需要调整）
-# data/
-
-# 过滤运行时的测试截图
-win32_capture_*.png
+# 截图输出目录
 data/capture_test/
-data/vision/exports/
-.pytest_cache/
-__pycache__/
+data/captures/
+captures/
+screenshots/
+
+# 任何位置的临时图片（排除模板）
+*.png
+*.jpg
+*.jpeg
+*.bmp
+!data/templates/**/*.png
+!data/templates/**/*.jpg
+!docs/**/*.png
+!docs/**/*.jpg
+!data/vision/elements/*.png
+!data/vision/exports/*.png
+
+# ========================================
+# 模型文件（通常体积大）
+# ========================================
 *.pt
+*.pth
+*.onnx
+*.weights
+!data/models/.gitkeep
+
+# ========================================
+# 系统文件
+# ========================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ========================================
+# 打包输出
+# ========================================
+dist/
+build/
+*.exe
+*.msi
