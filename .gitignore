@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 临时文件
+.tmp/
+*.tmp
+*.temp
+
+# 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+
+# 临时截图
+capture_*.png
+
+# 空仓库
+auto-rocoassit-helper/
+
+# 数据文件（可选，根据需要调整）
+# data/

@@ -1,0 +1,8 @@
+{
+  "output_dir": "data\\capture_test\\20260418_002108",
+  "sample_count": 10,
+  "interval_ms": 200,
+  "capture_mode": "bitblt",
+  "average_mean_abs_diff": 0.0,
+  "average_changed_ratio": 0.0
+}

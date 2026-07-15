@@ -1,0 +1,183 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>洛克王国：世界 异色补图鉴繁育规划器</title>
+  <link rel="stylesheet" href="./roco_shiny_breeding_planner.css">
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <h1>异色补图鉴繁育规划器</h1>
+      <p>这个页面单独处理“我手里有什么异色、我缺什么异色、现在该怎么摆最值”的问题。它会在你输入的异色公母库存基础上，优先推荐能补到更多缺失异色母本种类的摆法，并兼顾目标配对机会和整体繁育效率。</p>
+      <div class="hero-links">
+        <a href="./roco_nest_optimizer.html">理论摆窝页</a>
+        <a href="./roco_shiny_breeding_planner.html">库存补图鉴页</a>
+      </div>
+    </section>
+
+    <div class="layout">
+      <aside class="panel controls">
+        <div class="grid">
+          <p class="section-title">规划参数</p>
+          <div class="triple">
+            <div class="field">
+              <label for="maleCount">雄性数量</label>
+              <input id="maleCount" type="number" min="0" max="20" value="4">
+            </div>
+            <div class="field">
+              <label for="femaleCount">雌性数量</label>
+              <input id="femaleCount" type="number" min="0" max="20" value="4">
+            </div>
+            <div class="field">
+              <label for="nestCount">小窝总数</label>
+              <input id="nestCount" type="number" min="1" max="20" value="8">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="autoField">自动补全字段</label>
+            <select id="autoField">
+              <option value="female">自动算雌性 = 小窝 - 雄性</option>
+              <option value="male">自动算雄性 = 小窝 - 雌性</option>
+              <option value="nest">自动算小窝 = 雄性 + 雌性</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="solveEngine">求解方式</label>
+            <select id="solveEngine">
+              <option value="browser">网页模型求解：更稳、更快</option>
+              <option value="local">本地精确求解：实验功能，可能卡住</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="targetPriority">目标偏好</label>
+            <select id="targetPriority">
+              <option value="variety">优先补到更多种自己想要的异色蛋</option>
+              <option value="wanted">优先让自己想要的异色蛋总数更多</option>
+              <option value="probability">优先异色产出概率</option>
+            </select>
+          </div>
+
+          <div class="button-row">
+            <button id="solveButton" class="primary" type="button">计算当前最值方案</button>
+            <button id="presetButton" class="secondary" type="button">填入演示库存</button>
+          </div>
+
+          <div class="button-row">
+            <button id="missingAllButton" class="secondary" type="button">全部设为这次想生</button>
+            <button id="saveButton" class="secondary" type="button">保存当前配置</button>
+          </div>
+
+          <details class="guide" open>
+            <summary>这页是怎么计算的</summary>
+            <div class="guide-body">
+              这页默认只让你填写<strong>异色库存</strong>。子代种类跟随母本，所以真正决定你要生哪一类蛋的是<strong>雌性坑位上放什么</strong>；雄性更多是在负责打通蛋组兼容和配对覆盖。
+            </div>
+          </details>
+
+          <details class="guide">
+            <summary>“这次想不想生”是什么意思</summary>
+            <div class="guide-body">
+              这里不是在问你有没有这个异色。你有没有，是看上面的“异色雄库存 / 异色雌库存”。<br>
+              这里是在问你这次想不想生它：<br>
+              这次想生这个异色：算法会优先给它安排母本位置。<br>
+              这个异色我已经有了，但还能拿来配：可以作为补位或桥接，不是这次重点。<br>
+              这次不考虑这个异色：公母都不会进入候选方案。
+            </div>
+          </details>
+
+          <details class="guide">
+            <summary>普通母本什么时候会被用到</summary>
+            <div class="guide-body">
+              如果你想生某个异色种类，但暂时<strong>没有异色母本</strong>，页面会自动把这只精灵的<strong>普通雌性</strong>当成可上阵替代，并在图里标注“普通”。你不需要再手动填普通库存。另一方面，父母双方越多使用异色个体，方案评分会越高；切到“优先异色产出概率”后，页面会更偏向把库存里的异色直接摆上阵。
+            </div>
+          </details>
+        </div>
+      </aside>
+
+      <main class="panel results">
+        <div id="progressPanel" class="progress-panel" hidden>
+          <div class="progress-bar"><span id="progressFill" class="progress-fill"></span></div>
+          <div id="progressMeta" class="progress-meta">等待计算。</div>
+        </div>
+        <div id="status" class="status warn">等待输入库存后计算。</div>
+
+        <section class="overview" id="overview">
+          <strong>这里会显示本次方案的结论摘要。</strong>
+        </section>
+
+        <section class="solution-picker">
+          <div class="field">
+            <label for="solutionSelect">候选方案</label>
+            <select id="solutionSelect"></select>
+          </div>
+          <div class="solution-note" id="solutionNote">
+            这里会列出同一组输入下的多套高分摆法，排序规则是先看异色目标种类数，再看目标配对数和总配对数。
+          </div>
+        </section>
+
+        <section class="stats" id="stats"></section>
+
+        <div class="block-head">
+          <h2>库存面板</h2>
+          <p>先填异色数量，再标记这次重点想生谁。</p>
+        </div>
+        <section class="inventory">
+          <table>
+            <thead>
+              <tr>
+                <th>精灵</th>
+                <th>蛋组</th>
+                <th>异色雄库存</th>
+                <th>异色雌库存</th>
+                <th>这次想不想生</th>
+              </tr>
+            </thead>
+            <tbody id="inventoryBody"></tbody>
+          </table>
+        </section>
+
+        <div class="block-head">
+          <h2>推荐摆放图</h2>
+          <p>图里会直接标出公母、异色/普通和当前用途。</p>
+        </div>
+        <section class="canvas-card">
+          <svg id="board" viewBox="0 0 900 540" aria-label="库存驱动的推荐摆窝图"></svg>
+        </section>
+
+        <div class="block-head">
+          <h2>明细列表</h2>
+          <p>左边看每个窝放什么，右边看可孵化配对。</p>
+        </div>
+        <section class="split">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>性别</th>
+                  <th>品质</th>
+                  <th>精灵</th>
+                  <th>蛋组</th>
+                  <th>坐标</th>
+                  <th>用途</th>
+                </tr>
+              </thead>
+              <tbody id="nestTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="pair-wrap">
+            <div id="pairList" class="pair-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <script src="./roco_shiny_breeding_planner.js"></script>
+</body>
+</html>
+

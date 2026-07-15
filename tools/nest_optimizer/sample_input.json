@@ -1,0 +1,28 @@
+{
+  "maleCount": 4,
+  "femaleCount": 4,
+  "nestCount": 8,
+  "mode": "collection",
+  "inventory": {
+    "shinyMaleStocks": [0, 1, 0, 1, 2, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0],
+    "shinyFemaleStocks": [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "statuses": [
+      "ignore",
+      "owned",
+      "ignore",
+      "missing",
+      "missing",
+      "missing",
+      "owned",
+      "ignore",
+      "ignore",
+      "ignore",
+      "owned",
+      "ignore",
+      "ignore",
+      "owned",
+      "ignore",
+      "ignore"
+    ]
+  }
+}

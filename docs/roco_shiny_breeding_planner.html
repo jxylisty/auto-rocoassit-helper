@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>洛克王国：世界 异色补图鉴繁育规划器</title>
+  <link rel="stylesheet" href="./roco_shiny_breeding_planner.css">
+</head>
+<body>
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="loading-content">
+      <div class="loading-title">正在计算方案</div>
+      <div id="progressPanel" class="progress-panel">
+        <div class="progress-bar"><span id="progressFill" class="progress-fill"></span></div>
+        <div id="progressMeta" class="progress-meta">等待计算。</div>
+      </div>
+      <div class="loading-copyright">© 2026 jxylisty 独立开发</div>
+    </div>
+  </div>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-content">
+        <h1>异色补图鉴繁育规划器</h1>
+        <p>输入异色公母库存，智能推荐最优摆窝方案，助你快速补全图鉴。</p>
+      </div>
+      <div class="hero-links">
+        <a href="./roco_shiny_breeding_planner.html">库存补图鉴页</a>
+      </div>
+    </section>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="card">
+          <p class="section-title">规划参数</p>
+          <div class="triple">
+            <div class="field">
+              <label for="maleCount">雄性</label>
+              <input id="maleCount" type="number" min="0" max="20" value="4">
+            </div>
+            <div class="field">
+              <label for="femaleCount">雌性</label>
+              <input id="femaleCount" type="number" min="0" max="20" value="4">
+            </div>
+            <div class="field">
+              <label for="nestCount">小窝</label>
+              <input id="nestCount" type="number" min="1" max="20" value="8">
+            </div>
+          </div>
+          <div class="field" style="margin-top: 12px;">
+            <label for="targetPriority">目标偏好</label>
+            <select id="targetPriority">
+              <option value="variety">优先补到更多种异色蛋</option>
+              <option value="wanted">优先异色蛋总数更多</option>
+              <option value="probability">优先异色产出概率</option>
+            </select>
+          </div>
+          <div class="button-row">
+            <button id="solveButton" class="primary" type="button">计算方案</button>
+            <button id="presetButton" class="secondary" type="button">演示库存</button>
+            <button id="missingAllButton" class="secondary" type="button">全部重置</button>
+            <button id="saveButton" class="secondary" type="button">保存配置</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div id="status" class="status warn">等待输入库存后计算。</div>
+        </div>
+
+        <div class="card">
+          <p class="section-title">方案选择</p>
+          <div class="solution-picker">
+            <div class="field">
+              <select id="solutionSelect"></select>
+            </div>
+            <div class="solution-note" id="solutionNote">
+              选择不同方案查看详细摆法
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <p class="section-title">方案摘要</p>
+          <section class="overview" id="overview">
+            <strong>计算后将显示方案结论摘要</strong>
+          </section>
+        </div>
+
+        <div class="card">
+          <p class="section-title">数据看板</p>
+          <section class="stats-grid" id="stats"></section>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <div class="inventory-card">
+          <div class="card-inner">
+            <div class="block-head">
+              <h2>库存面板</h2>
+              <p>填写异色数量，标记这次重点</p>
+            </div>
+            <section class="inventory">
+              <table>
+                <thead>
+                  <tr>
+                    <th>精灵</th>
+                    <th>蛋组</th>
+                    <th>雄库存</th>
+                    <th>雌库存</th>
+                    <th>这次想不想生</th>
+                  </tr>
+                </thead>
+                <tbody id="inventoryBody"></tbody>
+              </table>
+            </section>
+          </div>
+        </div>
+
+        <div class="canvas-card">
+          <div class="block-head">
+            <h2>摆放图</h2>
+            <p>公母、异色/普通、当前用途一目了然</p>
+          </div>
+          <svg id="board" viewBox="0 0 900 540" aria-label="库存驱动的推荐摆窝图"></svg>
+        </div>
+
+        <div class="detail-card">
+          <div class="card-inner">
+            <div class="block-head">
+              <h2>明细列表</h2>
+              <p>巢穴详情 + 可孵化配对</p>
+            </div>
+            <section class="split">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>性别</th>
+                      <th>品质</th>
+                      <th>精灵</th>
+                      <th>蛋组</th>
+                      <th>坐标</th>
+                    </tr>
+                  </thead>
+                  <tbody id="nestTableBody"></tbody>
+                </table>
+              </div>
+              <details class="cyber-collapse">
+                <summary>点击查看 / 收起完整配对连线</summary>
+                <div class="pair-wrap">
+                  <div id="pairList" class="pair-list"></div>
+                </div>
+              </details>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+    <footer class="copyright-footer">
+      本异色规划器由 jxylisty 独立开发，代码已在 GitHub 存档溯源。如遇搬运，请认准原作者。
+    </footer>
+  </div>
+  <script src="./roco_shiny_breeding_planner.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "output_dir": "data\\capture_test\\20260418_002709",
+  "sample_count": 10,
+  "interval_ms": 200,
+  "capture_mode": "screen",
+  "average_mean_abs_diff": 19.4656,
+  "average_changed_ratio": 0.105803
+}

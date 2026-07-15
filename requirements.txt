@@ -1,0 +1,7 @@
+opencv-python==4.11.0.86
+pytesseract==0.3.10
+Pillow==10.0.1
+pyautogui==0.9.54
+numpy==1.26.4
+pywin32==306
+psutil==5.9.5
