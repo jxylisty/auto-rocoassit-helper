@@ -33,3 +33,11 @@ auto-rocoassit-helper/
 
 # 数据文件（可选，根据需要调整）
 # data/
+
+# 过滤运行时的测试截图
+win32_capture_*.png
+data/capture_test/
+data/vision/exports/
+.pytest_cache/
+__pycache__/
+*.pt
