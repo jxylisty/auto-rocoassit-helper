@@ -1,0 +1,92 @@
+[
+  {
+    "key": "火",
+    "label": "火",
+    "color": "#F08030"
+  },
+  {
+    "key": "水",
+    "label": "水",
+    "color": "#6890F0"
+  },
+  {
+    "key": "草",
+    "label": "草",
+    "color": "#78C850"
+  },
+  {
+    "key": "电",
+    "label": "电",
+    "color": "#F8D030"
+  },
+  {
+    "key": "冰",
+    "label": "冰",
+    "color": "#98D8D8"
+  },
+  {
+    "key": "虫",
+    "label": "虫",
+    "color": "#A8B820"
+  },
+  {
+    "key": "翼",
+    "label": "翼",
+    "color": "#A890F0"
+  },
+  {
+    "key": "地",
+    "label": "地",
+    "color": "#E0C068"
+  },
+  {
+    "key": "萌",
+    "label": "萌",
+    "color": "#FF6699"
+  },
+  {
+    "key": "武",
+    "label": "武",
+    "color": "#C03028"
+  },
+  {
+    "key": "毒",
+    "label": "毒",
+    "color": "#A040A0"
+  },
+  {
+    "key": "龙",
+    "label": "龙",
+    "color": "#7038F8"
+  },
+  {
+    "key": "幽",
+    "label": "幽",
+    "color": "#705898"
+  },
+  {
+    "key": "恶",
+    "label": "恶",
+    "color": "#705848"
+  },
+  {
+    "key": "光",
+    "label": "光",
+    "color": "#F8D030"
+  },
+  {
+    "key": "普通",
+    "label": "普通",
+    "color": "#A8A878"
+  },
+  {
+    "key": "机械",
+    "label": "机械",
+    "color": "#A0A0A0"
+  },
+  {
+    "key": "幻",
+    "label": "幻",
+    "color": "#B8A0F0"
+  }
+]

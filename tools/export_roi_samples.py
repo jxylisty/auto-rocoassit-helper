@@ -6,8 +6,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from src.analysis.vision_pipeline import load_roi_config
-from src.utils.image_io import imread_unicode, imwrite_unicode
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.perception.vision_pipeline import load_roi_config  # noqa: E402
+from src.utils.image_io import imread_unicode, imwrite_unicode  # noqa: E402
 
 
 def main() -> None:
@@ -15,7 +19,7 @@ def main() -> None:
         raise SystemExit("用法: python export_roi_samples.py <image_path> [output_dir]")
 
     image_path = Path(sys.argv[1])
-    output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("data/vision/exports")
+    output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else PROJECT_ROOT / "data" / "vision" / "exports"
 
     if not image_path.exists():
         raise SystemExit(f"截图不存在: {image_path}")

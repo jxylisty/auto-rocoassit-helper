@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from src.ocr.base import RecognitionResult
 
@@ -12,22 +12,20 @@ from src.ocr.base import RecognitionResult
 class BattleStateSnapshot:
     """Single-frame structured state extracted from the game UI."""
 
-    enemy_avatar: RecognitionResult[str]
+    enemy_name: RecognitionResult[str]
     enemy_elements: RecognitionResult[list[str]]
-    current_energy: RecognitionResult[int]
-    latest_damage: RecognitionResult[int]
+    enemy_hp: RecognitionResult[int]
     raw: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "enemy_avatar": self.enemy_avatar.value,
-            "enemy_avatar_confidence": self.enemy_avatar.confidence,
+            "enemy_name": self.enemy_name.value,
+            "enemy_name_confidence": self.enemy_name.confidence,
             "enemy_elements": self.enemy_elements.value,
             "enemy_elements_confidence": self.enemy_elements.confidence,
-            "current_energy": self.current_energy.value,
-            "current_energy_confidence": self.current_energy.confidence,
-            "latest_damage": self.latest_damage.value,
-            "latest_damage_confidence": self.latest_damage.confidence,
+            "enemy_hp": self.enemy_hp.value,
+            "enemy_hp_confidence": self.enemy_hp.confidence,
+            "enemy_hp_raw": self.enemy_hp.debug.get("raw"),
             "battle": self.raw.get("battle"),
             "raw": self.raw,
         }

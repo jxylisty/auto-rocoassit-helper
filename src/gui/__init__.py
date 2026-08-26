@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""GUI模块 - pywebview前端界面"""
+"""GUI模块 - pywebview 大前端控制台"""
 
-from .app import GUIApp
+from .bridge import AppBridge, Api
 
-__all__ = ['GUIApp']
+__all__ = ['AppBridge', 'Api']

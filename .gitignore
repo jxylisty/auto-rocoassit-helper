@@ -50,24 +50,14 @@ env/
 *.bak
 
 # ========================================
-# 运行时截图（高频生成，禁止提交）
+# 图像素材（禁止提交）
 # ========================================
-capture_*.png
-capture_*.jpg
-screenshot_*.png
-screenshot_*.jpg
-
-# 截图输出目录
-data/capture_test/
-data/captures/
-captures/
-screenshots/
-
-# 任何位置的临时图片（排除模板）
+*.webp
 *.png
 *.jpg
 *.jpeg
 *.bmp
+*.gif
 !data/templates/**/*.png
 !data/templates/**/*.jpg
 !docs/**/*.png
@@ -76,25 +66,20 @@ screenshots/
 !data/vision/exports/*.png
 
 # ========================================
-# 模型文件（通常体积大）
+# 二进制/大文件
 # ========================================
+*.pkl
 *.pt
 *.pth
 *.onnx
 *.weights
+*.exe
+*.msi
 !data/models/.gitkeep
 
 # ========================================
-# 系统文件
+# 其他
 # ========================================
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# ========================================
-# 打包输出
-# ========================================
-dist/
-build/
-*.exe
-*.msi
+*.bak
+.zcode/
+.pip-cache/

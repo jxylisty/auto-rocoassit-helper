@@ -1,38 +1,32 @@
 {
-  "enemy_avatar": {
-    "left": 0.82,
-    "top": 0.01,
-    "width": 0.15,
-    "height": 0.09
+  "enemy_name": {
+    "left": 0.8736,
+    "top": 0.0737,
+    "width": 0.0648,
+    "height": 0.0277
   },
   "enemy_elements": {
-    "left": 0.81,
-    "top": 0.01,
-    "width": 0.05,
-    "height": 0.07
+    "left": 0.8273,
+    "top": 0.0836,
+    "width": 0.0244,
+    "height": 0.0456
   },
-  "energy_number": {
-    "left": 0.01,
-    "top": 0.89,
-    "width": 0.08,
-    "height": 0.1
-  },
-  "damage_number": {
-    "left": 0.62,
-    "top": 0.3,
-    "width": 0.2,
-    "height": 0.16
+  "enemy_hp": {
+    "left": 0.8729,
+    "top": 0.1024,
+    "width": 0.0956,
+    "height": 0.0149
   },
   "battle_left_indicator": {
-    "left": 0.0,
-    "top": 0.83,
-    "width": 0.1,
-    "height": 0.17
+    "left": 0.0116,
+    "top": 0.8461,
+    "width": 0.07,
+    "height": 0.1218
   },
   "battle_right_indicator": {
-    "left": 0.75,
-    "top": 0.84,
-    "width": 0.24,
-    "height": 0.16
+    "left": 0.7298,
+    "top": 0.8907,
+    "width": 0.0513,
+    "height": 0.0881
   }
 }

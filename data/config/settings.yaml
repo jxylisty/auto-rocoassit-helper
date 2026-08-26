@@ -1,6 +1,3 @@
-# 洛克王国 PVP 助手配置文件
-
-# 截图配置
 capture:
   fps: 30
   region:
@@ -9,19 +6,37 @@ capture:
     width: 1920
     height: 1080
 
-# 战斗配置
+# 战斗引擎策略(挂机引擎页启动时自动保存)
 battle:
-  auto_throw_ball: true
-  charge_time_min: 0.6
-  charge_time_max: 1.0
+  catch_hp: 50            # 敌方血量 ≤ 此值开始丢球(%,游戏锁血1%)
+  open_ball_key: w        # 打开丢球界面的键
+  ball_slot_key: '1'      # 球槽键 1-6
+  ball_ui_wait: 0.8       # 按开界面键后等待(秒);界面打开确认=左角标消失
+  ball_cooldown: 3.0      # 丢球后等待结果动画(秒)
+  flee_hp: 8
+  flee_key: ''            # 逃跑键,留空禁用
+  skills:                 # 技能键轮换
+  - '1'
+  skill_interval_min: 1.2
+  skill_interval_max: 2.0
+  battle_timeout: 240     # 单场战斗超时(秒)
+  max_balls_per_battle: 30
 
-# 状态机配置
+# 巡逻找怪(战斗间隙随机走动撞怪)
+patrol:
+  enabled: true           # 战斗间隙是否巡逻
+  move_key: 'w'           # 走动键(按住)
+  move_min: 1.5           # 每段走动时长(秒,随机取区间)
+  move_max: 3.0
+  turn_mode: 'mouse'       # 转向方式 keys=按A/D侧移 / mouse=鼠标转镜头
+  turn_chance: 0.35       # 每段转向概率(0-1)
+  stuck_limit: 6          # 连续N段画面无变化判定卡住,自动脱困
+
 fsm:
-  battle_timeout: 300  # 战斗超时（秒）
-  wait_timeout: 60     # 匹配超时（秒）
+  battle_timeout: 300
+  wait_timeout: 60
 
-# GUI配置
 gui:
-  width: 800
-  height: 600
+  width: 1150
+  height: 780
   theme: dark

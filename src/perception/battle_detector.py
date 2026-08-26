@@ -8,10 +8,11 @@ import cv2
 import numpy as np
 
 from src.ocr.base import ROI
-from src.ocr.template_matcher import load_grayscale_templates, rank_template_matches
+from .template_matcher import load_grayscale_templates, rank_template_matches
 
 
-ASSET_ROOT = Path("data/vision/battle")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ASSET_ROOT = PROJECT_ROOT / "data" / "vision" / "battle"
 
 
 class BattleDetector:
@@ -36,8 +37,9 @@ class BattleDetector:
         left_ready = bool(self.left_templates)
         right_ready = bool(self.right_templates)
 
+        # 任一侧达标即判定战斗(宽松策略: 宁可误入战斗循环也不要漏检)
         if left_ready and right_ready:
-            in_battle = left_score >= self.threshold and right_score >= self.threshold
+            in_battle = left_score >= self.threshold or right_score >= self.threshold
         elif left_ready:
             in_battle = left_score >= self.threshold
         elif right_ready:

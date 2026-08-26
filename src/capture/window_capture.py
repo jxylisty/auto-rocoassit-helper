@@ -85,7 +85,24 @@ def _default_title_matcher(title: str) -> bool:
 def find_window(
     title_matcher: Optional[Callable[[str], bool]] = None,
     class_name: Optional[str] = None,
+    exclude_own_process: bool = True,
 ) -> Optional[WindowInfo]:
+    """查找目标窗口
+
+    Args:
+        title_matcher: 标题匹配函数,默认包含"洛克王国"
+        class_name: 限定窗口类名(游戏为 UnrealWindow)
+        exclude_own_process: 排除本进程的窗口。
+            控制台标题同样含"洛克王国",不排除会把自己当游戏窗口(截到自己)。
+    """
+    import os
+
+    try:
+        import win32process
+        own_pid = os.getpid() if exclude_own_process else -1
+    except ImportError:
+        own_pid = -1
+
     matcher = title_matcher or _default_title_matcher
     found: Optional[WindowInfo] = None
 
@@ -95,6 +112,10 @@ def find_window(
             return
         if not win32gui.IsWindow(hwnd) or not win32gui.IsWindowVisible(hwnd):
             return
+        if own_pid != -1:
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            if pid == own_pid:
+                return
         title = win32gui.GetWindowText(hwnd).strip()
         hwnd_class = win32gui.GetClassName(hwnd)
         if class_name and hwnd_class != class_name:
@@ -137,12 +158,48 @@ class WindowCapture:
             raise RuntimeError(f"窗口句柄无效: {self.hwnd}")
         if win32gui.IsIconic(self.hwnd):
             win32gui.ShowWindow(self.hwnd, win32con.SW_RESTORE)
-        win32gui.SetForegroundWindow(self.hwnd)
+        try:
+            win32gui.SetForegroundWindow(self.hwnd)
+            return
+        except Exception:
+            pass
+        # Windows 前台锁:后台进程不能直接抢前台,附加到前台窗口线程的输入队列后再切
+        try:
+            import win32api
+            import win32process
+            fg_hwnd = win32gui.GetForegroundWindow()
+            fg_tid = win32process.GetWindowThreadProcessId(fg_hwnd)[0]
+            cur_tid = win32api.GetCurrentThreadId()
+            win32process.AttachThreadInput(cur_tid, fg_tid, True)
+            try:
+                win32gui.SetForegroundWindow(self.hwnd)
+            finally:
+                win32process.AttachThreadInput(cur_tid, fg_tid, False)
+        except Exception:
+            pass
+        # 最后兜底:最小化再还原,系统发起的还原通常能拿到前台
+        try:
+            if win32gui.GetForegroundWindow() != self.hwnd:
+                win32gui.ShowWindow(self.hwnd, win32con.SW_MINIMIZE)
+                win32gui.ShowWindow(self.hwnd, win32con.SW_RESTORE)
+        except Exception:
+            pass
 
     def capture(self, mode: str = "auto") -> np.ndarray:
+        if not win32gui.IsWindow(self.hwnd):
+            raise RuntimeError("窗口已关闭")
+        if win32gui.IsIconic(self.hwnd):
+            raise RuntimeError("游戏窗口处于最小化状态，请先还原窗口再截图")
+
         info = self.get_info()
         if info.width <= 0 or info.height <= 0:
             raise RuntimeError("窗口尺寸无效，无法截图")
+
+        def _frame_std(f: np.ndarray) -> float:
+            try:
+                return float(cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).std())
+            except Exception:
+                return -1.0
 
         errors: list[str] = []
         if mode in {"auto", "printwindow"}:
@@ -150,7 +207,8 @@ class WindowCapture:
                 frame = self._capture_printwindow(info)
                 if self._is_valid_frame(frame):
                     return frame
-                errors.append("PrintWindow 返回了空白或无效画面")
+                errors.append(
+                    f"PrintWindow 画面全黑(std={_frame_std(frame):.1f}),窗口可能被遮挡/独占全屏/加载中")
             except Exception as exc:
                 errors.append(f"PrintWindow 失败: {exc}")
             if mode == "printwindow":
@@ -161,11 +219,13 @@ class WindowCapture:
                 frame = self._capture_bitblt(info)
                 if self._is_valid_frame(frame):
                     return frame
-                errors.append("BitBlt 返回了空白或无效画面")
+                errors.append(
+                    f"BitBlt 画面全黑(std={_frame_std(frame):.1f}),窗口区域被其他窗口遮挡")
             except Exception as exc:
                 errors.append(f"BitBlt 失败: {exc}")
 
-        raise RuntimeError("; ".join(errors) if errors else "截图失败")
+        raise RuntimeError(
+            f"截图失败(窗口区域={info.rect}): " + "; ".join(errors if errors else ["未知原因"]))
 
     def _capture_printwindow(self, info: WindowInfo) -> np.ndarray:
         hwnd_dc = win32gui.GetWindowDC(info.hwnd)
@@ -177,9 +237,12 @@ class WindowCapture:
         try:
             bitmap.CreateCompatibleBitmap(src_dc, info.width, info.height)
             mem_dc.SelectObject(bitmap)
-            result = win32gui.PrintWindow(info.hwnd, mem_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
+            # 部分 pywin32 版本没有 win32gui.PrintWindow,用 ctypes 直调更通用
+            user32 = ctypes.windll.user32
+            hdc = mem_dc.GetSafeHdc()
+            result = user32.PrintWindow(info.hwnd, hdc, PW_RENDERFULLCONTENT)
             if result != 1:
-                result = win32gui.PrintWindow(info.hwnd, mem_dc.GetSafeHdc(), 0)
+                result = user32.PrintWindow(info.hwnd, hdc, 0)
             if result != 1:
                 raise RuntimeError(f"PrintWindow 返回值异常: {result}")
             bmp_info = bitmap.GetInfo()

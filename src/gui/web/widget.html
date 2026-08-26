@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>状态悬浮窗</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+        --bg: rgba(8, 12, 24, 0.95);
+        --border: rgba(255, 255, 255, 0.09);
+        --text: #e3e7f0;
+        --dim: #7880a0;
+        --accent: #6366f1;
+        --ok: #4ade80;
+        --warn: #fbbf24;
+        --err: #f87171;
+        --cyan: #22d3ee;
+        --radius: 12px;
+    }
+    html, body { background: transparent; }
+    body {
+        font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+        color: var(--text); overflow: hidden;
+        -webkit-user-select: none; user-select: none;
+        -webkit-font-smoothing: antialiased;
+    }
+    .card {
+        background: var(--bg); border: 1px solid var(--border);
+        border-radius: var(--radius); backdrop-filter: blur(22px);
+        -webkit-backdrop-filter: blur(22px);
+        box-shadow: 0 8px 36px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+        overflow: hidden;
+        transition: box-shadow 0.3s ease;
+    }
+    .card:hover {
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    }
+
+    /* 头部 */
+    .head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 9px 12px; cursor: default;
+        border-bottom: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.15);
+    }
+    .dot {
+        width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+        background: #555c6e; transition: all 0.3s ease;
+    }
+    .dot.run { background: var(--ok); box-shadow: 0 0 10px var(--ok); animation: pulse 1.5s infinite; }
+    .dot.throwing { background: var(--warn); box-shadow: 0 0 10px var(--warn); animation: pulse 0.8s infinite; }
+    .dot.paused { background: var(--err); box-shadow: 0 0 10px var(--err); }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    .title {
+        font-size: 12px; font-weight: 700; flex: 1;
+        letter-spacing: 0.5px; line-height: 1.2;
+    }
+    .title small {
+        color: var(--dim); font-weight: 400;
+        margin-left: 6px; font-size: 10px;
+    }
+    .fold-btn {
+        background: none; border: 1px solid var(--border);
+        color: var(--dim); width: 22px; height: 22px;
+        border-radius: 6px; cursor: pointer; font-size: 10px;
+        line-height: 1; display: flex; align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+    }
+    .fold-btn:hover { color: var(--text); border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
+
+    /* 主体 */
+    .body { padding: 10px 12px 12px; }
+    .row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 4px 0; font-size: 11px;
+    }
+    .row .k { color: var(--dim); }
+    .row .v {
+        font-weight: 700; font-variant-numeric: tabular-nums;
+        transition: color 0.3s ease;
+    }
+    .v.ok { color: var(--cyan); }
+    .v.warn { color: var(--warn); }
+    .divider {
+        height: 1px; background: var(--border);
+        margin: 7px 0;
+    }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+    .chip {
+        font-size: 10px; padding: 3px 10px; border-radius: 999px;
+        background: rgba(99, 102, 241, 0.12);
+        border: 1px solid rgba(99, 102, 241, 0.4);
+        color: #c7cdf9;
+        transition: all 0.2s ease;
+    }
+    .chip.none {
+        background: none; border-color: var(--border);
+        color: #555c6e;
+    }
+    .game {
+        margin-top: 8px; font-size: 10px; color: var(--dim);
+        display: flex; align-items: center; gap: 6px;
+        padding: 4px 8px; border-radius: 6px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--border);
+        transition: all 0.3s ease;
+    }
+    .game i {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: #555c6e; flex-shrink: 0;
+        transition: all 0.3s ease;
+    }
+    .game.on {
+        color: var(--ok);
+        border-color: rgba(74, 222, 128, 0.25);
+        background: rgba(74, 222, 128, 0.05);
+    }
+    .game.on i { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+    <div class="head" id="head">
+        <span class="dot" id="dot"></span>
+        <span class="title" id="title">待机<small id="subtitle"></small></span>
+        <button class="fold-btn" id="foldBtn" onclick="toggleFold()">▾</button>
+    </div>
+    <div class="body" id="body">
+        <div class="row"><span class="k">挂机状态</span><span class="v" id="wState">停止</span></div>
+        <div class="row"><span class="k">状态详情</span><span class="v" id="wDetail" style="font-weight:400;color:#9aa3b8">—</span></div>
+        <div class="divider"></div>
+        <div class="row"><span class="k">完成战斗</span><span class="v ok" id="wBattles">0</span></div>
+        <div class="row"><span class="k">丢球 / 捕获</span><span class="v warn" id="wBalls">0 / 0</span></div>
+        <div class="divider"></div>
+        <div class="chips" id="wChips"><span class="chip none">全部空闲</span></div>
+        <div class="game" id="wGame"><i></i><span>游戏窗口后台</span></div>
+    </div>
+</div>
+<script>
+    const $ = id => document.getElementById(id);
+    let folded = false;
+    const H_EXPANDED = 220, H_FOLDED = 38;
+
+    const STATE_TXT = { stopped: '停止', waiting: '巡逻找怪', fighting: '战斗中', throwing: '丢球中', paused: '暂停' };
+
+    async function toggleFold() {
+        folded = !folded;
+        $('body').style.display = folded ? 'none' : '';
+        $('foldBtn').textContent = folded ? '▴' : '▾';
+        try { await pywebview.api.widget_resize(folded ? H_FOLDED : H_EXPANDED); } catch (e) {}
+    }
+
+    async function tick() {
+        try {
+            const s = await pywebview.api.get_state();
+            const e = await pywebview.api.engine_status();
+
+            const state = e.running ? e.state : 'stopped';
+            const dot = $('dot');
+            dot.className = 'dot' + (e.running
+                ? ({ throwing: ' throwing', paused: ' paused' }[e.state] || ' run')
+                : '');
+            $('title').childNodes[0].textContent = e.running ? (STATE_TXT[e.state] || e.state) : '待机';
+            $('subtitle').textContent = e.dry_run ? '模拟' : '';
+
+            $('wState').textContent = STATE_TXT[state] || state;
+            $('wDetail').textContent = e.detail || '—';
+            $('wBattles').textContent = e.battles_done ?? 0;
+            $('wBalls').textContent = `${e.catch_attempts ?? 0} / ${e.catches ?? 0}`;
+
+            const chips = [];
+            (s.tasks || []).forEach(t => chips.push(`<span class="chip">${t.name}</span>`));
+            $('wChips').innerHTML = chips.length ? chips.join('') : '<span class="chip none">全部空闲</span>';
+
+            $('wGame').className = 'game' + (s.game_active ? ' on' : '');
+            $('wGame').querySelector('span').textContent = s.game_active ? '游戏窗口前台' : '游戏窗口后台';
+        } catch (err) { /* 后端未就绪 */ }
+    }
+
+    window.addEventListener('pywebviewready', () => { tick(); setInterval(tick, 1000); });
+</script>
+</body>
+</html>

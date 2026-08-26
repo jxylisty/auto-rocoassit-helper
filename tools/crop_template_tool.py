@@ -11,16 +11,21 @@ from tkinter import messagebox, simpledialog, ttk
 import cv2
 from PIL import Image, ImageTk
 
-from src.utils.image_io import imread_unicode, imwrite_unicode
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.image_io import imread_unicode, imwrite_unicode  # noqa: E402
 
 
 CATEGORY_MAP = {
-    "digit": Path("data/vision/digits"),
-    "element": Path("data/vision/elements"),
-    "avatar": Path("data/vision/avatars"),
-    "battle_left": Path("data/vision/battle/left"),
-    "battle_right": Path("data/vision/battle/right"),
-    "sample": Path("data/vision/exports"),
+    "digit": PROJECT_ROOT / "data" / "vision" / "digits",
+    "element": PROJECT_ROOT / "data" / "vision" / "elements",
+    "avatar": PROJECT_ROOT / "data" / "vision" / "avatars",
+    "battle_left": PROJECT_ROOT / "data" / "vision" / "battle" / "left",
+    "battle_right": PROJECT_ROOT / "data" / "vision" / "battle" / "right",
+    "ball_ui": PROJECT_ROOT / "data" / "vision" / "battle" / "ball_ui",
+    "sample": PROJECT_ROOT / "data" / "vision" / "exports",
 }
 
 

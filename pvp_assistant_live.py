@@ -11,7 +11,7 @@ from tkinter import ttk
 
 import win32con
 
-from src.analysis.vision_pipeline import VisionPipeline
+from src.perception.vision_pipeline import VisionPipeline
 from src.capture.screen_capture import ScreenRegionCapture
 from src.capture.window_capture import WindowCapture, find_window
 from src.utils.image_io import imwrite_unicode

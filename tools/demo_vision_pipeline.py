@@ -7,7 +7,11 @@ import json
 import sys
 from pathlib import Path
 
-from src.analysis.vision_pipeline import VisionPipeline
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.perception.vision_pipeline import VisionPipeline
 from src.utils.image_io import imread_unicode
 
 
