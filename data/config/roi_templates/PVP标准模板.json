@@ -1,0 +1,59 @@
+{
+  "name": "PVP标准模板",
+  "base_resolution": [
+    1920,
+    1080
+  ],
+  "rois": [
+    {
+      "id": "enemy_name",
+      "label": "敌方名称",
+      "tag": "enemy_team",
+      "color": "#f87171",
+      "rx": 0.02,
+      "ry": 0.12,
+      "rw": 0.12,
+      "rh": 0.03
+    },
+    {
+      "id": "enemy_elements",
+      "label": "敌方属性",
+      "tag": "enemy_team",
+      "color": "#fbbf24",
+      "rx": 0.02,
+      "ry": 0.16,
+      "rw": 0.08,
+      "rh": 0.03
+    },
+    {
+      "id": "enemy_hp",
+      "label": "敌方血量",
+      "tag": "enemy_team",
+      "color": "#4ade80",
+      "rx": 0.02,
+      "ry": 0.2,
+      "rw": 0.1,
+      "rh": 0.03
+    },
+    {
+      "id": "battle_left",
+      "label": "战斗图标·左",
+      "tag": "battle_hud",
+      "color": "#a78bfa",
+      "rx": 0.02,
+      "ry": 0.85,
+      "rw": 0.06,
+      "rh": 0.06
+    },
+    {
+      "id": "battle_right",
+      "label": "战斗图标·右",
+      "tag": "battle_hud",
+      "color": "#f472b6",
+      "rx": 0.88,
+      "ry": 0.85,
+      "rw": 0.06,
+      "rh": 0.06
+    }
+  ]
+}

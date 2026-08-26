@@ -110,9 +110,10 @@ class AppBridge:
         # 实时识别
         self._live_running = False
         self._live_thread = None
-        self._live_interval = 1.5                  # 秒
+        self._live_interval = 0.2                   # 秒 (BitBlt ~30ms + 识别 ~100ms)
         self._live_pipeline = None
         self._live_black_warned = False
+        self._live_last_frame = None               # 帧差检测缓存
 
         # 战斗引擎
         from src.states.battle_engine import BattleEngine
@@ -125,6 +126,10 @@ class AppBridge:
         self._pvp_float_window = None
         self._pvp_float_visible = False
         self._pvp_float_loaded = False
+
+        # 模式控制器 (Step 3: 生命周期隔离)
+        from src.states.mode_controller import ModeController
+        self.mode_ctrl = ModeController()
 
         # 工具子进程: id -> {"proc", "name"}
         self._tool_procs: dict[str, dict] = {}
@@ -199,11 +204,14 @@ class AppBridge:
             self._enqueue_log(f"快捷键注册失败: {e}", "error")
 
     def _hotkey_widget(self):
-        """F2: 切换挂机悬浮窗"""
+        """F2: 切换挂机悬浮窗 → 切换至 afk 模式"""
+        self.mode_ctrl.switch_to("afk")
         self.widget_toggle()
 
     def _hotkey_pvp_float(self):
-        """F12: 切换 PVP 对战悬浮窗"""
+        """F12: 切换 PVP 悬浮窗 → 切换至 pvp 模式"""
+        if self.mode_ctrl.current_mode != "pvp":
+            self.mode_ctrl.switch_to("pvp")
         self.pvp_float_toggle()
 
     def _emergency_stop(self):
@@ -501,6 +509,7 @@ class AppBridge:
         self._live_running = True
         self._live_black_warned = False
         self._live_pipeline = None  # 每次启动重建(加载最新模板)
+        self._live_last_frame = None
         self._live_thread = threading.Thread(target=self._live_loop, daemon=True, name="VisionLive")
         self._live_thread.start()
         self._enqueue_log(f"实时识别已启动(每 {self._live_interval}s 一帧)", "success")
@@ -508,6 +517,7 @@ class AppBridge:
 
     def vision_live_stop(self) -> dict:
         self._live_running = False
+        self._live_last_frame = None
         self._enqueue_log("实时识别已停止", "warning")
         return {"success": True}
 
@@ -945,24 +955,25 @@ class AppBridge:
         return {"success": True, "image": f"data:image/webp;base64,{b64}", "filename": img_path.name}
 
     def _live_capture_frame(self):
-        """按游戏窗口的屏幕可见区域截屏(游戏在前台渲染时最可靠)"""
-        import cv2
-        import numpy as np
-        from PIL import ImageGrab
+        """mss 屏幕级截屏（游戏可后台，~15ms）"""
+        import cv2, numpy as np, mss
         info = self._find_game_window()
         if not info:
             raise RuntimeError("未找到「洛克王国」窗口")
         left, top, right, bottom = info.rect
         if right - left < 50 or bottom - top < 50:
             raise RuntimeError("游戏窗口过小或最小化")
-        img = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
-        frame = cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
+        with mss.mss() as sct:
+            monitor = {"left": left, "top": top, "width": right - left, "height": bottom - top}
+            img = sct.grab(monitor)
+            frame = cv2.cvtColor(np.array(img), cv2.COLOR_BGRA2BGR)
         if float(frame.std()) < 3.0:
             raise RuntimeError("画面全黑: 游戏未在前台渲染,请点一下游戏窗口")
         return info, frame
 
     def _live_loop(self):
         import json as _json
+        import numpy as np
         from src.perception.vision_pipeline import VisionPipeline, DEFAULT_ROI_CONFIG
 
         try:
@@ -974,6 +985,18 @@ class AppBridge:
             try:
                 info, frame = self._live_capture_frame()
                 self._live_black_warned = False
+
+                # 帧差检测：像素均值差 < 5 则跳过识别
+                if self._live_last_frame is not None:
+                    diff = float(np.abs(
+                        frame.astype(np.int16)[::4, ::4] -
+                        self._live_last_frame.astype(np.int16)[::4, ::4]
+                    ).mean())
+                    if diff < 5.0:
+                        self._stop_event.wait(self._live_interval)
+                        continue
+                self._live_last_frame = frame.copy()
+
                 if self._live_pipeline is None:
                     self._live_pipeline = VisionPipeline()
                 result = self._live_pipeline.analyze(frame).to_dict()
@@ -1198,6 +1221,46 @@ class AppBridge:
         return {"success": True}
 
     # ========================================
+    # ROI 模板管理 (Step 1: 多ROI + 归一化坐标)
+    # ========================================
+    def roi_template_list(self) -> dict:
+        from src.pvp.roi_template import list_templates
+        return {"success": True, "templates": list_templates()}
+
+    def roi_template_save(self, name: str, base_resolution: list, rois: list) -> dict:
+        from src.pvp.roi_template import save_template
+        return save_template(name, base_resolution, rois)
+
+    def roi_template_load(self, name: str) -> dict:
+        from src.pvp.roi_template import load_template
+        data = load_template(name)
+        if data is None:
+            return {"success": False, "message": f"模板 '{name}' 不存在"}
+        return {"success": True, "template": data}
+
+    def roi_template_export(self, name: str) -> dict:
+        from src.pvp.roi_template import export_template
+        data = export_template(name)
+        if data is None:
+            return {"success": False, "message": f"模板 '{name}' 不存在"}
+        return {"success": True, "json": data}
+
+    def roi_template_import(self, json_str: str) -> dict:
+        from src.pvp.roi_template import import_template
+        return import_template(json_str)
+
+    def roi_template_delete(self, name: str) -> dict:
+        from src.pvp.roi_template import delete_template
+        return delete_template(name)
+
+    def mode_get(self) -> dict:
+        return {"success": True, "mode": self.mode_ctrl.current_mode,
+                "label": self.mode_ctrl.mode_label}
+
+    def mode_switch(self, mode: str) -> dict:
+        return self.mode_ctrl.switch_to(mode)
+
+    # ========================================
     # 5. 状态轮询 + 任务栏数据
     # ========================================
 
@@ -1315,6 +1378,30 @@ class Api:
 
     def config_save(self, name, content):
         return self._bridge.config_save(name, content)
+
+    def roi_template_list(self):
+        return self._bridge.roi_template_list()
+
+    def roi_template_save(self, name, base_resolution, rois):
+        return self._bridge.roi_template_save(name, base_resolution, rois)
+
+    def roi_template_load(self, name):
+        return self._bridge.roi_template_load(name)
+
+    def roi_template_export(self, name):
+        return self._bridge.roi_template_export(name)
+
+    def roi_template_import(self, json_str):
+        return self._bridge.roi_template_import(json_str)
+
+    def roi_template_delete(self, name):
+        return self._bridge.roi_template_delete(name)
+
+    def mode_get(self):
+        return self._bridge.mode_get()
+
+    def mode_switch(self, mode):
+        return self._bridge.mode_switch(mode)
 
     # 状态
     def get_state(self):

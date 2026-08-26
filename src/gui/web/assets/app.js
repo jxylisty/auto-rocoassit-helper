@@ -18,18 +18,36 @@ const MODE_MAP = {
     skill:  { btn: 'btnSkill',  card: 'cardSkill',  api: 'toggle_skill',  running: 'skill_running',  name: '自动技能' }
 };
 const ROI_COLORS = {
+    // 挂机 (AFK)
     enemy_name: '#f87171',
     enemy_elements: '#fbbf24',
     enemy_hp: '#4ade80',
     battle_left_indicator: '#a78bfa',
-    battle_right_indicator: '#f472b6'
+    battle_right_indicator: '#f472b6',
+    // PVP 对战
+    self_avatar: '#6366f1',
+    self_name: '#818cf8',
+    enemy_avatar: '#f97316',
+    enemy_name_pvp: '#fb923c',
+    self_skill: '#10b981',
+    lineup_self: '#22d3ee',
+    lineup_enemy: '#e879f9',
 };
 const ROI_LABELS = {
+    // 挂机 (AFK)
     enemy_name: '精灵名称',
     enemy_elements: '属性',
     enemy_hp: '敌方血量',
     battle_left_indicator: '战斗·左',
-    battle_right_indicator: '战斗·右'
+    battle_right_indicator: '战斗·右',
+    // PVP 对战
+    self_avatar: '我方头像',
+    self_name: '我方名称',
+    enemy_avatar: '敌方头像',
+    enemy_name_pvp: 'PVP敌方名称',
+    self_skill: '我方技能',
+    lineup_self: '我方阵容',
+    lineup_enemy: '敌方阵容',
 };
 
 let currentRoi = null;      // 最近一次识别返回的 ROI 配置
@@ -254,6 +272,11 @@ function switchPage(name) {
 
     if (page) page.classList.add('active');
     if (nav) nav.classList.add('active');
+
+    // 切换到视觉调试台时刷新模板列表
+    if (name === 'vision' && typeof tmplRefreshList === 'function') {
+        setTimeout(tmplRefreshList, 200);
+    }
 }
 
 // ========================================
@@ -503,6 +526,167 @@ document.addEventListener('DOMContentLoaded', () => {
         setVisionStatus(`已更新「${ROI_LABELS[calibTarget]}」框,记得点保存校准`);
     });
 });
+
+// ========================================
+// ROI 模板管理 (多ROI + 归一化坐标 + 分组筛选)
+// ========================================
+let tmplRois = [];        // 当前模板的 ROI 列表
+let tmplBaseRes = [1920, 1080];  // 基准分辨率
+let tmplName = '';
+let tmplTags = [];        // 所有标签
+let tmplTagFilter = {};   // 当前筛选状态
+
+async function tmplRefreshList() {
+    try {
+        const r = await pywebview.api.roi_template_list();
+        if (!r.success) return;
+        const sel = $('tmplSelect');
+        sel.innerHTML = '<option value="">-- 选择模板 --</option>' +
+            r.templates.map(t => `<option value="${t.name}">${t.name} (${t.roi_count}ROI)</option>`).join('');
+    } catch (e) { /* 静默 */ }
+}
+
+async function tmplLoad(name) {
+    name = name || $('tmplSelect').value;
+    if (!name) { tmplRois = []; renderRoiOverlay(); return; }
+    try {
+        const r = await pywebview.api.roi_template_load(name);
+        if (!r.success) { showToast(r.message, 'error'); return; }
+        tmplName = r.template.name;
+        tmplBaseRes = r.template.base_resolution || [1920, 1080];
+        tmplRois = r.template.rois || [];
+        // 合并到 currentRoi
+        tmplRois.forEach(roi => {
+            currentRoi[roi.id] = { left: roi.rx, top: roi.ry, width: roi.rw, height: roi.rh };
+        });
+        // 更新标签筛选
+        tmplTags = [...new Set(tmplRois.map(r => r.tag || ''))].filter(Boolean);
+        tmplTagFilter = {};
+        tmplTags.forEach(t => tmplTagFilter[t] = true);
+        renderTagFilters();
+        renderRoiOverlay();
+        setVisionStatus(`已加载模板: ${tmplName} (${tmplRois.length} ROI)`);
+    } catch (e) { showToast('加载模板失败: ' + e, 'error'); }
+}
+
+function renderTagFilters() {
+    const el = $('tagFilters');
+    if (!el) return;
+    el.innerHTML = tmplTags.map(t =>
+        `<label class="chk" style="margin-right:6px"><input type="checkbox" ${tmplTagFilter[t] ? 'checked' : ''} onchange="tmplTagFilter['${t}']=this.checked;renderRoiOverlay()">${t}</label>`
+    ).join('');
+}
+
+async function tmplSaveDialog() {
+    const name = prompt('模板名称:', tmplName || 'PVP模板');
+    if (!name) return;
+    // 从 currentRoi 收集 ROI 数据
+    const rois = [];
+    const roiIds = Object.keys(currentRoi);
+    for (const id of roiIds) {
+        const box = currentRoi[id];
+        if (!box || !box.width || !box.height) continue;
+        // 找对应的标签和颜色
+        const label = ROI_LABELS[id] || id;
+        const color = ROI_COLORS[id] || '#6366f1';
+        const tag = id.includes('battle') ? 'battle_hud' : 'enemy_team';
+        rois.push({
+            id, label, tag, color,
+            rx: box.left, ry: box.top, rw: box.width, rh: box.height,
+        });
+    }
+    if (!rois.length) { showToast('请先校准至少一个 ROI', 'warning'); return; }
+    // 获取当前基准分辨率
+    const img = $('shotImg');
+    const baseRes = img ? [img.naturalWidth, img.naturalHeight] : [1920, 1080];
+    try {
+        const r = await pywebview.api.roi_template_save(name, baseRes, rois);
+        if (r.success) {
+            tmplName = name;
+            tmplBaseRes = baseRes;
+            tmplRois = rois;
+            tmplTags = [...new Set(rois.map(r => r.tag || ''))].filter(Boolean);
+            tmplTagFilter = {};
+            tmplTags.forEach(t => tmplTagFilter[t] = true);
+            renderTagFilters();
+            tmplRefreshList();
+            showToast('模板已保存: ' + name, 'success');
+        }
+    } catch (e) { showToast('保存失败: ' + e, 'error'); }
+}
+
+async function tmplExport() {
+    if (!tmplName) { showToast('请先加载或保存一个模板', 'warning'); return; }
+    try {
+        const r = await pywebview.api.roi_template_export(tmplName);
+        if (!r.success) { showToast(r.message, 'error'); return; }
+        // 复制到剪贴板
+        await navigator.clipboard.writeText(r.json);
+        showToast('模板 JSON 已复制到剪贴板', 'success');
+    } catch (e) { showToast('导出失败: ' + e, 'error'); }
+}
+
+async function tmplImport() {
+    try {
+        const text = await navigator.clipboard.readText();
+        if (!text || !text.includes('"rois"')) { showToast('剪贴板无有效模板 JSON', 'warning'); return; }
+        const r = await pywebview.api.roi_template_import(text);
+        if (r.success) {
+            tmplRefreshList();
+            showToast('模板已导入: ' + r.filename, 'success');
+            tmplLoad(r.filename.replace('.json', ''));
+        }
+    } catch (e) { showToast('导入失败: ' + e, 'error'); }
+}
+
+function tmplClear() {
+    // 从 currentRoi 中移除模板ROI，保留校准ROI
+    if (!tmplRois.length) return;
+    tmplRois.forEach(r => { delete currentRoi[r.id]; });
+    tmplRois = []; tmplName = ''; tmplTags = [];
+    tmplTagFilter = {};
+    $('tmplSelect').value = '';
+    renderTagFilters();
+    renderRoiOverlay();
+    showToast('已撤销模板ROI，校准ROI保留', 'info');
+}
+
+// 更新 RoiOverlay 渲染：始终显示 currentRoi 中所有 ROI（含校准+模板）
+// 标签筛选仅对模板 ROI 生效；非模板 ROI 始终显示
+function renderRoiOverlay_orig() { /* 原始实现(模板加载前) */ }
+const _orig_renderRoiOverlay = renderRoiOverlay;
+renderRoiOverlay = function () {
+    const layer = $('roiLayer');
+    if (!layer) return;
+    layer.innerHTML = '';
+    if (!$('roiToggle').checked || !currentRoi) return;
+
+    Object.entries(currentRoi).forEach(([key, box]) => {
+        if (!box || !box.width || !box.height) return;
+        // 模板筛选：仅当该 ROI 属于已加载模板时才检查标签过滤
+        const tmplRoi = tmplRois.find(r => r.id === key);
+        if (tmplRoi && tmplRoi.tag && tmplTagFilter[tmplRoi.tag] === false) return;
+        // 颜色/标签：优先模板定义，否则用原有
+        const color = (tmplRoi && tmplRoi.color) || ROI_COLORS[key] || '#6366f1';
+        const label = (tmplRoi && tmplRoi.label) || ROI_LABELS[key] || key;
+        const div = document.createElement('div');
+        div.className = 'roi-box';
+        div.style.cssText = `left:${box.left * 100}%;top:${box.top * 100}%;width:${box.width * 100}%;height:${box.height * 100}%;border-color:${color}`;
+        const span = document.createElement('span');
+        span.className = 'roi-label';
+        span.style.cssText = `background:${color}`;
+        span.textContent = label;
+        div.appendChild(span);
+        layer.appendChild(div);
+    });
+};
+
+// 切换校准时刷新模板列表
+const _orig_toggleCalib = toggleCalib;
+toggleCalib = function () {
+    _orig_toggleCalib();
+    if (calibMode) tmplRefreshList();
+};
 
 // ========================================
 // 实时识别(后端每 1.5s 推送一帧)
@@ -793,4 +977,21 @@ window.addEventListener('pywebviewready', () => {
 document.addEventListener('DOMContentLoaded', () => {
     CONFIG_KEYS.forEach(k => paintSlider($(k)));
     addLog('控制台加载完成,等待后端连接…', 'info');
+    pollMode();
 });
+
+// ========================================
+// 模式轮询 (更新侧边栏模式指示器)
+// ========================================
+async function pollMode() {
+    try {
+        const r = await pywebview.api.mode_get();
+        if (r.success) {
+            const dot = document.querySelector('.mode-dot');
+            const label = $('modeLabel');
+            if (dot) dot.className = 'mode-dot mode-' + r.mode;
+            if (label) label.textContent = r.label || r.mode;
+        }
+    } catch (e) { /* 静默 */ }
+    setTimeout(pollMode, 3000);
+}

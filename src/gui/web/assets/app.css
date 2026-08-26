@@ -245,6 +245,20 @@ body {
     line-height: 1.9; padding: 2px 4px;
 }
 
+/* 模式指示器 */
+.mode-indicator {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; margin: 6px 0;
+    background: rgba(255,255,255,0.03); border-radius: 6px;
+    border: 1px solid var(--border);
+}
+.mode-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.mode-dot.mode-idle { background: #555c6e; }
+.mode-dot.mode-afk { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+.mode-dot.mode-pvp { background: #f87171; box-shadow: 0 0 6px #f87171; }
+.mode-dot.mode-throw { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
+.mode-label { font-size: 11px; color: var(--dim); font-weight: 600; }
+
 kbd {
     padding: 1px 6px; border-radius: 4px;
     border: 1px solid var(--border); background: rgba(255, 255, 255, 0.04);
@@ -726,6 +740,15 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.35); }
     background: var(--c, #6366f1);
     color: #0a0e1a; font-weight: 700;
     box-shadow: 0 2px 10px color-mix(in srgb, var(--c, #6366f1) 40%, transparent);
+}
+
+.calib-sep { color: var(--border); margin: 0 2px; }
+
+/* 模板管理栏 (始终可见) */
+.vision-tmpl-bar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 8px 14px; margin-bottom: 8px;
 }
 
 /* ROI 框 */

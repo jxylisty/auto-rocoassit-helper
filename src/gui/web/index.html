@@ -65,18 +65,22 @@
 
         <div class="sidebar-foot">
         <div class="header-right">
-            <button class="pin-btn" id="btnWidget" onclick="toggleWidget()" title="悬浮状态窗(F2):挂机时压在游戏角落看状态">📱 悬浮窗</button>
-            <button class="pin-btn" id="btnPin" onclick="toggleOnTop()" title="窗口置顶:悬浮在游戏上方,适合边打边看">📌 置顶</button>
+            <button class="pin-btn" id="btnWidget" onclick="toggleWidget()" title="悬浮状态窗(F2)">📱 挂机窗</button>
+            <button class="pin-btn" id="btnPin" onclick="toggleOnTop()" title="窗口置顶">📌 置顶</button>
             <div class="game-pill" id="gamePill">
                 <span class="dot"></span><span id="gamePillText">检测游戏窗口…</span>
             </div>
         </div>
-            <div class="hotkey-hints">
-                <div><kbd>F4</kbd> 普通 · <kbd>F9</kbd> 轰炸 · <kbd>F10</kbd> 技能</div>
-                <div><kbd>F8</kbd> 截图 · <kbd>F11</kbd> 急停</div>
-                <div>快捷键全局生效</div>
-            </div>
+        <div class="mode-indicator" id="modeIndicator">
+            <span class="mode-dot mode-idle"></span>
+            <span class="mode-label" id="modeLabel">空闲</span>
         </div>
+        <div class="hotkey-hints">
+            <div><kbd>F4</kbd> 普通 · <kbd>F9</kbd> 轰炸 · <kbd>F10</kbd> 技能</div>
+            <div><kbd>F8</kbd> 截图 · <kbd>F11</kbd> 急停 · <kbd>F12</kbd> PVP</div>
+            <div>快捷键全局生效</div>
+        </div>
+    </div>
     </aside>
 
     <!-- ============ 主区域 ============ -->
@@ -257,14 +261,28 @@
                 <button class="btn" id="btnVAna" onclick="visionAnalyze()">🔍 截图并识别</button>
                 <button class="btn" onclick="visionSave()">💾 保存截图</button>
                 <label class="chk"><input type="checkbox" id="roiToggle" onchange="renderRoiOverlay()"> ROI 框</label>
-                <button class="btn" id="btnCalib" onclick="toggleCalib()">🎯 校准模式</button>
-                <button class="btn btn-primary" id="btnCalibSave" onclick="calibSave()" style="display:none">💾 保存校准</button>
+                <button class="btn" id="btnCalib" onclick="toggleCalib()">🎯 校准</button>
                 <span class="vision-status" id="visionStatus">未截图</span>
             </div>
 
+            <div class="vision-tmpl-bar">
+                <span class="calib-tip">📐 ROI模板:</span>
+                <select id="tmplSelect" onchange="tmplLoad()" style="font-size:11px;padding:2px 4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);color:var(--text);border-radius:3px">
+                    <option value="">-- 选择模板 --</option>
+                </select>
+                <button class="btn" onclick="tmplSaveDialog()" style="font-size:10px;padding:2px 6px">💾 保存</button>
+                <button class="btn" onclick="tmplExport()" style="font-size:10px;padding:2px 6px">📤 导出</button>
+                <button class="btn" onclick="tmplImport()" style="font-size:10px;padding:2px 6px">📥 导入</button>
+                <button class="btn" onclick="tmplClear()" style="font-size:10px;padding:2px 6px" title="从 currentRoi 中移除模板ROI">↩ 撤销</button>
+                <span class="calib-sep">|</span>
+                <span class="calib-tip">筛选:</span>
+                <span id="tagFilters"></span>
+            </div>
+
             <div class="calib-bar" id="calibBar" style="display:none">
-                <span class="calib-tip">选择目标区域,然后在下方截图上拖拽框选:</span>
+                <span class="calib-tip">校准模式: 选目标 → 截图上拖框</span>
                 <div id="calibChips"></div>
+                <button class="btn btn-primary" id="btnCalibSave" onclick="calibSave()" style="display:none">💾 保存校准</button>
             </div>
 
             <div class="vision-body">
