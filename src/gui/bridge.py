@@ -129,6 +129,11 @@ class AppBridge:
         self._pvp_float_visible = False
         self._pvp_float_loaded = False
 
+        # PVP 实时识别引擎
+        self._pvp_running = False
+        self._pvp_thread = None
+        self._pvp_interval = 0.5  # 秒，每 500ms 识别一帧
+
         # 模式控制器 (Step 3: 生命周期隔离)
         from src.states.mode_controller import ModeController
         self.mode_ctrl = ModeController()
@@ -677,6 +682,83 @@ class AppBridge:
 
     def engine_status(self) -> dict:
         return self.engine.get_status()
+
+    # ========================================
+    # PVP 实时识别引擎
+    # ========================================
+
+    def _pvp_loop(self):
+        """后台线程: 定时截图 → 识别 → 推送悬浮窗"""
+        import time as _time
+        import cv2, numpy as np
+        from src.pvp.pvp_pipeline import get_pipeline
+
+        pipeline = get_pipeline()
+        self._pipeline = pipeline
+
+        while self._pvp_running:
+            t0 = _time.perf_counter()
+            try:
+                # 1. 截图
+                info = self._find_game_window()
+                if not info:
+                    _time.sleep(self._pvp_interval)
+                    continue
+                left, top, right, bottom = info.rect
+                w, h = right - left, bottom - top
+
+                from PIL import ImageGrab
+                img = ImageGrab.grab(bbox=(left, top, right, bottom))
+                frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                self._last_frame = frame
+
+                # 2. 识别
+                result = pipeline.analyze(frame)
+                data = pipeline.to_dict(result)
+
+                # 3. 推送悬浮窗
+                if self._pvp_float_window and self._pvp_float_visible and self._pvp_float_loaded:
+                    self._pvp_float_window.evaluate_js(
+                        f"updatePVPData({json.dumps(data, ensure_ascii=False)})"
+                    )
+
+                # 4. 日志
+                if result.in_battle:
+                    self._enqueue_log(
+                        f"⚔️ 我方:{result.player_name}({result.player_hp}) "
+                        f"敌方:{result.enemy_name}({result.enemy_hp_pct:.0%}) "
+                        f"技能:{result.skills[0] if result.skills else '-'}",
+                        "info")
+
+            except Exception as e:
+                self._enqueue_log(f"PVP 识别异常: {e}", "error")
+
+            elapsed = _time.perf_counter() - t0
+            sleep_time = max(0.05, self._pvp_interval - elapsed)
+            _time.sleep(sleep_time)
+
+    def pvp_engine_start(self) -> dict:
+        """启动 PVP 实时识别引擎"""
+        if self._pvp_running:
+            return {"success": True, "message": "PVP 引擎已在运行"}
+        import threading
+        self._pvp_running = True
+        self._pvp_thread = threading.Thread(target=self._pvp_loop, daemon=True, name="PvpEngine")
+        self._pvp_thread.start()
+        self._enqueue_log("PVP 实时识别引擎已启动", "success")
+        return {"success": True}
+
+    def pvp_engine_stop(self) -> dict:
+        """停止 PVP 实时识别引擎"""
+        self._pvp_running = False
+        if self._pvp_thread:
+            self._pvp_thread.join(timeout=2.0)
+            self._pvp_thread = None
+        self._enqueue_log("PVP 引擎已停止", "info")
+        return {"success": True}
+
+    def pvp_engine_status(self) -> dict:
+        return {"running": self._pvp_running, "float_visible": self._pvp_float_visible}
 
     @staticmethod
     def _parse_engine_params(params: dict) -> dict:
@@ -1668,6 +1750,15 @@ class Api:
 
     def pvp_get_asset(self, asset_type, key):
         return self._bridge.pvp_get_asset(asset_type, key)
+
+    def pvp_engine_start(self):
+        return self._bridge.pvp_engine_start()
+
+    def pvp_engine_stop(self):
+        return self._bridge.pvp_engine_stop()
+
+    def pvp_engine_status(self):
+        return self._bridge.pvp_engine_status()
 
 
 __all__ = ['AppBridge', 'Api']

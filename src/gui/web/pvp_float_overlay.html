@@ -2,198 +2,89 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>PVP 对战悬浮窗</title>
+<title>PVP 对战</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-:root {
-    --bg: rgba(10, 14, 26, 0.92);
-    --border: rgba(255, 255, 255, 0.10);
-    --text: #e6eaf2;
-    --dim: #8b93a7;
-    --accent: #6366f1;
-    --ok: #4ade80;
-    --warn: #fbbf24;
-    --err: #f87171;
-    --cyan: #22d3ee;
-}
 html, body { background: transparent; }
 body {
     font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-    color: var(--text); overflow: hidden;
-    -webkit-user-select: none; user-select: none;
-    font-size: 12px;
+    color: #e6eaf2; overflow: hidden; user-select: none; font-size: 11px;
 }
 .card {
-    background: var(--bg); border: 1px solid var(--border);
+    background: rgba(10, 14, 26, 0.92); border: 1px solid rgba(255,255,255,0.10);
     border-radius: 12px; backdrop-filter: blur(18px);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-    overflow: hidden;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.5); width: 280px;
 }
-
-/* 头部 */
 .head {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 12px; cursor: default;
-    border-bottom: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.03);
+    display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
 }
-.head .dot {
-    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-    background: var(--ok); box-shadow: 0 0 6px var(--ok);
-    animation: pulse 1.5s infinite;
-}
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-.head .title { font-size: 12px; font-weight: 700; flex: 1; letter-spacing: 0.5px; }
-.head .title small { color: var(--dim); font-weight: 400; margin-left: 4px; font-size: 10px; }
-
-/* 内容 */
-.body { padding: 10px 12px; }
-.row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.head .dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; }
+.head .dot.off { background: #f87171; }
+.head .title { font-size: 11px; font-weight: 700; flex: 1; }
+.body { padding: 8px 10px; }
+.row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .row:last-child { margin-bottom: 0; }
-
-/* 精灵行 */
-.pet-side { font-size: 10px; font-weight: 700; color: var(--dim); min-width: 28px; }
-.pet-name { font-size: 13px; font-weight: 700; flex: 1; }
-.pet-name.atk { color: var(--err); }
-.pet-name.def { color: var(--cyan); }
-
-/* 属性标签 */
-.type-tag {
-    font-size: 10px; padding: 1px 6px; border-radius: 3px;
-    font-weight: 600; color: #fff;
+.label { font-size: 9px; color: #8b93a7; min-width: 36px; text-align: right; }
+.val { font-size: 11px; font-weight: 600; }
+.val.green { color: #4ade80; }
+.val.red { color: #f87171; }
+.val.cyan { color: #22d3ee; }
+.hp-bar { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 2px; }
+.hp-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+.skill-row { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+.skill-tag {
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
 }
-.type-tag.火 { background: #F08030; }
-.type-tag.水 { background: #6890F0; }
-.type-tag.草 { background: #78C850; color: #000; }
-.type-tag.电 { background: #F8D030; color: #000; }
-.type-tag.冰 { background: #98D8D8; color: #000; }
-.type-tag.虫 { background: #A8B820; color: #000; }
-.type-tag.翼 { background: #A890F0; }
-.type-tag.地 { background: #E0C068; color: #000; }
-.type-tag.萌 { background: #FF6699; }
-.type-tag.武 { background: #C03028; }
-.type-tag.毒 { background: #A040A0; }
-.type-tag.龙 { background: #7038F8; }
-.type-tag.幽 { background: #705898; }
-.type-tag.恶 { background: #705848; }
-.type-tag.光 { background: #F8D030; color: #000; }
-.type-tag.普通 { background: #A8A878; color: #000; }
-.type-tag.机械 { background: #A0A0A0; color: #000; }
-.type-tag.幻 { background: #B8A0F0; }
-
-/* 伤害区 */
-.damage-section {
-    margin-top: 8px; padding-top: 8px;
-    border-top: 1px solid var(--border);
-}
-.damage-val {
-    font-size: 28px; font-weight: 800; text-align: center;
-    background: linear-gradient(135deg, var(--accent), var(--cyan));
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-.damage-label { font-size: 10px; color: var(--dim); text-align: center; margin-top: -2px; }
-.damage-meta { display: flex; justify-content: center; gap: 12px; font-size: 10px; color: var(--dim); margin-top: 4px; }
-.damage-meta b { color: var(--text); }
-
-/* HP 条 */
-.hp-bar { margin-top: 6px; }
-.hp-bar-label { font-size: 10px; color: var(--dim); margin-bottom: 2px; }
-.hp-bar-track { height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
-.hp-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
-
-/* 克制标签 */
-.rel-tag {
-    display: inline-block; font-size: 10px; padding: 2px 8px;
-    border-radius: 10px; font-weight: 700; margin-top: 4px;
-    text-align: center; width: 100%;
-}
-.rel-tag.strong { background: rgba(248, 113, 113, 0.2); color: var(--err); border: 1px solid rgba(248, 113, 113, 0.3); }
-.rel-tag.resist { background: rgba(74, 222, 128, 0.15); color: var(--ok); border: 1px solid rgba(74, 222, 128, 0.2); }
-.rel-tag.normal { background: rgba(255,255,255,0.05); color: var(--dim); border: 1px solid var(--border); }
-
-/* 速度标签 */
-.speed-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
-.speed-tag.speed-win { color: #4ade80; background: rgba(74,222,128,0.15); }
-.speed-tag.speed-lose { color: #f87171; background: rgba(248,113,113,0.15); }
-.speed-tag.speed-tie { color: #fbbf24; background: rgba(251,191,36,0.15); }
-
-/* 空状态 */
-.empty { text-align: center; padding: 20px 0; color: var(--dimmer); font-size: 11px; }
-.empty .icon { font-size: 24px; margin-bottom: 6px; }
+.empty { text-align: center; padding: 16px 0; color: #555; font-size: 10px; }
 </style>
 </head>
 <body>
 <div class="card">
     <div class="head">
-        <div class="dot"></div>
-        <div class="title">PVP 对战<small>伤害预估</small></div>
+        <div class="dot" id="statusDot"></div>
+        <div class="title">PVP 实时</div>
     </div>
     <div class="body" id="body">
-        <div class="empty">
-            <div class="icon">⚔️</div>
-            <div>在 PVP 对战助手页面<br>选择精灵后可实时显示</div>
-        </div>
+        <div class="empty">等待识别中…</div>
     </div>
 </div>
-
 <script>
 function updatePVPData(data) {
-    if (!data) return;
-    const body = document.getElementById('body');
-    const mul = data.attrMul || 1;
-    const dmg = data.damage || 0;
-    const hp = data.defHp || 100;
-    const pct = Math.min(100, (dmg / (hp || 1)) * 100);
-    const barColor = pct >= 100 ? '#f87171' : pct >= 50 ? '#fbbf24' : '#4ade80';
+    if (!data || !data.in_battle) {
+        document.getElementById('statusDot').className = 'dot off';
+        document.getElementById('body').innerHTML = '<div class="empty">等待战斗中…</div>';
+        return;
+    }
+    document.getElementById('statusDot').className = 'dot';
+    const p = data.player || {}, e = data.enemy || {};
+    const hpPct = e.hp_pct || e.hp_color || 0;
+    const barColor = hpPct > 0.5 ? '#4ade80' : hpPct > 0.2 ? '#fbbf24' : '#f87171';
 
-    let relClass = 'normal';
-    let relText = '普通';
-    if (mul >= 3) { relClass = 'strong'; relText = '双重克制'; }
-    else if (mul >= 2) { relClass = 'strong'; relText = '克制'; }
-    else if (mul <= 0.3) { relClass = 'resist'; relText = '双重抵抗'; }
-    else if (mul <= 0.5) { relClass = 'resist'; relText = '被抵抗'; }
-
-    const atkTypes = (data.atkTypes || []).map(t =>
-        `<span class="type-tag ${t}">${t}</span>`).join('');
-
-    const defTypes = (data.defTypes || []).map(t =>
-        `<span class="type-tag ${t}">${t}</span>`).join('');
-
-    body.innerHTML = `
+    document.getElementById('body').innerHTML = `
         <div class="row">
-            <span class="pet-side">攻</span>
-            <span class="pet-name atk">${data.atkName || '?'}</span>
-            ${atkTypes}
+            <span class="label">我方</span>
+            <span class="val cyan">${p.name || '?'}</span>
+            <span class="label" style="min-width:auto">HP</span>
+            <span class="val green">${p.hp || '?'}</span>
         </div>
         <div class="row">
-            <span class="pet-side">防</span>
-            <span class="pet-name def">${data.defName || '?'}</span>
-            ${defTypes}
+            <span class="label">敌方</span>
+            <span class="val red">${e.name || '?'}</span>
+            <span class="label" style="min-width:auto">HP</span>
+            <span class="val" style="color:${barColor}">${Math.round(hpPct*100)}%</span>
         </div>
-        <div class="row">
-            <span class="pet-side">技</span>
-            <span style="color:var(--text);font-size:12px">${data.skillName || '?'}</span>
+        <div class="hp-bar">
+            <div class="hp-fill" style="width:${Math.round(hpPct*100)}%; background:${barColor}"></div>
         </div>
-        <div class="row">
-            <span class="pet-side">速</span>
-            <span style="color:var(--text);font-size:11px">我方${data.mySpeed||0} vs 敌方${data.enemySpeed||0}</span>
-            <span class="speed-tag ${(data.speedResult||'').includes('我方')?'speed-win':(data.speedResult||'').includes('敌方')?'speed-lose':'speed-tie'}">${data.speedResult||'?'}</span>
+        <div class="row" style="margin-top:6px">
+            <span class="label">能量</span>
+            <span class="val">${p.energy || '?'}</span>
         </div>
-        <div class="damage-section">
-            <div class="damage-val">${Math.round(dmg)}</div>
-            <div class="damage-label">预估伤害</div>
-            <div class="damage-meta">
-                <span>攻: <b>${data.atkUsed || 0}</b></span>
-                <span>倍率: <b>${mul}x</b></span>
-            </div>
-            <div class="hp-bar">
-                <div class="hp-bar-label">生命 ${hp} | ${pct.toFixed(0)}%</div>
-                <div class="hp-bar-track">
-                    <div class="hp-bar-fill" style="width:${pct}%; background:${barColor}"></div>
-                </div>
-            </div>
-            <div class="rel-tag ${relClass}">${relText} (${mul}x)</div>
+        <div class="skill-row">
+            ${(p.skills||[]).filter(Boolean).map(s => `<span class="skill-tag">${s}</span>`).join('')}
         </div>
     `;
 }

@@ -256,3 +256,21 @@ async function updateFloatIfVisible(calcResult){
         if(!r.success){/* 加载中静默忽略 */}
     }catch(e){/* 悬浮窗未就绪，静默 */}
 }
+
+// ---- PVP 实时识别引擎 ----
+let pvpEngineRunning = false;
+
+async function togglePVPEngine() {
+    const btn = document.getElementById('btnPVPEngine');
+    btn.disabled = true;
+    try {
+        if (pvpEngineRunning) {
+            const r = await pywebview.api.pvp_engine_stop();
+            if (r.success) { pvpEngineRunning = false; btn.textContent = '▶ 启动识别'; btn.className = 'btn btn-primary'; addLog('PVP 引擎已停止', 'info'); }
+        } else {
+            const r = await pywebview.api.pvp_engine_start();
+            if (r.success) { pvpEngineRunning = true; btn.textContent = '⏹ 停止识别'; btn.className = 'btn btn-danger'; addLog('PVP 引擎已启动(每500ms识别一帧)', 'success'); }
+        }
+    } catch (e) { addLog('PVP 引擎操作异常: ' + e.message, 'error'); }
+    finally { btn.disabled = false; }
+}
