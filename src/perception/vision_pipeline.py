@@ -79,8 +79,8 @@ class VisionPipeline:
         self.name_reader = OcrNameReader(rois["enemy_name"])
         self.element_matcher = ElementMatcher(rois["enemy_elements"])
         self.battle_detector = BattleDetector(
-            rois["battle_left_indicator"],
-            rois["battle_right_indicator"],
+            rois.get("battle_left_indicator"),
+            rois.get("battle_right_indicator"),
         )
         self.enemy_hp_reader = OcrNumberReader(rois["enemy_hp"], percent=True)
         # 锚点扫描较贵(全区域OCR),结果缓存、每3帧重算一次

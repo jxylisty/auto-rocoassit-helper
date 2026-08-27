@@ -20,15 +20,15 @@ class BattleDetector:
 
     def __init__(
         self,
-        left_roi: ROI,
-        right_roi: ROI,
+        left_roi: ROI | None = None,
+        right_roi: ROI | None = None,
         threshold: float = 0.72,
     ) -> None:
         self.left_roi = left_roi
         self.right_roi = right_roi
         self.threshold = threshold
-        self.left_templates = load_grayscale_templates(ASSET_ROOT / "left")
-        self.right_templates = load_grayscale_templates(ASSET_ROOT / "right")
+        self.left_templates = load_grayscale_templates(ASSET_ROOT / "left") if left_roi else {}
+        self.right_templates = load_grayscale_templates(ASSET_ROOT / "right") if right_roi else {}
 
     def detect(self, frame: np.ndarray) -> dict[str, object]:
         left_score = self._best_score(frame, self.left_roi, self.left_templates)
@@ -56,8 +56,8 @@ class BattleDetector:
         }
 
     @staticmethod
-    def _best_score(frame: np.ndarray, roi: ROI, templates: dict[str, np.ndarray]) -> float:
-        if not templates:
+    def _best_score(frame: np.ndarray, roi: ROI | None, templates: dict[str, np.ndarray]) -> float:
+        if not templates or roi is None:
             return 0.0
         cropped = roi.crop(frame)
         gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)

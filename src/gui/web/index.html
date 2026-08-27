@@ -252,46 +252,56 @@
         <section class="page" id="page-vision">
             <div class="page-head">
                 <h2>视觉调试台</h2>
-                <p>窗口截图预览 · 模板匹配识别 · ROI 叠加显示（仅读屏,不做键鼠操作）</p>
+                <p>ROI 标注工坊 · 拖拽框选 · 模板管理 · 识别结果预览</p>
             </div>
 
             <div class="vision-toolbar">
                 <button class="btn btn-primary" id="btnLive" onclick="toggleLive()">▶ 实时识别</button>
                 <button class="btn" id="btnVCap" onclick="visionCapture()">📸 单次截图</button>
                 <button class="btn" id="btnVAna" onclick="visionAnalyze()">🔍 截图并识别</button>
-                <button class="btn" onclick="visionSave()">💾 保存截图</button>
-                <label class="chk"><input type="checkbox" id="roiToggle" onchange="renderRoiOverlay()"> ROI 框</label>
-                <button class="btn" id="btnCalib" onclick="toggleCalib()">🎯 校准</button>
+                <label class="chk"><input type="checkbox" id="roiToggle" onchange="renderRoiOverlay()" checked> ROI 框</label>
+                <button class="btn" id="btnRoiAdd" onclick="roiAddNew()">➕ 新建</button>
+                <button class="btn" id="btnOcr" onclick="visionOcrPreview()" style="color:#a78bfa">🔤 OCR</button>
                 <span class="vision-status" id="visionStatus">未截图</span>
             </div>
 
             <div class="vision-tmpl-bar">
-                <span class="calib-tip">📐 ROI模板:</span>
+                <span class="calib-tip">📐 模板:</span>
                 <select id="tmplSelect" onchange="tmplLoad()" style="font-size:11px;padding:2px 4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);color:var(--text);border-radius:3px">
                     <option value="">-- 选择模板 --</option>
                 </select>
+                <input id="tmplNameInput" placeholder="模板名称" style="font-size:11px;padding:2px 6px;width:120px;background:rgba(0,0,0,0.3);border:1px solid var(--border);color:var(--text);border-radius:3px">
+                <button class="btn" onclick="tmplNewBlank()" style="font-size:10px;padding:2px 6px;color:#4ade80" title="清空画布，新建空白模板">➕ 新建空白</button>
                 <button class="btn" onclick="tmplSaveDialog()" style="font-size:10px;padding:2px 6px">💾 保存</button>
                 <button class="btn" onclick="tmplExport()" style="font-size:10px;padding:2px 6px">📤 导出</button>
                 <button class="btn" onclick="tmplImport()" style="font-size:10px;padding:2px 6px">📥 导入</button>
-                <button class="btn" onclick="tmplClear()" style="font-size:10px;padding:2px 6px" title="从 currentRoi 中移除模板ROI">↩ 撤销</button>
+                <button class="btn" onclick="tmplDelete()" style="font-size:10px;padding:2px 6px;color:#f87171" title="删除当前模板文件">🗑</button>
                 <span class="calib-sep">|</span>
                 <span class="calib-tip">筛选:</span>
                 <span id="tagFilters"></span>
             </div>
 
-            <div class="calib-bar" id="calibBar" style="display:none">
-                <span class="calib-tip">校准模式: 选目标 → 截图上拖框</span>
-                <div id="calibChips"></div>
-                <button class="btn btn-primary" id="btnCalibSave" onclick="calibSave()" style="display:none">💾 保存校准</button>
+            <div class="shot-toolbar">
+                <span class="shot-zoom-label">截图缩放:</span>
+                <button class="btn" onclick="shotZoom(-0.25)">−</button>
+                <span id="shotZoomVal">100%</span>
+                <button class="btn" onclick="shotZoom(0.25)">+</button>
+                <button class="btn" onclick="shotZoom(1.0, true)">适应</button>
+                <button class="btn" onclick="shotZoom(2.0, true)">1:1</button>
             </div>
 
             <div class="vision-body">
-                <div class="shot-panel">
-                    <div class="shot-empty" id="shotEmpty">点击「截图预览」获取游戏画面</div>
+                <div class="shot-panel" id="shotPanel">
+                    <div class="shot-empty" id="shotEmpty">点击「📸 单次截图」获取游戏画面</div>
                     <div class="shot-view" id="shotView" style="display:none">
-                        <img id="shotImg" alt="游戏截图">
-                        <div class="roi-layer" id="roiLayer"></div>
+                        <img id="shotImg" alt="游戏截图" draggable="false">
+                        <svg class="roi-svg" id="roiSvg"></svg>
                     </div>
+                </div>
+
+                <div class="roi-manager" id="roiManager">
+                    <div class="rm-header">📋 ROI 管理 <span class="rm-count" id="rmCount">0</span></div>
+                    <div class="rm-list" id="rmList"></div>
                 </div>
 
                 <div class="result-panel">
@@ -302,19 +312,12 @@
                         <div class="score-row"><span>右侧图标</span><div class="bar"><i id="scoreR"></i></div><b id="scoreRv">0.00</b></div>
                         <div class="rp-note" id="battleNote"></div>
                     </div>
-
                     <div class="rp-block">
                         <div class="rp-title">识别结果</div>
                         <div class="rec-row"><span>精灵名称</span><b id="recName">—</b></div>
-                        <div class="rec-row"><span>属性(可双属性)</span><b id="recElements">—</b></div>
+                        <div class="rec-row"><span>属性</span><b id="recElements">—</b></div>
                         <div class="rec-row"><span>敌方血量</span><b id="recHp">—</b></div>
-                        <div class="rec-row"><span>识别原文(调试)</span><b id="recRaw" style="font-size:11px;font-weight:400;color:#9aa3b8">—</b></div>
                     </div>
-
-                    <details class="raw-json">
-                        <summary>原始 JSON</summary>
-                        <pre id="rawJson">—</pre>
-                    </details>
                 </div>
             </div>
         </section>

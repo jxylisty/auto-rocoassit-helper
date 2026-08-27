@@ -106,14 +106,16 @@ class AppBridge:
         # 视觉调试状态
         self._last_shot_path: Path | None = None  # 最近一次保存的截图
         self._last_frame = None                    # 最近一次识别用的帧(numpy)
+        self._paddleocr = None                     # PaddleOCR 实例（懒加载）
 
         # 实时识别
         self._live_running = False
         self._live_thread = None
-        self._live_interval = 0.2                   # 秒 (BitBlt ~30ms + 识别 ~100ms)
+        self._live_interval = 0.15                  # 秒
         self._live_pipeline = None
         self._live_black_warned = False
         self._live_last_frame = None               # 帧差检测缓存
+        self._fast_cap = None                      # FastCapture 单例
 
         # 战斗引擎
         from src.states.battle_engine import BattleEngine
@@ -249,6 +251,10 @@ class AppBridge:
     def shutdown(self):
         self._stop_event.set()
         self._live_running = False
+        # 关闭抓图线程和 FastCapture
+        if self._fast_cap:
+            self._fast_cap.close()
+            self._fast_cap = None
         try:
             self.engine.stop("窗口关闭")
         except Exception:
@@ -415,46 +421,27 @@ class AppBridge:
                 "width": info.width, "height": info.height}
 
     def _capture_frame(self):
-        """截图一帧游戏画面,返回 (info, frame)
-
-        游戏窗口被遮挡或失焦时可能停止渲染导致黑图;
-        首次失败会自动把游戏切到前台重试一次。
-        """
-        from src.capture.window_capture import WindowCapture
+        """截图一帧游戏画面(mss,禁用BitBlt)"""
+        import cv2, numpy as np, mss
         info = self._find_game_window()
         if not info:
             raise RuntimeError("未找到「洛克王国」窗口,请确认游戏已启动")
-        if self._console_overlaps_game(info.rect):
-            raise RuntimeError("控制台窗口正遮挡游戏画面,请把控制台拖到游戏旁边(或缩小)后再截图")
-
-        capture = WindowCapture(info.hwnd)
-        last_error: Exception | None = None
-        for attempt in range(2):
-            try:
-                frame = capture.capture()
-                if frame is not None and frame.size > 0:
-                    if attempt == 1:
-                        self._enqueue_log("已自动将游戏切到前台完成截图", "info")
-                    return info, frame
-            except RuntimeError as e:
-                last_error = e
-            if attempt == 0:
-                # 黑图多半是游戏失焦/被遮挡停止渲染,切前台后重试
-                try:
-                    capture.bring_to_front()
-                    time.sleep(0.35)
-                except Exception:
-                    pass
-
-        raise last_error or RuntimeError("截图失败: 未知原因")
+        left, top, right, bottom = info.rect
+        if right - left < 50 or bottom - top < 50:
+            raise RuntimeError("游戏窗口过小或最小化")
+        with mss.mss() as sct:
+            monitor = {"left": left, "top": top, "width": right - left, "height": bottom - top}
+            img = sct.grab(monitor)
+            frame = cv2.cvtColor(np.array(img), cv2.COLOR_BGRA2BGR)
+        if frame is None or frame.size == 0:
+            raise RuntimeError("截图失败")
+        return info, frame
 
     @staticmethod
-    def _frame_to_jpeg_dataurl(frame) -> str:
-        import cv2
-        ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-        if not ok:
-            raise RuntimeError("图像编码失败")
-        return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
+    def _frame_to_jpeg_dataurl(frame, max_width: int = None) -> str:
+        """编码 JPEG 为 base64 dataurl; 实时识别用 max_width=960 压缩,单次截图用原尺寸"""
+        from src.capture.fast_capture import FastCapture
+        return FastCapture.encode_jpeg(frame, max_width=max_width, quality=75)
 
     def vision_capture(self) -> dict:
         """截取游戏画面预览"""
@@ -465,7 +452,12 @@ class AppBridge:
             return {"success": False, "message": str(e)}
         self._last_frame = frame
         self._enqueue_log(f"已截图 {info.width}x{info.height}（{info.title}）", "success")
-        return {"success": True, "image": self._frame_to_jpeg_dataurl(frame),
+        try:
+            image = self._frame_to_jpeg_dataurl(frame)
+        except Exception as e:
+            self._enqueue_log(f"图像编码失败: {e}", "error")
+            return {"success": False, "message": f"编码失败: {e}"}
+        return {"success": True, "image": image,
                 "width": info.width, "height": info.height, "title": info.title}
 
     def vision_analyze(self) -> dict:
@@ -495,9 +487,148 @@ class AppBridge:
         self._enqueue_log(
             f"识别完成: 战斗={battle.get('in_battle')} 敌方血量={result.get('enemy_hp')}% "
             f"精灵={result.get('enemy_name')} 属性={result.get('enemy_elements')}", "info")
-        return {"success": True, "image": self._frame_to_jpeg_dataurl(frame),
+        return {"success": True, "image": self._frame_to_jpeg_dataurl(frame),  # 单次截图用原尺寸
                 "width": info.width, "height": info.height,
                 "result": result, "roi": roi}
+
+    def _get_paddleocr(self):
+        if self._paddleocr is not None:
+            return self._paddleocr
+        # 修复 Windows 上 libifcoremd.dll MKL 线程冲突崩溃
+        import os
+        os.environ.setdefault('OMP_NUM_THREADS', '1')
+        os.environ.setdefault('MKL_NUM_THREADS', '1')
+        os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
+        from paddleocr import PaddleOCR
+        try:
+            self._paddleocr = PaddleOCR(
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+                lang='ch',
+                ocr_version='PP-OCRv4',
+                text_det_limit_side_len=64,
+                text_det_thresh=0.1,
+                text_det_box_thresh=0.2,
+                text_det_unclip_ratio=1.8,
+            )
+        except Exception:
+            # v4 不可用时回退到默认 server 模型
+            self._paddleocr = PaddleOCR(
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+                lang='ch',
+                text_det_limit_side_len=64,
+                text_det_thresh=0.1,
+                text_det_box_thresh=0.2,
+                text_det_unclip_ratio=1.8,
+            )
+        return self._paddleocr
+
+    def vision_ocr_preview(self, rois: dict = None) -> dict:
+        """PaddleOCR 批量识别：所有 ROI 拼成一张图，一次 OCR 调用"""
+        import cv2, numpy as np
+        from src.perception.ocr_reader import OcrNameReader
+
+        if self._last_frame is None:
+            try:
+                _, self._last_frame = self._capture_frame()
+            except Exception as e:
+                return {"success": False, "message": str(e)}
+        frame = self._last_frame
+        fh, fw = frame.shape[:2]
+
+        roi_data = rois or {}
+        if not roi_data:
+            try:
+                roi_data = json.loads(DEFAULT_ROI_CONFIG.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        try:
+            ocr = self._get_paddleocr()
+        except Exception as e:
+            return {"success": False, "message": f"PaddleOCR 初始化失败: {e}"}
+
+        pet_list = OcrNameReader._load_pets() if hasattr(OcrNameReader, '_load_pets') else []
+
+        # --- 第一阶段：收集所有 ROI 裁剪，拼成一张合成图 ---
+        crops = []  # [(roi_id, crop, y_offset, label, is_number)]
+        roi_order = []
+        total_h = 0
+        for roi_id, box in roi_data.items():
+            if not box or not box.get("width"):
+                continue
+            x = int(box["left"] * fw)
+            y = int(box["top"] * fh)
+            w = int(box["width"] * fw)
+            h = int(box["height"] * fh)
+            if w <= 0 or h <= 0:
+                continue
+            crop = frame[y:y+h, x:x+w]
+            pad = max(10, min(h, w) // 2)
+            padded = cv2.copyMakeBorder(crop, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+            ph, pw = padded.shape[:2]
+            is_number = any(kw in roi_id.lower() for kw in ("hp", "血", "energy", "能量", "power"))
+            label = roi_data[roi_id].get("label", roi_id) if isinstance(roi_data[roi_id], dict) else roi_id
+            roi_order.append(roi_id)
+            crops.append((roi_id, padded, total_h, total_h + ph, label, is_number))
+            total_h += ph + 4  # 4px 分隔
+
+        if not crops:
+            return {"success": True, "results": {}, "roi": roi_data}
+
+        # 创建合成图
+        max_w = max(c[1].shape[1] for c in crops)
+        composite = np.zeros((total_h, max_w, 3), dtype=np.uint8)
+        for roi_id, crop_img, y0, y1, _, _ in crops:
+            composite[y0:y0 + crop_img.shape[0], :crop_img.shape[1]] = crop_img
+
+        # --- 第二阶段：一次 OCR 识别整张合成图 ---
+        try:
+            res = ocr.predict(composite)
+            all_texts = res[0].get('rec_texts', []) if res and res[0] else []
+            all_scores = res[0].get('rec_scores', []) if res and res[0] else []
+            all_boxes = res[0].get('rec_boxes', []) if res and res[0] else []
+        except Exception:
+            all_texts, all_scores, all_boxes = [], [], []
+
+        # --- 第三阶段：按 y 位置映射回各 ROI ---
+        results = {}
+        for roi_id, _, y0, y1, label, is_number in crops:
+            # 收集落在该 ROI 范围内的识别结果
+            roi_texts = []
+            roi_scores = []
+            for ti, (text, score) in enumerate(zip(all_texts, all_scores)):
+                if ti < len(all_boxes) and len(all_boxes[ti]) >= 1:
+                    cy = (all_boxes[ti][0][1] + all_boxes[ti][-1][1]) / 2
+                    if y0 <= cy <= y1:
+                        roi_texts.append(text)
+                        roi_scores.append(score)
+
+            joined = ''.join(roi_texts)
+            conf = round(sum(roi_scores) / len(roi_scores), 2) if roi_scores else 0.0
+
+            if is_number:
+                joined = ''.join(ch for ch in joined if ch.isdigit() or ch in '%/')
+
+            corrected = False
+            if not is_number and joined and pet_list and hasattr(OcrNameReader, '_correct_with_pet_list'):
+                cleaned = OcrNameReader._clean(joined) if hasattr(OcrNameReader, '_clean') else joined
+                if cleaned:
+                    matched = OcrNameReader._correct_with_pet_list(cleaned)
+                    if matched and matched[0]:
+                        joined = matched[0]
+                        corrected = True
+
+            results[roi_id] = {
+                "text": joined or "?", "conf": conf,
+                "raw": joined, "corrected": corrected,
+                "label": label, "is_number": is_number,
+            }
+
+        return {"success": True, "results": results, "roi": roi_data}
 
     # ========================================
     # 实时识别(调试台开关,循环: 截屏可见区域 → 识别 → 推送前端)
@@ -518,6 +649,10 @@ class AppBridge:
     def vision_live_stop(self) -> dict:
         self._live_running = False
         self._live_last_frame = None
+        # 停止后台抓图线程
+        if self._fast_cap:
+            self._fast_cap.stop_worker()
+            self._enqueue_log("后台抓图线程已停止", "info")
         self._enqueue_log("实时识别已停止", "warning")
         return {"success": True}
 
@@ -954,19 +1089,26 @@ class AppBridge:
 
         return {"success": True, "image": f"data:image/webp;base64,{b64}", "filename": img_path.name}
 
+    def _get_fast_capture(self):
+        """获取/创建 FastCapture 单例"""
+        if self._fast_cap is None:
+            from src.capture.fast_capture import FastCapture
+            self._fast_cap = FastCapture()
+        return self._fast_cap
+
     def _live_capture_frame(self):
-        """mss 屏幕级截屏（游戏可后台，~15ms）"""
-        import cv2, numpy as np, mss
+        """通过 FastCapture 单例截屏（mss, ~15ms）"""
+        import cv2, numpy as np
         info = self._find_game_window()
         if not info:
             raise RuntimeError("未找到「洛克王国」窗口")
         left, top, right, bottom = info.rect
         if right - left < 50 or bottom - top < 50:
             raise RuntimeError("游戏窗口过小或最小化")
-        with mss.mss() as sct:
-            monitor = {"left": left, "top": top, "width": right - left, "height": bottom - top}
-            img = sct.grab(monitor)
-            frame = cv2.cvtColor(np.array(img), cv2.COLOR_BGRA2BGR)
+        fc = self._get_fast_capture()
+        frame = fc.capture(rect=(left, top, right - left, bottom - top))
+        if frame is None or frame.size == 0:
+            raise RuntimeError("截图失败")
         if float(frame.std()) < 3.0:
             raise RuntimeError("画面全黑: 游戏未在前台渲染,请点一下游戏窗口")
         return info, frame
@@ -981,27 +1123,59 @@ class AppBridge:
         except Exception:
             roi = {}
 
+        # 启动后台抓图线程
+        info = self._find_game_window()
+        if info:
+            left, top, right, bottom = info.rect
+            fc = self._get_fast_capture()
+            fc.start_worker((left, top, right - left, bottom - top), fps=30)
+            self._enqueue_log("后台抓图线程已启动 (30 FPS)", "info")
+
         while self._live_running and not self._stop_event.is_set():
             try:
-                info, frame = self._live_capture_frame()
+                # 从后台线程取最新帧（丢帧机制，无堆积）
+                fc = self._get_fast_capture()
+                frame = fc.get_latest_frame()
+                if frame is None:
+                    # 后台线程未就绪，同步截一次
+                    info, frame = self._live_capture_frame()
+                else:
+                    info = self._find_game_window()
+                    if not info:
+                        raise RuntimeError("未找到「洛克王国」窗口")
+                if frame is None:
+                    self._stop_event.wait(self._live_interval)
+                    continue
                 self._live_black_warned = False
 
                 # 帧差检测：像素均值差 < 5 则跳过识别
-                if self._live_last_frame is not None:
-                    diff = float(np.abs(
-                        frame.astype(np.int16)[::4, ::4] -
-                        self._live_last_frame.astype(np.int16)[::4, ::4]
-                    ).mean())
-                    if diff < 5.0:
-                        self._stop_event.wait(self._live_interval)
-                        continue
-                self._live_last_frame = frame.copy()
+                try:
+                    if self._live_last_frame is not None and frame is not None:
+                        diff = float(np.abs(
+                            frame.astype(np.int16)[::4, ::4] -
+                            self._live_last_frame.astype(np.int16)[::4, ::4]
+                        ).mean())
+                        if diff < 5.0:
+                            self._stop_event.wait(self._live_interval)
+                            continue
+                except Exception:
+                    pass  # 帧差失败不阻塞，继续识别
+                if frame is not None:
+                    self._live_last_frame = frame.copy()
 
+                if frame is None:
+                    self._stop_event.wait(self._live_interval)
+                    continue
                 if self._live_pipeline is None:
                     self._live_pipeline = VisionPipeline()
-                result = self._live_pipeline.analyze(frame).to_dict()
+                try:
+                    result = self._live_pipeline.analyze(frame).to_dict()
+                except Exception as e:
+                    self._enqueue_log(f"识别异常: {e}", "warning")
+                    self._stop_event.wait(self._live_interval)
+                    continue
                 payload = {
-                    "image": self._frame_to_jpeg_dataurl(frame),
+                    "image": self._frame_to_jpeg_dataurl(frame, max_width=960),  # 实时预览压缩
                     "width": info.width, "height": info.height,
                     "result": result, "roi": roi,
                 }
@@ -1253,6 +1427,30 @@ class AppBridge:
         from src.pvp.roi_template import delete_template
         return delete_template(name)
 
+    def roi_template_set_active(self, name: str, mode: str = "pvp") -> dict:
+        from src.pvp.roi_template import set_active_template
+        return set_active_template(name, mode)
+
+    def roi_export_crop(self, rect: list, save_name: str = None) -> dict:
+        """根据像素区域 [x,y,w,h] 裁剪当前帧保存为 PNG"""
+        from pathlib import Path
+        import cv2
+        if self._last_frame is None:
+            return {"success": False, "message": "请先截图或启动实时识别"}
+        x, y, w, h = map(int, rect)
+        hh, ww = self._last_frame.shape[:2]
+        x = max(0, min(x, ww - 1)); y = max(0, min(y, hh - 1))
+        w = min(w, ww - x); h = min(h, hh - y)
+        if w <= 0 or h <= 0:
+            return {"success": False, "message": "裁剪区域无效"}
+        crop = self._last_frame[y:y + h, x:x + w]
+        save_name = save_name or f"roi_crop_{x}_{y}_{w}x{h}.png"
+        out_dir = Path(__file__).resolve().parents[2] / "data" / "vision" / "exports"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / save_name
+        cv2.imwrite(str(out_path), crop)
+        return {"success": True, "path": str(out_path), "size": [w, h]}
+
     def mode_get(self) -> dict:
         return {"success": True, "mode": self.mode_ctrl.current_mode,
                 "label": self.mode_ctrl.mode_label}
@@ -1340,6 +1538,9 @@ class Api:
     def vision_analyze(self):
         return self._bridge.vision_analyze()
 
+    def vision_ocr_preview(self, rois=None):
+        return self._bridge.vision_ocr_preview(rois)
+
     def vision_save_shot(self):
         return self._bridge.vision_save_shot()
 
@@ -1396,6 +1597,12 @@ class Api:
 
     def roi_template_delete(self, name):
         return self._bridge.roi_template_delete(name)
+
+    def roi_template_set_active(self, name, mode="pvp"):
+        return self._bridge.roi_template_set_active(name, mode)
+
+    def roi_export_crop(self, rect, save_name=None):
+        return self._bridge.roi_export_crop(rect, save_name)
 
     def mode_get(self):
         return self._bridge.mode_get()

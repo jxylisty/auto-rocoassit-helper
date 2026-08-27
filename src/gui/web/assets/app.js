@@ -22,8 +22,6 @@ const ROI_COLORS = {
     enemy_name: '#f87171',
     enemy_elements: '#fbbf24',
     enemy_hp: '#4ade80',
-    battle_left_indicator: '#a78bfa',
-    battle_right_indicator: '#f472b6',
     // PVP 对战
     self_avatar: '#6366f1',
     self_name: '#818cf8',
@@ -38,8 +36,6 @@ const ROI_LABELS = {
     enemy_name: '精灵名称',
     enemy_elements: '属性',
     enemy_hp: '敌方血量',
-    battle_left_indicator: '战斗·左',
-    battle_right_indicator: '战斗·右',
     // PVP 对战
     self_avatar: '我方头像',
     self_name: '我方名称',
@@ -419,122 +415,337 @@ async function toggleOnTop() {
 }
 
 // ========================================
-// ROI 校准模式(截图上拖框 → 改坐标 → 保存 roi_config.json)
+// ========================================
+// SVG ROI 交互式标注工坊 (替代旧校准模式)
 // ========================================
 
-let calibMode = false;
-let calibTarget = 'enemy_hp';
-let calibDirty = false;
-let calibDrag = null;  // {x0,y0,x1,y1} 归一化
+let roiSelected = null;       // 当前选中的 ROI id
+let roiDragging = null;       // 当前拖拽状态: {type:'move'|'resize', id, handle, sx, sy, ...}
+let roiDragCreate = null;     // 拖框创建模式: ROI 名称 (非 null 时进入创建)
+let roiGhost = null;          // 拖拽创建中的 ghost rect
 
-function calibChipRender() {
-    const chips = Object.entries(ROI_LABELS).map(([key, label]) =>
-        `<button class="calib-chip ${key === calibTarget ? 'active' : ''}" data-roi="${key}"
-                 style="--c:${ROI_COLORS[key] || '#6366f1'}" onclick="calibPick('${key}')">${label}</button>`);
-    $('calibChips').innerHTML = chips.join('');
+// 从 roi_config.json 加载的初始 ROI
+function roiLoadConfig() {
+    if (!currentRoi) return;
+    Object.keys(currentRoi || {}).forEach(id => {
+        if (!ROI_COLORS[id]) {
+            ROI_COLORS[id] = '#6366f1';
+            ROI_LABELS[id] = id;
+        }
+    });
+    renderRoiManager();
+    renderRoiOverlay();
 }
 
-function calibPick(key) {
-    calibTarget = key;
-    calibChipRender();
+function roiAddNew() {
+    const name = prompt('ROI 名称 (英文ID):', 'roi_' + (Object.keys(currentRoi || {}).length + 1));
+    if (!name) return;
+    if (currentRoi[name]) { showToast('ROI 已存在: ' + name, 'warning'); return; }
+    // 进入拖框创建模式
+    roiDragCreate = name;
+    const svg = $('roiSvg');
+    if (svg) svg.classList.add('selecting');
+    $('shotView').style.cursor = 'crosshair';
+    setVisionStatus(`拖框创建「${name}」: 在截图上按住鼠标拖拽`);
 }
 
-function toggleCalib() {
-    calibMode = !calibMode;
-    $('btnCalib').classList.toggle('btn-danger', calibMode);
-    $('calibBar').style.display = calibMode ? 'flex' : 'none';
-    $('btnCalibSave').style.display = calibMode ? '' : 'none';
-    const view = $('shotView');
-    view.classList.toggle('calib', calibMode);
-    if (calibMode) {
-        if (!currentRoi) { currentRoi = {}; }
-        $('roiToggle').checked = true;
-        calibChipRender();
-        renderRoiOverlay();
-        setVisionStatus('校准模式: 选目标区域 → 截图上拖框');
-        if ($('shotView').style.display === 'none') addLog('请先截图再校准', 'warning');
-    } else {
-        setVisionStatus('校准模式已退出');
-    }
+function roiAddNewAt(name, x0, y0, x1, y1) {
+    const left = Math.min(x0, x1), top = Math.min(y0, y1);
+    const width = Math.abs(x1 - x0), height = Math.abs(y1 - y0);
+    if (width < 0.005 || height < 0.005) { showToast('框太小，请重新拖拽', 'warning'); return; }
+    currentRoi[name] = { left: +left.toFixed(4), top: +top.toFixed(4), width: +width.toFixed(4), height: +height.toFixed(4) };
+    ROI_COLORS[name] = '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+    ROI_LABELS[name] = name;
+    roiSelected = name;
+    renderRoiManager();
+    renderRoiOverlay();
+    showToast('已创建 ROI: ' + name, 'success');
 }
 
-function calibNormalized(e) {
+function roiDelete(id) {
+    if (!confirm(`删除 ROI「${id}」？`)) return;
+    delete currentRoi[id];
+    if (roiSelected === id) roiSelected = null;
+    renderRoiManager();
+    renderRoiOverlay();
+}
+
+function roiToggleVis(id) {
+    if (!currentRoi[id]) return;
+    currentRoi[id]._hidden = !currentRoi[id]._hidden;
+    renderRoiManager();
+    renderRoiOverlay();
+}
+
+function roiSelect(id) {
+    roiSelected = (roiSelected === id) ? null : id;
+    renderRoiManager();
+    renderRoiOverlay();
+}
+
+function roiRename(id, newName) {
+    newName = newName.trim();
+    if (!newName || newName === id) return;
+    if (currentRoi[newName]) { showToast('名称已存在', 'warning'); return; }
+    currentRoi[newName] = currentRoi[id];
+    ROI_COLORS[newName] = ROI_COLORS[id] || '#6366f1';
+    ROI_LABELS[newName] = ROI_LABELS[id] || newName;
+    delete currentRoi[id];
+    delete ROI_COLORS[id];
+    delete ROI_LABELS[id];
+    if (roiSelected === id) roiSelected = newName;
+    renderRoiManager();
+    renderRoiOverlay();
+}
+
+function roiColorChange(id, color) {
+    ROI_COLORS[id] = color;
+    renderRoiManager();
+    renderRoiOverlay();
+}
+
+// ---- SVG 渲染 ----
+function renderRoiOverlay() {
+    const svg = $('roiSvg');
+    if (!svg) return;
+    svg.innerHTML = '';
+    if (!$('roiToggle').checked || !currentRoi) return;
+
     const img = $('shotImg');
-    const rect = img.getBoundingClientRect();
-    return {
-        x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
-        y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
-    };
+    const iw = img.naturalWidth || 1920, ih = img.naturalHeight || 1080;
+    svg.setAttribute('viewBox', `0 0 ${iw} ${ih}`);
+
+    Object.entries(currentRoi || {}).forEach(([id, box]) => {
+        if (!box || !box.width || !box.height || box._hidden) return;
+        const color = ROI_COLORS[id] || '#6366f1';
+        const label = ROI_LABELS[id] || id;
+        const x = box.left * iw, y = box.top * ih;
+        const w = box.width * iw, h = box.height * ih;
+        const sel = (roiSelected === id);
+
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        if (sel) g.classList.add('selected');
+        g.setAttribute('data-id', id);
+        g.setAttribute('color', color);
+
+        // 主矩形
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.classList.add('roi-rect');
+        rect.setAttribute('x', x); rect.setAttribute('y', y);
+        rect.setAttribute('width', w); rect.setAttribute('height', h);
+        rect.setAttribute('stroke', color);
+        rect.style.cursor = 'move';
+        g.appendChild(rect);
+
+        // 标签
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.classList.add('roi-label');
+        text.setAttribute('x', x + 2); text.setAttribute('y', y - 4);
+        text.textContent = label;
+        g.appendChild(text);
+
+        if (sel) {
+            // 8 个拖拽手柄
+            const handles = [
+                { cls: 'nw', x: x - 4, y: y - 4 },
+                { cls: 'n', x: x + w / 2 - 4, y: y - 4 },
+                { cls: 'ne', x: x + w - 4, y: y - 4 },
+                { cls: 'e', x: x + w - 4, y: y + h / 2 - 4 },
+                { cls: 'se', x: x + w - 4, y: y + h - 4 },
+                { cls: 's', x: x + w / 2 - 4, y: y + h - 4 },
+                { cls: 'sw', x: x - 4, y: y + h - 4 },
+                { cls: 'w', x: x - 4, y: y + h / 2 - 4 },
+            ];
+            handles.forEach(h => {
+                const hr = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                hr.classList.add('roi-handle', h.cls);
+                hr.setAttribute('x', h.x); hr.setAttribute('y', h.y);
+                hr.setAttribute('stroke', color);
+                hr.setAttribute('data-handle', h.cls);
+                g.appendChild(hr);
+            });
+        }
+
+        // 事件
+        g.addEventListener('pointerdown', (e) => roiOnPointerDown(e, id));
+        svg.appendChild(g);
+    });
 }
 
-async function calibSave() {
-    if (!calibDirty) { setVisionStatus('校准无改动'); return; }
-    try {
-        const r = await pywebview.api.config_save('roi_config.json',
-            JSON.stringify(currentRoi, null, 2));
-        if (r.success) {
-            calibDirty = false;
-            setVisionStatus('校准已保存 ✓');
-            showToast('ROI 校准已保存', 'success');
-            addLog('ROI 校准已保存到 roi_config.json', 'success');
-        } else {
-            setVisionStatus('保存失败: ' + r.message);
-            addLog('校准保存失败: ' + r.message, 'error');
-        }
-    } catch (e) { addLog('校准保存异常: ' + e.message, 'error'); }
+// ---- 拖拽交互 ----
+function roiImgPos(e) {
+    const svg = $('roiSvg');
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: p.x, y: p.y };
 }
 
-// 拖框事件绑定(校准模式下生效)
-document.addEventListener('DOMContentLoaded', () => {
-    const view = $('shotView');
-    view.addEventListener('pointerdown', (e) => {
-        if (!calibMode || e.button !== 0) return;
-        const p = calibNormalized(e);
-        calibDrag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
-        e.preventDefault();
-    });
-    view.addEventListener('pointermove', (e) => {
-        if (!calibMode || !calibDrag) return;
-        const p = calibNormalized(e);
-        calibDrag.x1 = p.x; calibDrag.y1 = p.y;
-        const layer = $('roiLayer');
-        let ghost = document.getElementById('calibGhost');
-        if (!ghost) {
-            ghost = document.createElement('div');
-            ghost.id = 'calibGhost';
-            ghost.className = 'roi-box calib-ghost';
-            layer.appendChild(ghost);
-        }
-        const x1 = Math.min(calibDrag.x0, calibDrag.x1), x2 = Math.max(calibDrag.x0, calibDrag.x1);
-        const y1 = Math.min(calibDrag.y0, calibDrag.y1), y2 = Math.max(calibDrag.y0, calibDrag.y1);
-        ghost.style.cssText = `left:${x1 * 100}%;top:${y1 * 100}%;width:${(x2 - x1) * 100}%;height:${(y2 - y1) * 100}%;border-color:${ROI_COLORS[calibTarget] || '#6366f1'}`;
-    });
-    view.addEventListener('pointerup', (e) => {
-        if (!calibMode || !calibDrag) return;
-        const x1 = Math.min(calibDrag.x0, calibDrag.x1), x2 = Math.max(calibDrag.x0, calibDrag.x1);
-        const y1 = Math.min(calibDrag.y0, calibDrag.y1), y2 = Math.max(calibDrag.y0, calibDrag.y1);
-        calibDrag = null;
-        const ghost = document.getElementById('calibGhost');
-        if (ghost) ghost.remove();
-        if (x2 - x1 < 0.005 || y2 - y1 < 0.005) return;  // 过小忽略
-        currentRoi[calibTarget] = {
-            left: +x1.toFixed(4), top: +y1.toFixed(4),
-            width: +(x2 - x1).toFixed(4), height: +(y2 - y1).toFixed(4),
-        };
-        calibDirty = true;
+function roiOnPointerDown(e, id) {
+    e.preventDefault(); e.stopPropagation();
+    // 如果正在拖框创建模式，点击已有 ROI 则取消创建
+    if (roiDragCreate) {
+        exitRoiCreate();
+        setVisionStatus('创建已取消');
+    }
+    const p = roiImgPos(e);
+    const handle = e.target.getAttribute('data-handle');
+    const box = currentRoi[id];
+    if (!box) return;
+    const img = $('shotImg');
+    const iw = img.naturalWidth || 1920, ih = img.naturalHeight || 1080;
+
+    roiSelected = id;
+    renderRoiManager();
+    renderRoiOverlay();
+
+    if (handle) {
+        roiDragging = { type: 'resize', id, handle, sx: p.x, sy: p.y,
+            ox: box.left * iw, oy: box.top * ih, ow: box.width * iw, oh: box.height * ih };
+    } else {
+        roiDragging = { type: 'move', id, sx: p.x, sy: p.y,
+            ox: box.left * iw, oy: box.top * ih };
+    }
+    document.addEventListener('pointermove', roiOnPointerMove);
+    document.addEventListener('pointerup', roiOnPointerUp);
+}
+
+function roiOnPointerMove(e) {
+    if (!roiDragging) return;
+    const p = roiImgPos(e);
+    const img = $('shotImg');
+    const iw = img.naturalWidth || 1920, ih = img.naturalHeight || 1080;
+    const dx = p.x - roiDragging.sx, dy = p.y - roiDragging.sy;
+    const box = currentRoi[roiDragging.id];
+    if (!box) return;
+
+    if (roiDragging.type === 'move') {
+        let nx = roiDragging.ox + dx, ny = roiDragging.oy + dy;
+        box.left = Math.max(0, Math.min(1, nx / iw));
+        box.top = Math.max(0, Math.min(1, ny / ih));
+    } else {
+        let ox = roiDragging.ox, oy = roiDragging.oy, ow = roiDragging.ow, oh = roiDragging.oh;
+        const h = roiDragging.handle;
+        if (h.includes('n')) { oy += dy; oh -= dy; }
+        if (h.includes('s')) { oh += dy; }
+        if (h.includes('w')) { ox += dx; ow -= dx; }
+        if (h.includes('e')) { ow += dx; }
+        if (ow < 5) ow = 5; if (oh < 5) oh = 5;
+        box.left = Math.max(0, ox / iw);
+        box.top = Math.max(0, oy / ih);
+        box.width = Math.min(1 - box.left, ow / iw);
+        box.height = Math.min(1 - box.top, oh / ih);
+    }
+    renderRoiOverlay();
+}
+
+function roiOnPointerUp(e) {
+    document.removeEventListener('pointermove', roiOnPointerMove);
+    document.removeEventListener('pointerup', roiOnPointerUp);
+    roiDragging = null;
+}
+
+// 画布空白区域点击: 拖框创建 或 取消选中
+$('roiSvg') && $('roiSvg').addEventListener('pointerdown', function(e) {
+    if (e.target !== this) return;  // 只处理空白区域
+    if (roiDragCreate) {
+        // 拖框创建模式
+        const p = roiImgPos(e);
+        const img = $('shotImg');
+        const iw = img.naturalWidth || 1920, ih = img.naturalHeight || 1080;
+        roiDragging = { type: 'create', name: roiDragCreate, sx: p.x, sy: p.y };
+        // 创建幽灵框
+        const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        ghost.id = 'roiCreateGhost';
+        ghost.setAttribute('fill', 'rgba(100,200,255,0.2)');
+        ghost.setAttribute('stroke', '#64b5f6');
+        ghost.setAttribute('stroke-dasharray', '6,3');
+        ghost.setAttribute('x', p.x); ghost.setAttribute('y', p.y);
+        ghost.setAttribute('width', 0); ghost.setAttribute('height', 0);
+        this.appendChild(ghost);
+        document.addEventListener('pointermove', roiOnCreateMove);
+        document.addEventListener('pointerup', roiOnCreateUp);
+    } else {
+        roiSelected = null;
+        renderRoiManager();
         renderRoiOverlay();
-        setVisionStatus(`已更新「${ROI_LABELS[calibTarget]}」框,记得点保存校准`);
-    });
+    }
 });
 
+function roiOnCreateMove(e) {
+    const ghost = document.getElementById('roiCreateGhost');
+    if (!ghost || !roiDragging) return;
+    const p = roiImgPos(e);
+    const x = Math.min(roiDragging.sx, p.x), y = Math.min(roiDragging.sy, p.y);
+    const w = Math.abs(p.x - roiDragging.sx), h = Math.abs(p.y - roiDragging.sy);
+    ghost.setAttribute('x', x); ghost.setAttribute('y', y);
+    ghost.setAttribute('width', w); ghost.setAttribute('height', h);
+}
+
+function exitRoiCreate() {
+    roiDragCreate = null;
+    const svg = $('roiSvg');
+    if (svg) svg.classList.remove('selecting');
+    $('shotView').style.cursor = 'default';
+}
+
+function roiOnCreateUp(e) {
+    document.removeEventListener('pointermove', roiOnCreateMove);
+    document.removeEventListener('pointerup', roiOnCreateUp);
+    const ghost = document.getElementById('roiCreateGhost');
+    if (ghost) ghost.remove();
+    if (!roiDragging) return;
+    const p = roiImgPos(e);
+    const img = $('shotImg');
+    const iw = img.naturalWidth || 1920, ih = img.naturalHeight || 1080;
+    const name = roiDragging.name;
+    const sx = roiDragging.sx, sy = roiDragging.sy;
+    roiDragging = null;
+    exitRoiCreate();
+    const left = Math.min(sx, p.x) / iw, top = Math.min(sy, p.y) / ih;
+    const width = Math.abs(p.x - sx) / iw, height = Math.abs(p.y - sy) / ih;
+    if (width < 0.005 || height < 0.005) { showToast('框太小，请重新拖拽', 'warning'); return; }
+    currentRoi[name] = { left: +left.toFixed(4), top: +top.toFixed(4), width: +width.toFixed(4), height: +height.toFixed(4) };
+    ROI_COLORS[name] = '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+    ROI_LABELS[name] = name;
+    roiSelected = name;
+    renderRoiManager();
+    renderRoiOverlay();
+    showToast('已创建 ROI: ' + name, 'success');
+}
+
+// ---- ROI 管理器列表 ----
+function renderRoiManager() {
+    const list = $('rmList');
+    if (!list) return;
+    const ids = Object.keys(currentRoi || {}).filter(id => currentRoi[id] && currentRoi[id].width);
+    $('rmCount').textContent = ids.length;
+    list.innerHTML = ids.map(id => {
+        const box = currentRoi[id];
+        const color = ROI_COLORS[id] || '#6366f1';
+        const label = ROI_LABELS[id] || id;
+        const hidden = box._hidden;
+        const active = (roiSelected === id);
+        return `<div class="rm-item${active ? ' active' : ''}" onclick="roiSelect('${id}')">
+            <span class="rm-swatch" style="background:${color}" onclick="event.stopPropagation();roiColorChange('${id}',prompt('颜色 (#hex):',color)||color)"></span>
+            <input class="rm-name" value="${label}" onfocus="this.select()"
+                onchange="roiRename('${id}',this.value)" onclick="event.stopPropagation()">
+            <span class="rm-vis" onclick="event.stopPropagation();roiToggleVis('${id}')" title="显隐">${hidden ? '👁' : '👁'}</span>
+            <span class="rm-del" onclick="event.stopPropagation();roiDelete('${id}')" title="删除">✕</span>
+        </div>`;
+    }).join('');
+}
+
 // ========================================
-// ROI 模板管理 (多ROI + 归一化坐标 + 分组筛选)
+// ROI 模板管理 (保持兼容)
 // ========================================
-let tmplRois = [];        // 当前模板的 ROI 列表
-let tmplBaseRes = [1920, 1080];  // 基准分辨率
+let tmplRois = [];
+let tmplBaseRes = [1920, 1080];
 let tmplName = '';
-let tmplTags = [];        // 所有标签
-let tmplTagFilter = {};   // 当前筛选状态
+let tmplTags = [];
+let tmplTagFilter = {};
 
 async function tmplRefreshList() {
     try {
@@ -548,23 +759,28 @@ async function tmplRefreshList() {
 
 async function tmplLoad(name) {
     name = name || $('tmplSelect').value;
-    if (!name) { tmplRois = []; renderRoiOverlay(); return; }
+    if (!name) { tmplRois = []; renderRoiOverlay(); renderRoiManager(); return; }
     try {
         const r = await pywebview.api.roi_template_load(name);
         if (!r.success) { showToast(r.message, 'error'); return; }
+        // 清空旧 ROI，全新加载模板
+        currentRoi = {};
         tmplName = r.template.name;
         tmplBaseRes = r.template.base_resolution || [1920, 1080];
         tmplRois = r.template.rois || [];
-        // 合并到 currentRoi
         tmplRois.forEach(roi => {
             currentRoi[roi.id] = { left: roi.rx, top: roi.ry, width: roi.rw, height: roi.rh };
+            if (roi.color) ROI_COLORS[roi.id] = roi.color;
+            if (roi.label) ROI_LABELS[roi.id] = roi.label;
         });
-        // 更新标签筛选
+        roiSelected = null;
         tmplTags = [...new Set(tmplRois.map(r => r.tag || ''))].filter(Boolean);
         tmplTagFilter = {};
         tmplTags.forEach(t => tmplTagFilter[t] = true);
         renderTagFilters();
+        renderRoiManager();
         renderRoiOverlay();
+        $('tmplNameInput').value = tmplName;
         setVisionStatus(`已加载模板: ${tmplName} (${tmplRois.length} ROI)`);
     } catch (e) { showToast('加载模板失败: ' + e, 'error'); }
 }
@@ -578,49 +794,40 @@ function renderTagFilters() {
 }
 
 async function tmplSaveDialog() {
-    const name = prompt('模板名称:', tmplName || 'PVP模板');
+    const name = $('tmplNameInput').value.trim() || tmplName || prompt('模板名称:', '新模板');
     if (!name) return;
-    // 从 currentRoi 收集 ROI 数据
     const rois = [];
-    const roiIds = Object.keys(currentRoi);
-    for (const id of roiIds) {
+    Object.keys(currentRoi || {}).forEach(id => {
         const box = currentRoi[id];
-        if (!box || !box.width || !box.height) continue;
-        // 找对应的标签和颜色
-        const label = ROI_LABELS[id] || id;
-        const color = ROI_COLORS[id] || '#6366f1';
-        const tag = id.includes('battle') ? 'battle_hud' : 'enemy_team';
+        if (!box || !box.width || !box.height) return;
         rois.push({
-            id, label, tag, color,
+            id, label: ROI_LABELS[id] || id, color: ROI_COLORS[id] || '#6366f1',
+            tag: id.includes('enemy') ? 'enemy_team' : (id.includes('battle') ? 'battle_hud' : 'player_team'),
             rx: box.left, ry: box.top, rw: box.width, rh: box.height,
         });
-    }
-    if (!rois.length) { showToast('请先校准至少一个 ROI', 'warning'); return; }
-    // 获取当前基准分辨率
+    });
+    if (!rois.length) { showToast('请先创建至少一个 ROI', 'warning'); return; }
     const img = $('shotImg');
     const baseRes = img ? [img.naturalWidth, img.naturalHeight] : [1920, 1080];
     try {
         const r = await pywebview.api.roi_template_save(name, baseRes, rois);
         if (r.success) {
-            tmplName = name;
-            tmplBaseRes = baseRes;
-            tmplRois = rois;
+            tmplName = name; tmplBaseRes = baseRes; tmplRois = rois;
             tmplTags = [...new Set(rois.map(r => r.tag || ''))].filter(Boolean);
             tmplTagFilter = {};
             tmplTags.forEach(t => tmplTagFilter[t] = true);
-            renderTagFilters();
-            tmplRefreshList();
+            renderTagFilters(); tmplRefreshList();
+            $('tmplNameInput').value = name;
             showToast('模板已保存: ' + name, 'success');
         }
     } catch (e) { showToast('保存失败: ' + e, 'error'); }
 }
 
 async function tmplExport() {
-    if (!tmplName) { showToast('请先加载或保存一个模板', 'warning'); return; }
+    if (!tmplName) { showToast('请先加载或保存模板', 'warning'); return; }
     try {
         const r = await pywebview.api.roi_template_export(tmplName);
         if (!r.success) { showToast(r.message, 'error'); return; }
-        // 复制到剪贴板
         await navigator.clipboard.writeText(r.json);
         showToast('模板 JSON 已复制到剪贴板', 'success');
     } catch (e) { showToast('导出失败: ' + e, 'error'); }
@@ -631,65 +838,51 @@ async function tmplImport() {
         const text = await navigator.clipboard.readText();
         if (!text || !text.includes('"rois"')) { showToast('剪贴板无有效模板 JSON', 'warning'); return; }
         const r = await pywebview.api.roi_template_import(text);
-        if (r.success) {
-            tmplRefreshList();
-            showToast('模板已导入: ' + r.filename, 'success');
-            tmplLoad(r.filename.replace('.json', ''));
-        }
+        if (r.success) { tmplRefreshList(); showToast('模板已导入', 'success'); tmplLoad(r.filename.replace('.json', '')); }
     } catch (e) { showToast('导入失败: ' + e, 'error'); }
 }
 
-function tmplClear() {
-    // 从 currentRoi 中移除模板ROI，保留校准ROI
-    if (!tmplRois.length) return;
-    tmplRois.forEach(r => { delete currentRoi[r.id]; });
-    tmplRois = []; tmplName = ''; tmplTags = [];
-    tmplTagFilter = {};
+function tmplNewBlank() {
+    const name = prompt('新模板名称:', 'PVP模板_' + new Date().toISOString().slice(5, 10).replace(/-/g, ''));
+    if (!name) return;
+    currentRoi = {};
+    tmplRois = []; tmplName = name; tmplTags = [];
+    tmplTagFilter = {}; roiSelected = null; exitRoiCreate();
     $('tmplSelect').value = '';
+    $('tmplNameInput').value = name;
     renderTagFilters();
+    renderRoiManager();
     renderRoiOverlay();
-    showToast('已撤销模板ROI，校准ROI保留', 'info');
+    setVisionStatus(`空白模板: ${name} · 点击 [+ 新建] 开始标注`);
+    showToast('已创建空白模板: ' + name, 'success');
 }
 
-// 更新 RoiOverlay 渲染：始终显示 currentRoi 中所有 ROI（含校准+模板）
-// 标签筛选仅对模板 ROI 生效；非模板 ROI 始终显示
-function renderRoiOverlay_orig() { /* 原始实现(模板加载前) */ }
-const _orig_renderRoiOverlay = renderRoiOverlay;
-renderRoiOverlay = function () {
-    const layer = $('roiLayer');
-    if (!layer) return;
-    layer.innerHTML = '';
-    if (!$('roiToggle').checked || !currentRoi) return;
+async function tmplDelete() {
+    const name = $('tmplSelect').value;
+    if (!name) { showToast('请先选择模板', 'warning'); return; }
+    if (!confirm(`确定删除模板「${name}」？`)) return;
+    try {
+        const r = await pywebview.api.roi_template_delete(name);
+        if (r.success) { tmplRefreshList(); showToast('模板已删除', 'success'); }
+        else { showToast(r.message, 'error'); }
+    } catch (e) { showToast('删除失败: ' + e, 'error'); }
+}
 
-    Object.entries(currentRoi).forEach(([key, box]) => {
-        if (!box || !box.width || !box.height) return;
-        // 模板筛选：仅当该 ROI 属于已加载模板时才检查标签过滤
-        const tmplRoi = tmplRois.find(r => r.id === key);
-        if (tmplRoi && tmplRoi.tag && tmplTagFilter[tmplRoi.tag] === false) return;
-        // 颜色/标签：优先模板定义，否则用原有
-        const color = (tmplRoi && tmplRoi.color) || ROI_COLORS[key] || '#6366f1';
-        const label = (tmplRoi && tmplRoi.label) || ROI_LABELS[key] || key;
-        const div = document.createElement('div');
-        div.className = 'roi-box';
-        div.style.cssText = `left:${box.left * 100}%;top:${box.top * 100}%;width:${box.width * 100}%;height:${box.height * 100}%;border-color:${color}`;
-        const span = document.createElement('span');
-        span.className = 'roi-label';
-        span.style.cssText = `background:${color}`;
-        span.textContent = label;
-        div.appendChild(span);
-        layer.appendChild(div);
-    });
-};
-
-// 切换校准时刷新模板列表
-const _orig_toggleCalib = toggleCalib;
-toggleCalib = function () {
-    _orig_toggleCalib();
-    if (calibMode) tmplRefreshList();
+// ---- 截图后自动加载 roi_config 到交互系统 ----
+const _orig_showShot = showShot;
+showShot = function(image, w, h, title) {
+    _orig_showShot(image, w, h, title);
+    $('shotImg').onload = () => {
+        shotNaturalW = $('shotImg').naturalWidth;
+        shotNaturalH = $('shotImg').naturalHeight;
+        fitShotToPanel();
+        // 延迟渲染 ROI (等待 SVG 就绪)
+        setTimeout(() => { renderRoiManager(); renderRoiOverlay(); }, 100);
+    };
 };
 
 // ========================================
-// 实时识别(后端每 1.5s 推送一帧)
+// 实时识别(后端推送)
 // ========================================
 
 let liveRunning = false;
@@ -720,6 +913,7 @@ window.updateLiveResult = function (payload) {
     if (!payload || !liveRunning) return;
     showShot(payload.image, payload.width, payload.height, '实时画面');
     currentRoi = payload.roi || currentRoi;
+    renderRoiManager();
     renderRoiOverlay();
     renderResults(payload.result);
     const b = payload.result.battle || {};
@@ -733,36 +927,84 @@ window.updateLiveResult = function (payload) {
 
 function setVisionStatus(text) { $('visionStatus').textContent = text; }
 
+let shotScale = 1.0;
+let shotNaturalW = 0, shotNaturalH = 0;
+
 function showShot(image, w, h, title) {
     $('shotEmpty').style.display = 'none';
     const view = $('shotView');
     view.style.display = 'inline-block';
-    $('shotImg').src = image;
+    const img = $('shotImg');
+    img.src = image;
+    img.onload = () => {
+        shotNaturalW = img.naturalWidth;
+        shotNaturalH = img.naturalHeight;
+        fitShotToPanel();
+        renderRoiManager();
+    };
     setVisionStatus(`${title || '游戏窗口'} · ${w}×${h}`);
 }
 
-function renderRoiOverlay() {
-    const layer = $('roiLayer');
-    layer.innerHTML = '';
-    if (!$('roiToggle').checked || !currentRoi) return;
-    Object.entries(currentRoi).forEach(([name, r]) => {
-        const div = document.createElement('div');
-        div.className = 'roi-box';
-        const color = ROI_COLORS[name] || '#6366f1';
-        div.style.cssText =
-            `left:${r.left * 100}%;top:${r.top * 100}%;width:${r.width * 100}%;height:${r.height * 100}%;border-color:${color}`;
-        div.innerHTML = `<span style="background:${color}">${ROI_LABELS[name] || name}</span>`;
-        layer.appendChild(div);
-    });
+function shotZoom(delta, setAbsolute) {
+    if (setAbsolute) { shotScale = delta; }
+    else { shotScale = Math.max(0.25, Math.min(4.0, shotScale + delta)); }
+    applyShotScale();
 }
+
+function applyShotScale() {
+    const view = $('shotView');
+    const img = $('shotImg');
+    const svg = $('roiSvg');
+    if (!shotNaturalW || !shotNaturalH) return;
+    const dw = Math.round(shotNaturalW * shotScale);
+    const dh = Math.round(shotNaturalH * shotScale);
+    // 显式设置 view / img / svg 三者宽高完全一致
+    view.style.width = dw + 'px';
+    view.style.height = dh + 'px';
+    img.style.width = dw + 'px';
+    img.style.height = dh + 'px';
+    img.style.maxWidth = 'none';
+    img.style.maxHeight = 'none';
+    if (svg) {
+        svg.style.width = dw + 'px';
+        svg.style.height = dh + 'px';
+        svg.setAttribute('preserveAspectRatio', 'none'); // 宽高比已保证一致，无需再缩放
+    }
+    $('shotZoomVal').textContent = Math.round(shotScale * 100) + '%';
+    renderRoiOverlay();
+}
+
+function fitShotToPanel() {
+    const panel = $('shotPanel');
+    if (!panel || !shotNaturalW || !shotNaturalH) return;
+    const pw = panel.clientWidth, ph = panel.clientHeight;
+    const page = document.querySelector('.page.active');
+    const availW = pw > 24 ? pw - 24 : (page ? page.clientWidth - 24 : 800);
+    const availH = Math.max(ph > 24 ? ph - 24 : 0, page ? page.clientHeight - 60 : 400, 400);
+    shotScale = Math.min(availW / shotNaturalW, availH / shotNaturalH, 1.0);
+    shotScale = Math.max(0.25, shotScale);
+    applyShotScale();
+}
+
+window.addEventListener('resize', () => { if ($('shotImg').src) fitShotToPanel(); });
 
 async function visionCapture() {
     const btn = $('btnVCap'); btn.disabled = true;
     setVisionStatus('截图中…');
     try {
         const r = await pywebview.api.vision_capture();
-        if (r.success) showShot(r.image, r.width, r.height, r.title);
-        else setVisionStatus('截图失败');
+        if (r.success) {
+            // 加载 ROI 配置（失败也保证 currentRoi 不为 null）
+            if (!currentRoi || !Object.keys(currentRoi).length) {
+                try {
+                    const cr = await pywebview.api.config_load('roi_config.json');
+                    if (cr.success && cr.data) currentRoi = cr.data;
+                } catch (e) { /* 忽略 */ }
+                if (!currentRoi) currentRoi = {};
+            }
+            showShot(r.image, r.width, r.height, r.title);
+            renderRoiManager();
+        } else setVisionStatus('截图失败');
     } catch (e) { addLog('截图异常: ' + e.message, 'error'); setVisionStatus('截图异常'); }
     finally { btn.disabled = false; }
 }
@@ -800,10 +1042,10 @@ function renderResults(result) {
     const rawBits = [];
     if (result.raw && result.raw.name_raw) rawBits.push('名:' + result.raw.name_raw.trim());
     if (result.enemy_hp_raw) rawBits.push('血:' + result.enemy_hp_raw);
-    $('recRaw').textContent = rawBits.join('  ') || '—';
+    const elRaw = $('recRaw'); if (elRaw) elRaw.textContent = rawBits.join('  ') || '—';
 
     // 原始 JSON
-    $('rawJson').textContent = JSON.stringify(result, null, 2);
+    const elJson = $('rawJson'); if (elJson) elJson.textContent = JSON.stringify(result, null, 2);
 }
 
 async function visionAnalyze() {
@@ -813,7 +1055,8 @@ async function visionAnalyze() {
         const r = await pywebview.api.vision_analyze();
         if (r.success) {
             showShot(r.image, r.width, r.height, r.title);
-            currentRoi = r.roi || null;
+            currentRoi = r.roi || {};
+            renderRoiManager();
             renderRoiOverlay();
             renderResults(r.result);
         } else {
@@ -821,6 +1064,32 @@ async function visionAnalyze() {
         }
     } catch (e) { addLog('识别异常: ' + e.message, 'error'); setVisionStatus('识别异常'); }
     finally { btn.disabled = false; }
+}
+
+// ---- OCR 预览（结果输出到日志，不在图上显示）----
+async function visionOcrPreview() {
+    const btn = $('btnOcr'); btn.disabled = true;
+    if (!currentRoi || !Object.keys(currentRoi).length) {
+        showToast('请先截图或加载模板', 'warning');
+        btn.disabled = false; return;
+    }
+    setVisionStatus('OCR 识别中…');
+    try {
+        const r = await pywebview.api.vision_ocr_preview(currentRoi);
+        if (!r.success) { setVisionStatus('OCR 失败: ' + r.message); return; }
+        addLog('OCR识别结果:', 'info');
+        Object.entries(r.results).forEach(([id, result]) => {
+            const label = ROI_LABELS[id] || result.label || id;
+            const mark = result.corrected ? '✅' : (result.conf > 0.5 ? '' : '⚠️');
+            addLog(`${mark}${label}：${result.text}`, result.conf > 0.5 ? 'info' : 'warning');
+        });
+        setVisionStatus(`OCR 完成: ${Object.keys(r.results).length} 个 ROI`);
+    } catch (e) { addLog('OCR 预览异常: ' + e.message, 'error'); setVisionStatus('OCR 异常'); }
+    finally { btn.disabled = false; }
+}
+
+function renderOcrResults(ocrResults) {
+    // 不再使用 —— 结果已改为 addLog 输出
 }
 
 async function visionSave() {

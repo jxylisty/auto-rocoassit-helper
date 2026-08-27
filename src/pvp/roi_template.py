@@ -149,5 +149,45 @@ def ensure_default_template():
                        PVP_DEFAULT_TEMPLATE["rois"])
 
 
+def get_scaled_roi(roi_id: str, current_width: int, current_height: int,
+                   template_name: str = None) -> Optional[Dict[str, int]]:
+    """获取单个 ROI 在当前分辨率下的像素坐标
+
+    若尺寸等于基准分辨率，返回 rect_abs；否则用 rect_norm 动态缩放。
+    """
+    data = load_template(template_name) if template_name else None
+    if not data:
+        return None
+    base_w, base_h = data.get("base_resolution", [1920, 1080])
+    for r in data.get("rois", []):
+        if r.get("id") != roi_id:
+            continue
+        rx, ry, rw, rh = r.get("rx", 0), r.get("ry", 0), r.get("rw", 0), r.get("rh", 0)
+        return {
+            "x": int(rx * current_width),
+            "y": int(ry * current_height),
+            "w": int(rw * current_width),
+            "h": int(rh * current_height),
+        }
+    return None
+
+
+def set_active_template(template_name: str, mode: str = "pvp") -> Dict[str, Any]:
+    """将模板设为指定模式的活跃模板，写入 settings.yaml"""
+    import yaml
+    from pathlib import Path
+    settings_path = Path(__file__).resolve().parents[2] / "data" / "config" / "settings.yaml"
+    try:
+        data = yaml.safe_load(settings_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        data = {}
+    if "roi" not in data:
+        data["roi"] = {}
+    data["roi"][f"{mode}_template"] = template_name
+    settings_path.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return {"success": True, "mode": mode, "template": template_name}
+
+
 # 模块加载时创建默认模板
 ensure_default_template()

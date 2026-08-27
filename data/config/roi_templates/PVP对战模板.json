@@ -1,48 +1,29 @@
 {
   "name": "PVP对战模板",
-  "base_resolution": [1920, 1080],
+  "base_resolution": [
+    1924,
+    1247
+  ],
   "rois": [
     {
-      "id": "self_avatar",
-      "label": "我方头像",
-      "tag": "player_team",
-      "color": "#6366f1",
-      "rx": 0.02, "ry": 0.02, "rw": 0.06, "rh": 0.06
-    },
-    {
-      "id": "self_name",
-      "label": "我方名称",
-      "tag": "player_team",
-      "color": "#818cf8",
-      "rx": 0.02, "ry": 0.10, "rw": 0.10, "rh": 0.03
-    },
-    {
-      "id": "enemy_avatar",
-      "label": "敌方头像",
-      "tag": "enemy_team",
-      "color": "#f97316",
-      "rx": 0.85, "ry": 0.02, "rw": 0.06, "rh": 0.06
-    },
-    {
-      "id": "enemy_name_pvp",
-      "label": "PVP敌方名称",
-      "tag": "enemy_team",
-      "color": "#fb923c",
-      "rx": 0.85, "ry": 0.10, "rw": 0.10, "rh": 0.03
-    },
-    {
-      "id": "lineup_self",
+      "id": "我方阵容",
       "label": "我方阵容",
+      "color": "#d39fd4",
       "tag": "player_team",
-      "color": "#22d3ee",
-      "rx": 0.02, "ry": 0.15, "rw": 0.20, "rh": 0.70
+      "rx": 0.0549,
+      "ry": 0.1931,
+      "rw": 0.1741,
+      "rh": 0.5034
     },
     {
-      "id": "lineup_enemy",
+      "id": "敌方阵容",
       "label": "敌方阵容",
-      "tag": "enemy_team",
-      "color": "#e879f9",
-      "rx": 0.80, "ry": 0.15, "rw": 0.18, "rh": 0.70
+      "color": "#8297cc",
+      "tag": "player_team",
+      "rx": 0.781945355947895,
+      "ry": 0.19175766323551524,
+      "rw": 0.2063,
+      "rh": 0.5126
     }
   ]
 }

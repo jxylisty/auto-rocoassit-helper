@@ -680,34 +680,128 @@ input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.35); }
     font-weight: 500;
 }
 
-.vision-body { flex: 1; display: flex; gap: 14px; min-height: 0; }
+.vision-body { flex: 1; display: flex; gap: 10px; min-height: 0; }
+
+/* 截图工具栏 */
+.shot-toolbar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 8px 14px; margin-bottom: 8px;
+}
+.shot-zoom-label { font-size: 12px; color: var(--dim); }
 
 /* 截图面板 */
 .shot-panel {
-    flex: 1.6; min-width: 0;
+    flex: 2.2; min-width: 0;
     background: var(--panel); border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: flex-start; justify-content: flex-start;
     overflow: auto; padding: 12px;
 }
 
 .shot-empty {
     color: var(--dimmer); font-size: 13px;
-    text-align: center; padding: 40px 20px;
+    text-align: center; padding: 40px 20px; margin: auto;
 }
 
 .shot-view {
     position: relative; display: inline-block;
-    max-width: 100%; line-height: 0;
+    min-width: 0; min-height: 0;
+    transform-origin: left top;
+    line-height: 0;
 }
 
 .shot-view img {
-    max-width: 100%; max-height: 100%;
     border-radius: 8px; display: block;
     box-shadow: var(--shadow-md);
+    user-select: none; -webkit-user-drag: none;
 }
 
-/* ROI 叠加层 */
+/* ---- SVG ROI 叠加层 ---- */
+.roi-svg {
+    position: absolute; top: 0; left: 0;
+    pointer-events: none; overflow: visible;
+}
+.roi-svg.selecting { pointer-events: auto; }
+.roi-svg g { pointer-events: auto; cursor: move; }
+.roi-svg g.selected rect.roi-rect { stroke-width: 2.5; filter: brightness(1.2); }
+.roi-svg rect.roi-rect {
+    fill: rgba(255,255,255,0.04); stroke-width: 1.5;
+    rx: 3; ry: 3; transition: stroke-width 0.1s;
+}
+.roi-svg text.roi-label {
+    font-size: 11px; font-weight: 600; fill: #fff;
+    paint-order: stroke; stroke: rgba(0,0,0,0.7); stroke-width: 2;
+    pointer-events: none;
+}
+.roi-svg rect.roi-handle {
+    fill: #fff; stroke: currentColor; stroke-width: 1.5;
+    width: 8; height: 8; rx: 1; ry: 1;
+    cursor: nwse-resize; display: none;
+}
+.roi-svg g.selected rect.roi-handle { display: block; }
+.roi-svg rect.roi-handle.n { cursor: n-resize; }
+.roi-svg rect.roi-handle.s { cursor: s-resize; }
+.roi-svg rect.roi-handle.e { cursor: e-resize; }
+.roi-svg rect.roi-handle.w { cursor: w-resize; }
+.roi-svg rect.roi-handle.ne { cursor: ne-resize; }
+.roi-svg rect.roi-handle.nw { cursor: nw-resize; }
+.roi-svg rect.roi-handle.se { cursor: se-resize; }
+.roi-svg rect.roi-handle.sw { cursor: sw-resize; }
+
+/* ---- ROI 管理器 ---- */
+.roi-manager {
+    flex: 0.85; min-width: 160px; max-width: 240px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 10px;
+    display: flex; flex-direction: column; overflow: hidden;
+}
+.rm-header {
+    font-size: 12px; font-weight: 600; color: var(--dim);
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+    margin-bottom: 8px;
+}
+.rm-count { font-weight: 400; color: var(--dimmer); font-size: 11px; }
+.rm-list { flex: 1; overflow-y: auto; }
+.rm-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; border-radius: 6px;
+    margin-bottom: 4px; cursor: pointer;
+    background: rgba(255,255,255,0.02); border: 1px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+}
+.rm-item:hover { background: rgba(255,255,255,0.05); }
+.rm-item.active { border-color: var(--accent); background: rgba(99,102,241,0.1); }
+.rm-item .rm-swatch {
+    width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.2);
+}
+.rm-item .rm-name {
+    flex: 1; font-size: 11px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: none; border: none; outline: none;
+}
+.rm-item .rm-name:focus {
+    background: rgba(0,0,0,0.3); border-radius: 3px; padding: 0 4px;
+}
+.rm-item .rm-vis {
+    cursor: pointer; font-size: 14px; opacity: 0.5;
+    transition: opacity 0.15s; flex-shrink: 0;
+}
+.rm-item .rm-vis:hover { opacity: 1; }
+.rm-item .rm-del {
+    cursor: pointer; font-size: 12px; opacity: 0.3; color: #f87171;
+    transition: opacity 0.15s; flex-shrink: 0;
+}
+.rm-item .rm-del:hover { opacity: 1; }
+
+/* ---- 结果面板 ---- */
+.result-panel {
+    flex: 1.0; min-width: 140px; max-width: 280px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 12px;
+    overflow-y: auto;
+}
 .roi-layer { position: absolute; inset: 0; pointer-events: none; }
 
 .shot-view.calib { cursor: crosshair; }

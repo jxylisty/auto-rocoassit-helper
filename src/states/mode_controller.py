@@ -46,7 +46,11 @@ class ModeController:
         self._on_mode_change.append(callback)
 
     def switch_to(self, mode: str) -> Dict[str, Any]:
-        """切换到指定模式"""
+        """切换到指定模式（别名: set_mode）"""
+        return self.set_mode(mode)
+
+    def set_mode(self, mode: str) -> Dict[str, Any]:
+        """切换模式：停止旧模式线程 + 浮窗隔离"""
         if mode not in self.MODES:
             return {"success": False, "message": f"未知模式: {mode}"}
 
@@ -57,10 +61,10 @@ class ModeController:
             old_mode = self._current_mode
             self._current_mode = mode
 
-            # 停止旧模式的线程
+            # 停止旧模式的所有线程
             self._stop_threads(old_mode)
 
-            # 通知回调
+            # 通知回调（浮窗显隐由 bridge 层处理）
             for cb in self._on_mode_change:
                 try:
                     cb(old_mode, mode)
