@@ -20,7 +20,7 @@ battle:
   battle_timeout: 240
   max_balls_per_battle: 30
 patrol:
-  enabled: false
+  enabled: true
   move_key: w
   move_min: 1.5
   move_max: 3.0
