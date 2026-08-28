@@ -141,21 +141,46 @@ def _fuzzy_match(name: str, pet_list: list[str]) -> Optional[str]:
     return None
 
 
+# ---- 小尺寸 ROI 放大预处理 (解决 17px 高度读字问题) ----
+def preprocess_text_roi(crop: np.ndarray, scale: int = 3) -> np.ndarray:
+    """放大 + 对比度增强小尺寸文字区域"""
+    if crop is None or crop.size == 0:
+        return crop
+    h, w = crop.shape[:2]
+    resized = cv2.resize(crop, (w * scale, h * scale), interpolation=cv2.INTER_CUBIC)
+    if len(resized.shape) == 3:
+        gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = resized
+    enhanced = cv2.normalize(gray, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
+
 # ---- 敌方血条色彩积分 (0ms, 无需 OCR) ----
 def enemy_hp_color_ratio(crop: np.ndarray) -> float:
-    """计算敌方血条绿色/黄色像素的水平占比 → 血量百分比"""
+    """计算敌方血条绿色/黄色/红色像素的水平占比 → 血量百分比"""
     if crop.size == 0:
         return 0.0
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    # 绿色 + 黄色掩膜 (H: 30-90)
-    mask_green = cv2.inRange(hsv, (30, 40, 40), (90, 255, 255))
-    total = crop.shape[1]
-    if total == 0:
+    # 精确绿色范围 (H: 35-85, 高饱和)
+    mask_green = cv2.inRange(hsv, np.array([35, 70, 70]), np.array([85, 255, 255]))
+    # 黄色范围 (H: 18-34)
+    mask_yellow = cv2.inRange(hsv, np.array([18, 70, 70]), np.array([34, 255, 255]))
+    # 红色范围 (H: 0-10 或 170-180)
+    mask_red = cv2.inRange(hsv, np.array([0, 70, 70]), np.array([10, 255, 255]))
+    mask_red2 = cv2.inRange(hsv, np.array([170, 70, 70]), np.array([180, 255, 255]))
+    combined = mask_green | mask_yellow | mask_red | mask_red2
+
+    col_sums = np.sum(combined, axis=0)
+    active_cols = np.count_nonzero(col_sums > 0)
+    total_cols = crop.shape[1]
+    if total_cols == 0:
         return 0.0
-    # 按列统计：每列是否有绿色像素
-    col_has_color = np.any(mask_green > 0, axis=0)
-    ratio = float(np.sum(col_has_color)) / total
-    return round(min(1.0, max(0.0, ratio)), 2)
+
+    raw_ratio = active_cols / total_cols
+    # 补偿血条左右内边距（通常各占 1~2%）
+    adjusted = min(1.0, max(0.0, (raw_ratio - 0.02) / 0.96))
+    return round(adjusted, 2)
 
 
 # ---- PaddleOCR 批量识别 ----
@@ -247,7 +272,7 @@ class PvpResult:
 
 
 class PvpPipeline:
-    """PVP 实时识别管线"""
+    """PVP 实时识别管线 — 帧差跳帧 + 批量 OCR"""
 
     def __init__(self, template_path: Path = DEFAULT_TEMPLATE):
         self.template_path = template_path
@@ -255,6 +280,17 @@ class PvpPipeline:
         self._pet_list: list[str] = []
         self._load_template()
         self._load_pet_list()
+        # 帧差跳帧缓存
+        self._last_combined_hash: float | None = None
+        self._cached_result: PvpResult | None = None
+
+    @staticmethod
+    def _calc_hash(img: np.ndarray) -> float:
+        """快速图像哈希：缩放到 16x16 取均值（< 1ms）"""
+        if img is None or img.size == 0:
+            return 0.0
+        small = cv2.resize(img, (16, 16))
+        return float(np.mean(small))
 
     def _load_template(self):
         if not self.template_path.exists():
@@ -286,77 +322,115 @@ class PvpPipeline:
             return None
         return frame[y:y + h, x:x + w]
 
-    def analyze(self, frame: np.ndarray) -> PvpResult:
-        """分析一帧，返回 PvpResult"""
-        result = PvpResult()
-
-        # ---- 1. 敌方血条: 色彩积分 (0ms, 无需 OCR) ----
-        enemy_hp_crop = self._crop(frame, "敌方血条")
-        if enemy_hp_crop is not None:
-            result.enemy_hp_color = enemy_hp_color_ratio(enemy_hp_crop)
-
-        # ---- 2. 所有区域: PaddleOCR 批量合成一张图识别 ----
-        all_crops = []
+    def _build_composite(self, frame: np.ndarray) -> tuple[np.ndarray, list[tuple[str, np.ndarray]]] | None:
+        """构建合成图(仅用于哈希) + 返回 padded crops(用于 OCR)"""
+        all_crops: list[tuple[str, np.ndarray]] = []
         for roi_id in ["我方精灵名", "敌方精灵名", "我方血条", "敌方血条",
                        "技能1", "技能2", "技能3", "技能4", "剩余能量"]:
             crop = self._crop(frame, roi_id)
             if crop is not None:
+                if crop.shape[0] < 30 or crop.shape[1] < 80:
+                    crop = preprocess_text_roi(crop, scale=3)
                 pad = max(10, min(crop.shape[0], crop.shape[1]) // 2)
                 padded = cv2.copyMakeBorder(crop, pad, pad, pad, pad,
                                             cv2.BORDER_CONSTANT, value=(0, 0, 0))
                 all_crops.append((roi_id, padded))
 
-        if all_crops:
-            try:
-                ocr_results = ocr_batch_chinese(all_crops)
-            except Exception as e:
-                result.errors.append(f"PaddleOCR: {e}")
-                ocr_results = {}
+        if not all_crops:
+            return None
 
-            # ---- 精灵名模糊匹配 ----
-            for roi_id in ["我方精灵名", "敌方精灵名"]:
-                raw = ocr_results.get(roi_id, "")
-                if raw:
-                    cleaned = "".join(ch for ch in raw
-                                     if ("\u4e00" <= ch <= "\u9fff") or ch.isalnum())
-                    matched = _fuzzy_match(cleaned, self._pet_list)
-                    if roi_id == "我方精灵名":
-                        result.player_name = matched or cleaned
-                        result.player_name_conf = 0.9 if matched else 0.3
-                    else:
-                        result.enemy_name = matched or cleaned
-                        result.enemy_name_conf = 0.9 if matched else 0.3
+        pad = 10
+        total_h = sum(c.shape[0] + pad for _, c in all_crops) + pad
+        max_w = max(c.shape[1] for _, c in all_crops) + pad * 2
+        composite = np.zeros((total_h, max_w, 3), dtype=np.uint8)
+        y = pad
+        for _, c in all_crops:
+            h, w = c.shape[:2]
+            composite[y:y + h, pad:pad + w] = c
+            y += h + pad
 
-            # ---- 技能名 ----
-            for i, roi_id in enumerate(["技能1", "技能2", "技能3", "技能4"]):
-                result.skills[i] = ocr_results.get(roi_id, "")
+        return composite, all_crops
 
-            # ---- 数字: 从 PaddleOCR 结果中提取 ----
-            hp_raw = ocr_results.get("我方血条", "")
-            if hp_raw:
-                m = re.search(r"(\d+)\s*/\s*(\d+)", hp_raw)
-                if m:
-                    result.player_hp = f"{m.group(1)}/{m.group(2)}"
-                    result.player_hp_val = int(m.group(1))
-                    result.player_hp_max = int(m.group(2))
+    def analyze(self, frame: np.ndarray) -> PvpResult:
+        """分析一帧，返回 PvpResult。帧差跳帧：静止画面直接返回缓存 (0ms)"""
+        result = PvpResult()
 
-            energy_raw = ocr_results.get("剩余能量", "")
-            if energy_raw:
-                result.energy = energy_raw
-                m = re.search(r"(\d+)", energy_raw)
-                if m:
-                    result.energy_val = int(m.group(1))
+        # ---- 0. 敌方血条: 色彩积分 (0ms, 无需 OCR) ----
+        enemy_hp_crop = self._crop(frame, "敌方血条")
+        if enemy_hp_crop is not None:
+            result.enemy_hp_color = enemy_hp_color_ratio(enemy_hp_crop)
 
-            enemy_pct_raw = ocr_results.get("敌方血条", "")
-            if enemy_pct_raw:
-                m = re.search(r"(\d+)\s*%", enemy_pct_raw)
-                if m:
-                    result.enemy_hp_pct = int(m.group(1)) / 100.0
+        # ---- 1. 构建合成图 + 帧差跳帧 ----
+        built = self._build_composite(frame)
+        if built is None:
+            return result
 
-        # ---- 3. 战斗状态判断 ----
+        composite, all_crops = built
+        current_hash = self._calc_hash(composite)
+
+        # 帧差 < 1.5 → 画面静止，直接返回缓存
+        if (self._last_combined_hash is not None and
+                self._cached_result is not None and
+                abs(current_hash - self._last_combined_hash) < 1.5):
+            # 更新色彩积分（只有这个不受 OCR 缓存影响）
+            cached = self._cached_result
+            cached.enemy_hp_color = result.enemy_hp_color
+            return cached
+
+        self._last_combined_hash = current_hash
+
+        # ---- 2. PaddleOCR 批量识别 ----
+        try:
+            ocr_results = ocr_batch_chinese(all_crops)
+        except Exception as e:
+            result.errors.append(f"PaddleOCR: {e}")
+            ocr_results = {}
+
+        # ---- 3. 精灵名模糊匹配 ----
+        for roi_id in ["我方精灵名", "敌方精灵名"]:
+            raw = ocr_results.get(roi_id, "")
+            if raw:
+                cleaned = "".join(ch for ch in raw
+                                 if ("\u4e00" <= ch <= "\u9fff") or ch.isalnum())
+                matched = _fuzzy_match(cleaned, self._pet_list)
+                if roi_id == "我方精灵名":
+                    result.player_name = matched or cleaned
+                    result.player_name_conf = 0.9 if matched else 0.3
+                else:
+                    result.enemy_name = matched or cleaned
+                    result.enemy_name_conf = 0.9 if matched else 0.3
+
+        # ---- 4. 技能名 ----
+        for i, roi_id in enumerate(["技能1", "技能2", "技能3", "技能4"]):
+            result.skills[i] = ocr_results.get(roi_id, "")
+
+        # ---- 5. 数字提取 ----
+        hp_raw = ocr_results.get("我方血条", "")
+        if hp_raw:
+            m = re.search(r"(\d+)\s*/\s*(\d+)", hp_raw)
+            if m:
+                result.player_hp = f"{m.group(1)}/{m.group(2)}"
+                result.player_hp_val = int(m.group(1))
+                result.player_hp_max = int(m.group(2))
+
+        energy_raw = ocr_results.get("剩余能量", "")
+        if energy_raw:
+            result.energy = energy_raw
+            m = re.search(r"(\d+)", energy_raw)
+            if m:
+                result.energy_val = int(m.group(1))
+
+        enemy_pct_raw = ocr_results.get("敌方血条", "")
+        if enemy_pct_raw:
+            m = re.search(r"(\d+)\s*%", enemy_pct_raw)
+            if m:
+                result.enemy_hp_pct = int(m.group(1)) / 100.0
+
         result.in_battle = (result.player_name != "" or result.enemy_name != "" or
                            result.player_hp != "")
 
+        # 缓存结果
+        self._cached_result = result
         return result
 
     def to_dict(self, result: PvpResult) -> dict:
