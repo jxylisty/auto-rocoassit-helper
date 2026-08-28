@@ -188,8 +188,8 @@ class AppBridge:
         if not getattr(self, "_widget", None):
             return {"success": False}
         try:
-            h = max(36, min(400, int(height)))
-            self._widget.resize(280, h)
+            h = max(36, min(500, int(height)))
+            self._widget.resize(340, h)
             return {"success": True}
         except Exception:
             return {"success": False}

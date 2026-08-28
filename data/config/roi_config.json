@@ -16,5 +16,17 @@
     "top": 0.0970,
     "width": 0.0956,
     "height": 0.0300
+  },
+  "battle_left_indicator": {
+    "left": 0.0,
+    "top": 0.83,
+    "width": 0.1,
+    "height": 0.17
+  },
+  "battle_right_indicator": {
+    "left": 0.75,
+    "top": 0.84,
+    "width": 0.24,
+    "height": 0.16
   }
 }

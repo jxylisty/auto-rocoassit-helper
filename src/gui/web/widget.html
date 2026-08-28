@@ -39,7 +39,7 @@
     /* 头部 */
     .head {
         display: flex; align-items: center; gap: 8px;
-        padding: 9px 12px; cursor: default;
+        padding: 10px 14px; cursor: default;
         border-bottom: 1px solid var(--border);
         background: rgba(0, 0, 0, 0.15);
     }
@@ -53,7 +53,7 @@
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
     .title {
-        font-size: 12px; font-weight: 700; flex: 1;
+        font-size: 13px; font-weight: 700; flex: 1;
         letter-spacing: 0.5px; line-height: 1.2;
     }
     .title small {
@@ -62,8 +62,8 @@
     }
     .fold-btn {
         background: none; border: 1px solid var(--border);
-        color: var(--dim); width: 22px; height: 22px;
-        border-radius: 6px; cursor: pointer; font-size: 10px;
+        color: var(--dim); width: 24px; height: 24px;
+        border-radius: 6px; cursor: pointer; font-size: 11px;
         line-height: 1; display: flex; align-items: center;
         justify-content: center;
         transition: all 0.2s ease;
@@ -71,10 +71,10 @@
     .fold-btn:hover { color: var(--text); border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
 
     /* 主体 */
-    .body { padding: 10px 12px 12px; }
+    .body { padding: 12px 14px 14px; }
     .row {
         display: flex; justify-content: space-between; align-items: center;
-        padding: 4px 0; font-size: 11px;
+        padding: 5px 0; font-size: 12px;
     }
     .row .k { color: var(--dim); }
     .row .v {
@@ -85,8 +85,47 @@
     .v.warn { color: var(--warn); }
     .divider {
         height: 1px; background: var(--border);
-        margin: 7px 0;
+        margin: 8px 0;
     }
+
+    /* 敌方血量专用大块展示 */
+    .enemy-card {
+        margin: 2px 0 4px; padding: 10px 12px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(248,113,113,0.08), rgba(251,191,36,0.05));
+        border: 1px solid rgba(248, 113, 113, 0.22);
+    }
+    .enemy-card .enemy-name {
+        font-size: 15px; font-weight: 700; color: #fca5a5;
+        margin-bottom: 8px; letter-spacing: 0.5px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .enemy-card .enemy-name .tag {
+        font-size: 9px; font-weight: 400; color: var(--dim);
+        border: 1px solid var(--border); border-radius: 4px;
+        padding: 1px 5px; letter-spacing: 0;
+    }
+    .enemy-card .enemy-name.none { color: #555c6e; font-weight: 400; }
+    .hpbar-wrap { display: flex; align-items: center; gap: 10px; }
+    .hpbar {
+        flex: 1; height: 10px; border-radius: 999px;
+        background: rgba(255, 255, 255, 0.07);
+        overflow: hidden; position: relative;
+    }
+    .hpbar-fill {
+        height: 100%; border-radius: 999px;
+        background: linear-gradient(90deg, #4ade80, #a3e635);
+        width: 0%; transition: width 0.45s cubic-bezier(.4,0,.2,1), background 0.3s ease;
+    }
+    .hpbar-fill.mid { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+    .hpbar-fill.low { background: linear-gradient(90deg, #f87171, #ef4444); }
+    .hp-num {
+        font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums;
+        color: var(--text); min-width: 64px; text-align: right;
+        line-height: 1;
+    }
+    .hp-num span { font-size: 11px; color: var(--dim); font-weight: 400; }
+
     .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
     .chip {
         font-size: 10px; padding: 3px 10px; border-radius: 999px;
@@ -100,7 +139,7 @@
         color: #555c6e;
     }
     .game {
-        margin-top: 8px; font-size: 10px; color: var(--dim);
+        margin-top: 9px; font-size: 10px; color: var(--dim);
         display: flex; align-items: center; gap: 6px;
         padding: 4px 8px; border-radius: 6px;
         background: rgba(255, 255, 255, 0.02);
@@ -131,9 +170,14 @@
         <div class="row"><span class="k">挂机状态</span><span class="v" id="wState">停止</span></div>
         <div class="row"><span class="k">状态详情</span><span class="v" id="wDetail" style="font-weight:400;color:#9aa3b8">—</span></div>
         <div class="divider"></div>
+        <div class="enemy-card">
+            <div class="enemy-name none" id="wEnemyNameCard"><span class="tag">敌方</span><span id="wEnemyName">未在战斗</span></div>
+            <div class="hpbar-wrap">
+                <div class="hpbar"><div class="hpbar-fill" id="wEnemyHpBar"></div></div>
+                <div class="hp-num" id="wEnemyHpNum">--<span>%</span></div>
+            </div>
+        </div>
         <div class="row"><span class="k">完成战斗</span><span class="v ok" id="wBattles">0</span></div>
-        <div class="row"><span class="k">敌方精灵</span><span class="v" id="wEnemyName" style="color:#f87171">—</span></div>
-        <div class="row"><span class="k">敌方血量</span><span class="v warn" id="wEnemyHp">—</span></div>
         <div class="row"><span class="k">丢球 / 捕获</span><span class="v warn" id="wBalls">0 / 0</span></div>
         <div class="divider"></div>
         <div class="chips" id="wChips"><span class="chip none">全部空闲</span></div>
@@ -143,7 +187,7 @@
 <script>
     const $ = id => document.getElementById(id);
     let folded = false;
-    const H_EXPANDED = 260, H_FOLDED = 38;
+    const H_EXPANDED = 300, H_FOLDED = 40;
 
     const STATE_TXT = { stopped: '停止', waiting: '巡逻找怪', fighting: '战斗中', throwing: '丢球中', paused: '暂停' };
 
@@ -152,6 +196,20 @@
         $('body').style.display = folded ? 'none' : '';
         $('foldBtn').textContent = folded ? '▴' : '▾';
         try { await pywebview.api.widget_resize(folded ? H_FOLDED : H_EXPANDED); } catch (e) {}
+    }
+
+    function setHp(pct) {
+        const bar = $('wEnemyHpBar'), num = $('wEnemyHpNum');
+        if (pct == null) {
+            bar.style.width = '0%';
+            bar.className = 'hpbar-fill';
+            num.innerHTML = '--<span>%</span>';
+            return;
+        }
+        const v = Math.max(0, Math.min(100, pct));
+        bar.style.width = v + '%';
+        bar.className = 'hpbar-fill' + (v <= 20 ? ' low' : v <= 50 ? ' mid' : '');
+        num.innerHTML = v + '<span>%</span>';
     }
 
     async function tick() {
@@ -170,9 +228,14 @@
             $('wState').textContent = STATE_TXT[state] || state;
             $('wDetail').textContent = e.detail || '—';
             $('wBattles').textContent = e.battles_done ?? 0;
-            $('wEnemyName').textContent = e.enemy_name || '—';
-            $('wEnemyHp').textContent = e.enemy_hp != null ? `${e.enemy_hp}%` : '—';
             $('wBalls').textContent = `${e.catch_attempts ?? 0} / ${e.catches ?? 0}`;
+
+            // 敌方卡片
+            const nameCard = $('wEnemyNameCard');
+            const hasName = !!(e.enemy_name && e.enemy_name !== '?');
+            nameCard.className = 'enemy-name' + (hasName ? '' : ' none');
+            $('wEnemyName').textContent = hasName ? e.enemy_name : (e.running ? '识别中…' : '未在战斗');
+            setHp(e.enemy_hp != null ? e.enemy_hp : null);
 
             const chips = [];
             (s.tasks || []).forEach(t => chips.push(`<span class="chip">${t.name}</span>`));
