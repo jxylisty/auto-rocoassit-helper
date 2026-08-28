@@ -688,10 +688,14 @@ class AppBridge:
     # ========================================
 
     def _pvp_loop(self):
-        """后台线程: 定时截图 → 识别 → 推送悬浮窗"""
+        """后台线程: 截图 → 识别 → 伤害计算 → 推送悬浮窗"""
         import time as _time
         import cv2, numpy as np
         from src.pvp.pvp_pipeline import get_pipeline
+        from src.pvp.pet_loader import get_pet_by_name
+        from src.pvp.skill_loader import get_skill
+        from src.pvp.damage_calculator import calculate_all_panels, calculate_damage_full
+        from src.pvp.type_chart import get_attr_multiplier
 
         pipeline = get_pipeline()
         self._pipeline = pipeline
@@ -705,7 +709,6 @@ class AppBridge:
                     _time.sleep(self._pvp_interval)
                     continue
                 left, top, right, bottom = info.rect
-                w, h = right - left, bottom - top
 
                 from PIL import ImageGrab
                 img = ImageGrab.grab(bbox=(left, top, right, bottom))
@@ -715,19 +718,101 @@ class AppBridge:
                 # 2. 识别
                 result = pipeline.analyze(frame)
                 data = pipeline.to_dict(result)
+                player = data.get("player", {})
+                enemy = data.get("enemy", {})
 
-                # 3. 推送悬浮窗
+                # 3. 伤害计算 —— 如果识别到精灵名
+                if result.in_battle:
+                    try:
+                        self_pet = get_pet_by_name(result.player_name)
+                        enemy_pet = get_pet_by_name(result.enemy_name)
+
+                        if self_pet and enemy_pet:
+                            # 自动流派推导: 物攻高用物攻, 魔攻高用魔攻
+                            race = self_pet.get("race", {})
+                            prefer = "mattack" if race.get("mattack", 0) > race.get("attack", 0) else "attack"
+                            self_panel = calculate_all_panels(self_pet.get("race", {}))
+                            enemy_panel = calculate_all_panels(enemy_pet.get("race", {}))
+                            speed_diff = self_panel["speed"] - enemy_panel["speed"]
+
+                            # 我方技能伤害
+                            calc_skills = []
+                            for sk_name in result.skills:
+                                sk = get_skill(sk_name) or {}
+                                sk_type = sk.get("type", "物攻")
+                                sk_attr = sk.get("attr", "普")
+                                sk_power = float(sk.get("power", 0)) if sk.get("power") else 0
+                                if sk_power > 0 and sk_type in ("物攻", "魔攻"):
+                                    dmg = calculate_damage_full(
+                                        attacker_panel=self_panel, defender_panel=enemy_panel,
+                                        skill_power=sk_power, skill_type=sk_type, skill_attr=sk_attr,
+                                        attacker_attrs=self_pet.get("types", []),
+                                        defender_attrs=enemy_pet.get("types", []),
+                                    )
+                                    enemy_est_hp = int(enemy_panel["hp"] * result.enemy_hp_pct)
+                                    dmg_min = dmg["damage"]
+                                    dmg_max = round(dmg["damage"] * 1.15)
+                                    is_kill = enemy_est_hp > 0 and dmg_min >= enemy_est_hp
+                                    calc_skills.append({
+                                        "name": sk_name, "power": int(sk_power),
+                                        "type": sk_type, "attr": sk_attr,
+                                        "dmg_min": dmg_min, "dmg_max": dmg_max,
+                                        "mult": dmg["attrMultiplier"],
+                                        "is_kill": is_kill,
+                                    })
+                                else:
+                                    calc_skills.append({"name": sk_name, "power": 0, "type": "变化", "dmg_min": 0, "dmg_max": 0, "mult": 1, "is_kill": False})
+
+                            # 敌方威胁 (取威力最高的 2 个技能)
+                            enemy_skills_raw = enemy_pet.get("skills", [])[:10]
+                            enemy_skills = [s["name"] if isinstance(s, dict) else s for s in enemy_skills_raw]
+                            enemy_threats = []
+                            for esk_name in enemy_skills:
+                                esk = get_skill(esk_name) or {}
+                                esk_power = float(esk.get("power", 0)) if esk.get("power") else 0
+                                esk_type = esk.get("type", "")
+                                if esk_power > 0 and esk_type in ("物攻", "魔攻"):
+                                    edmg = calculate_damage_full(
+                                        attacker_panel=enemy_panel, defender_panel=self_panel,
+                                        skill_power=esk_power, skill_type=esk_type,
+                                        skill_attr=esk.get("attr", "普"),
+                                        attacker_attrs=enemy_pet.get("types", []),
+                                        defender_attrs=self_pet.get("types", []),
+                                    )
+                                    is_lethal = result.player_hp_val > 0 and edmg["damage"] >= result.player_hp_val
+                                    enemy_threats.append({
+                                        "name": esk_name, "power": int(esk_power),
+                                        "dmg_min": edmg["damage"],
+                                        "dmg_max": round(edmg["damage"] * 1.15),
+                                        "is_lethal": is_lethal,
+                                    })
+                                if len(enemy_threats) >= 2:
+                                    break
+
+                            data["speed_diff"] = int(speed_diff)
+                            data["calc_skills"] = calc_skills
+                            data["enemy_threats"] = enemy_threats
+                            data["calc_done"] = True
+                    except Exception as e:
+                        data["calc_error"] = str(e)
+
+                # 4. 推送悬浮窗
                 if self._pvp_float_window and self._pvp_float_visible and self._pvp_float_loaded:
                     self._pvp_float_window.evaluate_js(
                         f"updatePVPData({json.dumps(data, ensure_ascii=False)})"
                     )
 
-                # 4. 日志
+                # 5. 日志
                 if result.in_battle:
+                    dmg_hint = ""
+                    if data.get("calc_skills"):
+                        kills = [s["name"] for s in data["calc_skills"] if s.get("is_kill")]
+                        if kills:
+                            dmg_hint = f" 🔥必杀:{','.join(kills)}"
                     self._enqueue_log(
                         f"⚔️ 我方:{result.player_name}({result.player_hp}) "
                         f"敌方:{result.enemy_name}({result.enemy_hp_pct:.0%}) "
-                        f"技能:{result.skills[0] if result.skills else '-'}",
+                        f"技能:{result.skills[0] if result.skills else '-'}{dmg_hint}",
                         "info")
 
             except Exception as e:
@@ -825,10 +910,17 @@ class AppBridge:
     # ========================================
 
     def set_pvp_float_window(self, window):
-        """设置 PVP 对战悬浮窗引用"""
+        """设置 PVP 对战悬浮窗引用 + 防自截"""
         self._pvp_float_window = window
-        # 悬浮窗加载完成后标记
         window.events.loaded += lambda: setattr(self, '_pvp_float_loaded', True)
+        # 防自截: Windows 10 2004+ WDA_EXCLUDEFROMCAPTURE
+        try:
+            import ctypes
+            hwnd = window.native_handle
+            if hwnd:
+                ctypes.windll.user32.SetWindowDisplayAffinity(int(hwnd), 0x00000011)
+        except Exception:
+            pass
 
     def pvp_search_pets(self, query: str = "") -> dict:
         from src.pvp import search_pets, get_all_pet_names

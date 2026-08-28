@@ -23,21 +23,45 @@ body {
 .head .dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; }
 .head .dot.off { background: #f87171; }
 .head .title { font-size: 11px; font-weight: 700; flex: 1; }
-.body { padding: 8px 10px; }
-.row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.head .speed { font-size: 9px; color: #8b93a7; }
+.head .speed.fast { color: #4ade80; }
+.head .speed.slow { color: #f87171; }
+.body { padding: 6px 10px; }
+.row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
 .row:last-child { margin-bottom: 0; }
-.label { font-size: 9px; color: #8b93a7; min-width: 36px; text-align: right; }
+.label { font-size: 9px; color: #8b93a7; min-width: 28px; text-align: right; }
 .val { font-size: 11px; font-weight: 600; }
 .val.green { color: #4ade80; }
 .val.red { color: #f87171; }
 .val.cyan { color: #22d3ee; }
-.hp-bar { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 2px; }
+.hp-bar { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin: 2px 0 4px; }
 .hp-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
-.skill-row { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
-.skill-tag {
-    font-size: 9px; padding: 1px 5px; border-radius: 3px;
-    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+.skills { margin-top: 4px; }
+.skill-row {
+    display: flex; align-items: center; gap: 4px; padding: 2px 4px;
+    border-radius: 3px; margin-bottom: 2px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.04);
 }
+.skill-row.kill { border-color: rgba(248,113,113,0.5); background: rgba(248,113,113,0.08); animation: killPulse 1.5s infinite; }
+@keyframes killPulse { 0%,100% { background: rgba(248,113,113,0.08); } 50% { background: rgba(248,113,113,0.18); } }
+.skill-name { font-size: 10px; font-weight: 600; flex: 1; }
+.skill-dmg { font-size: 9px; color: #8b93a7; }
+.skill-dmg.kill { color: #f87171; font-weight: 700; }
+.kill-badge {
+    font-size: 8px; padding: 0 3px; border-radius: 2px;
+    background: rgba(248,113,113,0.2); color: #f87171; font-weight: 700;
+}
+.divider {
+    border-top: 1px solid rgba(255,255,255,0.06); margin: 4px 0;
+}
+.threat-row {
+    display: flex; align-items: center; gap: 4px; font-size: 9px;
+    padding: 2px 4px; border-radius: 3px; margin-bottom: 2px;
+    background: rgba(248,113,113,0.05); border: 1px solid rgba(248,113,113,0.1);
+}
+.threat-row.lethal { border-color: rgba(248,113,113,0.4); animation: killPulse 1.5s infinite; }
+.threat-name { flex: 1; font-weight: 600; }
+.threat-dmg { color: #f87171; }
 .empty { text-align: center; padding: 16px 0; color: #555; font-size: 10px; }
 </style>
 </head>
@@ -46,6 +70,7 @@ body {
     <div class="head">
         <div class="dot" id="statusDot"></div>
         <div class="title">PVP 实时</div>
+        <div class="speed" id="speedInfo"></div>
     </div>
     <div class="body" id="body">
         <div class="empty">等待识别中…</div>
@@ -55,6 +80,7 @@ body {
 function updatePVPData(data) {
     if (!data || !data.in_battle) {
         document.getElementById('statusDot').className = 'dot off';
+        document.getElementById('speedInfo').textContent = '';
         document.getElementById('body').innerHTML = '<div class="empty">等待战斗中…</div>';
         return;
     }
@@ -62,6 +88,45 @@ function updatePVPData(data) {
     const p = data.player || {}, e = data.enemy || {};
     const hpPct = e.hp_pct || e.hp_color || 0;
     const barColor = hpPct > 0.5 ? '#4ade80' : hpPct > 0.2 ? '#fbbf24' : '#f87171';
+
+    // 速度差
+    const sd = data.speed_diff;
+    const speedEl = document.getElementById('speedInfo');
+    if (sd !== undefined) {
+        speedEl.textContent = sd > 0 ? '⚡ 先手 +' + sd : sd < 0 ? '🐢 后手 ' + sd : '= 平速';
+        speedEl.className = 'speed ' + (sd > 0 ? 'fast' : sd < 0 ? 'slow' : '');
+    } else { speedEl.textContent = ''; }
+
+    // 技能伤害
+    let skillsHtml = '';
+    if (data.calc_skills) {
+        skillsHtml = data.calc_skills.map(s => {
+            var kill = s.is_kill, dmg = s.dmg_min > 0 ? s.dmg_min + '~' + s.dmg_max : '—';
+            var mult = s.mult > 1 ? '×' + s.mult.toFixed(1) + ' ' : '';
+            return `<div class="skill-row${kill ? ' kill' : ''}">
+                <span class="skill-name">${s.name}</span>
+                <span class="skill-dmg${kill ? ' kill' : ''}">${mult}${dmg}</span>
+                ${kill ? '<span class="kill-badge">必杀</span>' : ''}
+            </div>`;
+        }).join('');
+    } else if (p.skills) {
+        skillsHtml = '<div class="skills">' + p.skills.filter(Boolean).map(s =>
+            `<span class="skill-tag" style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);margin-right:4px">${s}</span>`
+        ).join('') + '</div>';
+    }
+
+    // 敌方威胁
+    let threatsHtml = '';
+    if (data.enemy_threats && data.enemy_threats.length) {
+        threatsHtml = data.enemy_threats.map(t => {
+            var lethal = t.is_lethal, dmg = t.dmg_min + '~' + t.dmg_max;
+            return `<div class="threat-row${lethal ? ' lethal' : ''}">
+                <span class="threat-name">⚠️ ${t.name}</span>
+                <span class="threat-dmg">${dmg}</span>
+                ${lethal ? '<span class="kill-badge">致死</span>' : ''}
+            </div>`;
+        }).join('');
+    }
 
     document.getElementById('body').innerHTML = `
         <div class="row">
@@ -79,13 +144,12 @@ function updatePVPData(data) {
         <div class="hp-bar">
             <div class="hp-fill" style="width:${Math.round(hpPct*100)}%; background:${barColor}"></div>
         </div>
-        <div class="row" style="margin-top:6px">
+        <div class="row" style="margin-top:4px">
             <span class="label">能量</span>
             <span class="val">${p.energy || '?'}</span>
         </div>
-        <div class="skill-row">
-            ${(p.skills||[]).filter(Boolean).map(s => `<span class="skill-tag">${s}</span>`).join('')}
-        </div>
+        ${skillsHtml ? '<div class="skills">' + skillsHtml + '</div>' : ''}
+        ${threatsHtml ? '<div class="divider"></div>' + threatsHtml : ''}
     `;
 }
 </script>
