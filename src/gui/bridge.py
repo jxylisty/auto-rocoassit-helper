@@ -385,6 +385,23 @@ class AppBridge:
         info = find_window(class_name="UnrealWindow")
         if info is None:
             info = find_window()
+        if info is not None:
+            # 窗口被最小化时坐标会偏移到屏幕外(-32000, -32000), 无法截图
+            try:
+                import win32gui, win32con
+                if win32gui.IsIconic(info.hwnd):
+                    win32gui.ShowWindow(info.hwnd, win32con.SW_RESTORE)
+                    info = find_window(class_name="UnrealWindow") or find_window()
+            except Exception:
+                pass
+            # 坐标异常时也尝试恢复
+            if info and (info.rect[0] < -30000 or info.rect[1] < -30000):
+                try:
+                    import win32gui, win32con
+                    win32gui.ShowWindow(info.hwnd, win32con.SW_RESTORE)
+                    info = find_window(class_name="UnrealWindow") or find_window()
+                except Exception:
+                    pass
         return info
 
     @staticmethod

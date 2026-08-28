@@ -14,13 +14,13 @@ battle:
   flee_hp: 8
   flee_key: ''
   skills:
-  - '3'
+  - '1'
   skill_interval_min: 1.2
   skill_interval_max: 2.0
   battle_timeout: 240
   max_balls_per_battle: 30
 patrol:
-  enabled: true
+  enabled: false
   move_key: w
   move_min: 1.5
   move_max: 3.0
