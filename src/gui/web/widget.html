@@ -132,6 +132,8 @@
         <div class="row"><span class="k">状态详情</span><span class="v" id="wDetail" style="font-weight:400;color:#9aa3b8">—</span></div>
         <div class="divider"></div>
         <div class="row"><span class="k">完成战斗</span><span class="v ok" id="wBattles">0</span></div>
+        <div class="row"><span class="k">敌方精灵</span><span class="v" id="wEnemyName" style="color:#f87171">—</span></div>
+        <div class="row"><span class="k">敌方血量</span><span class="v warn" id="wEnemyHp">—</span></div>
         <div class="row"><span class="k">丢球 / 捕获</span><span class="v warn" id="wBalls">0 / 0</span></div>
         <div class="divider"></div>
         <div class="chips" id="wChips"><span class="chip none">全部空闲</span></div>
@@ -141,7 +143,7 @@
 <script>
     const $ = id => document.getElementById(id);
     let folded = false;
-    const H_EXPANDED = 220, H_FOLDED = 38;
+    const H_EXPANDED = 260, H_FOLDED = 38;
 
     const STATE_TXT = { stopped: '停止', waiting: '巡逻找怪', fighting: '战斗中', throwing: '丢球中', paused: '暂停' };
 
@@ -168,6 +170,8 @@
             $('wState').textContent = STATE_TXT[state] || state;
             $('wDetail').textContent = e.detail || '—';
             $('wBattles').textContent = e.battles_done ?? 0;
+            $('wEnemyName').textContent = e.enemy_name || '—';
+            $('wEnemyHp').textContent = e.enemy_hp != null ? `${e.enemy_hp}%` : '—';
             $('wBalls').textContent = `${e.catch_attempts ?? 0} / ${e.catches ?? 0}`;
 
             const chips = [];

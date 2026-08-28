@@ -73,6 +73,8 @@ class BattleEngine:
         self._balls_this_battle = 0
         self._hp_miss_count = 0
         self._skill_index = 0
+        self._enemy_name = ""          # 当前敌方精灵名
+        self._enemy_hp = None          # 当前敌方血量%
         self._battle_detector = None  # 丢球界面判定用的角标检测器(懒加载)
         self._streak_hash = None      # 巡逻卡住检测: 连续相同的画面哈希计数
         self._stuck_count = 0
@@ -153,6 +155,8 @@ class BattleEngine:
             "catches": self.catches,
             "skills_used": self.skills_used,
             "catch_hp": self.catch_hp,
+            "enemy_name": self._enemy_name,
+            "enemy_hp": self._enemy_hp,
         }
 
     # ========================================
@@ -216,8 +220,12 @@ class BattleEngine:
                     full = pipeline.analyze(frame, light=False)
                     name = full.enemy_name.value or "?"
                     hp = full.enemy_hp.value if hp is None else hp
+                    self._enemy_name = name
+                    self._enemy_hp = hp
                 except Exception:
                     name = "?"
+                    self._enemy_name = ""
+                    self._enemy_hp = None
                 self._log(f"进入战斗: {name}(血量{hp if hp is not None else '?'}%)", "success")
 
             # ---- 超时保护 ----
@@ -237,6 +245,7 @@ class BattleEngine:
                 self._stop_event.wait(1.0)
                 continue
             self._hp_miss_count = 0
+            self._enemy_hp = hp
 
             # ---- 策略决策 ----
             self.state_detail = f"敌方血量 {hp}%"
@@ -258,6 +267,8 @@ class BattleEngine:
         if caught:
             self.catches += 1
         self._log(f"战斗结束(第{self.battles_done}场) {'疑似捕获成功' if caught else '未丢球'}", "success")
+        self._enemy_name = ""
+        self._enemy_hp = None
         self._reset_battle()
 
     # ========================================
