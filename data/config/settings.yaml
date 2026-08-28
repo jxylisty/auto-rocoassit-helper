@@ -14,7 +14,7 @@ battle:
   flee_hp: 8
   flee_key: ''
   skills:
-  - '1'
+  - '3'
   skill_interval_min: 1.2
   skill_interval_max: 2.0
   battle_timeout: 240

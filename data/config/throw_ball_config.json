@@ -1,0 +1,10 @@
+{
+  "normal_min": 0.35,
+  "normal_max": 0.5,
+  "bomber_charge_min": 0.3,
+  "bomber_charge_max": 0.5,
+  "bomber_hover_min": 2.0,
+  "bomber_hover_max": 2.2,
+  "skill_min": 1.0,
+  "skill_max": 2.0
+}

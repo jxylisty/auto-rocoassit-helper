@@ -75,7 +75,7 @@ class OcrNumberReader(BaseReader[int]):
         candidates = (bright, cv2.bitwise_not(bright), otsu, cv2.bitwise_not(otsu))
 
         whitelist = "0123456789%/" if self.percent else "0123456789/"
-        config = f'--psm 7 --tessdata-dir "{TESSDATA_DIR}" -c tessedit_char_whitelist={whitelist}'
+        config = f'--psm 7 -c tessedit_char_whitelist={whitelist}'
         text = ""
         # 白字黑底/黑字白底都试;百分比模式出结果即早退(省时)
         for candidate in (bright, cv2.bitwise_not(bright), otsu, cv2.bitwise_not(otsu)):
