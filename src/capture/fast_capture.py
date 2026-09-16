@@ -26,6 +26,9 @@ class FastCapture:
         self._last_time = 0.0
         # 后台抓图线程
         self._worker: Optional[CaptureWorker] = None
+        # mss 实例非线程安全: 战斗检测/球槽监视等线程会并发调 capture, 串行化 grab
+        import threading
+        self._lock = threading.Lock()
 
     @property
     def fps(self) -> float:
@@ -37,12 +40,13 @@ class FastCapture:
             return self._capture_pil(rect)
         t0 = time.perf_counter()
         try:
-            if rect:
-                left, top, w, h = rect
-                monitor = {"left": left, "top": top, "width": w, "height": h}
-            else:
-                monitor = self._sct.monitors[1]
-            img = self._sct.grab(monitor)
+            with self._lock:
+                if rect:
+                    left, top, w, h = rect
+                    monitor = {"left": left, "top": top, "width": w, "height": h}
+                else:
+                    monitor = self._sct.monitors[1]
+                img = self._sct.grab(monitor)
             frame = cv2.cvtColor(np.array(img), cv2.COLOR_BGRA2BGR)
             self._update_fps(t0)
             return frame
@@ -95,10 +99,13 @@ class FastCapture:
         return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
 
     def close(self):
-        """释放 mss 资源"""
+        """释放 mss 资源 (mss 句柄线程局部, 跨线程 close 会 AttributeError, 进程退出场景直接忽略)"""
         self.stop_worker()
         if self._sct:
-            self._sct.close()
+            try:
+                self._sct.close()
+            except Exception:
+                pass
             self._sct = None
 
     def _update_fps(self, t0: float):

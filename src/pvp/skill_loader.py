@@ -11,6 +11,30 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 with open(DATA_DIR / "skills.json", "r", encoding="utf-8") as f:
     _SKILLS: Dict[str, Dict] = json.load(f)
 
+# 自动合并官方标签数据 (7大行为标签)
+_TAGS_FILE = DATA_DIR / "skills_with_tags.json"
+if _TAGS_FILE.exists():
+    try:
+        with open(_TAGS_FILE, "r", encoding="utf-8") as f:
+            _TAGS_DATA = json.load(f)
+            for k, v in _TAGS_DATA.items():
+                if k in _SKILLS:
+                    _SKILLS[k]["tags"] = v.get("tags", [])
+                    if not _SKILLS[k].get("describe") and v.get("description"):
+                        _SKILLS[k]["describe"] = v.get("description")
+                else:
+                    _SKILLS[k] = {
+                        "name": k,
+                        "type": v.get("damage_type", "变化"),
+                        "attr": v.get("element", "普通"),
+                        "power": v.get("power", "0"),
+                        "consume": v.get("cost", "0"),
+                        "describe": v.get("description", ""),
+                        "tags": v.get("tags", [])
+                    }
+    except Exception:
+        pass
+
 
 def get_skill(name: str) -> Optional[Dict[str, Any]]:
     """按技能名称查询"""

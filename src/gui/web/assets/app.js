@@ -109,6 +109,93 @@ function dismissToast(toast) {
 window.showToast = showToast;
 
 // ========================================
+// 全局自定义模态弹窗系统 (Promise-based Modal)
+// ========================================
+
+let modalResolver = null;
+
+function showModalPrompt({ title = '输入', desc = '', defaultValue = '', placeholder = '', confirmText = '确定', cancelText = '取消' } = {}) {
+    return new Promise((resolve) => {
+        modalResolver = resolve;
+        $('customModalTitle').textContent = title;
+        $('customModalDesc').textContent = desc;
+        const inputWrap = $('customModalInputWrap');
+        const input = $('customModalInput');
+        inputWrap.style.display = 'block';
+        input.value = defaultValue;
+        input.placeholder = placeholder;
+
+        const confirmBtn = $('customModalConfirmBtn');
+        confirmBtn.textContent = confirmText;
+        confirmBtn.className = 'btn btn-primary';
+        $('customModalCancelBtn').textContent = cancelText;
+
+        $('customModalOverlay').classList.add('show');
+        setTimeout(() => { input.focus(); input.select(); }, 50);
+
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter') confirmCustomModal();
+            if (e.key === 'Escape') cancelCustomModal();
+        };
+    });
+}
+
+function showModalConfirm({ title = '确认操作', desc = '', confirmText = '确定', cancelText = '取消', danger = false } = {}) {
+    return new Promise((resolve) => {
+        modalResolver = resolve;
+        $('customModalTitle').textContent = title;
+        $('customModalDesc').textContent = desc;
+        $('customModalInputWrap').style.display = 'none';
+
+        const confirmBtn = $('customModalConfirmBtn');
+        confirmBtn.textContent = confirmText;
+        confirmBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+        $('customModalCancelBtn').textContent = cancelText;
+
+        $('customModalOverlay').classList.add('show');
+        setTimeout(() => confirmBtn.focus(), 50);
+    });
+}
+
+function confirmCustomModal() {
+    $('customModalOverlay').classList.remove('show');
+    if (modalResolver) {
+        const inputWrap = $('customModalInputWrap');
+        if (inputWrap.style.display !== 'none') {
+            modalResolver($('customModalInput').value.trim());
+        } else {
+            modalResolver(true);
+        }
+        modalResolver = null;
+    }
+}
+
+function cancelCustomModal() {
+    $('customModalOverlay').classList.remove('show');
+    if (modalResolver) {
+        const inputWrap = $('customModalInputWrap');
+        if (inputWrap.style.display !== 'none') {
+            modalResolver(null);
+        } else {
+            modalResolver(false);
+        }
+        modalResolver = null;
+    }
+}
+
+function closeCustomModal(e) {
+    if (e.target === $('customModalOverlay')) {
+        cancelCustomModal();
+    }
+}
+
+window.showModalPrompt = showModalPrompt;
+window.showModalConfirm = showModalConfirm;
+window.confirmCustomModal = confirmCustomModal;
+window.cancelCustomModal = cancelCustomModal;
+window.closeCustomModal = closeCustomModal;
+
+// ========================================
 // 日志
 // ========================================
 
@@ -201,6 +288,61 @@ document.addEventListener('keydown', (e) => {
 // ========================================
 
 let engineOn = false;
+let engineSaveTimer = null;
+
+function collectEngineSettings() {
+    return {
+        catch_hp: Number($('engineCatchHp').value),
+        skills: $('engineSkills').value,
+        skill_mode: $('engineSkillMode') ? $('engineSkillMode').value : 'cycle',
+        open_ball_key: $('engineOpenKey').value,
+        ball_slot_key: $('engineBallKey').value,
+        patrol_enabled: $('patrolEnabled').checked,
+        patrol_move_key: $('patrolMoveKey').value,
+        patrol_turn_mode: $('patrolTurnMode').value,
+        dry_run: $('engineDry').checked,
+    };
+}
+
+function pushEngineSettings() {
+    clearTimeout(engineSaveTimer);
+    engineSaveTimer = setTimeout(async () => {
+        try {
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.engine_save_settings) {
+                const params = collectEngineSettings();
+                await pywebview.api.engine_save_settings(params);
+            }
+        } catch (e) { /* ignore */ }
+    }, 300);
+}
+
+async function initEngineSettings() {
+    try {
+        const r = await pywebview.api.engine_get_settings();
+        if (r && r.success && r.settings) {
+            const s = r.settings;
+            if (s.catch_hp !== undefined && $('engineCatchHp')) {
+                $('engineCatchHp').value = s.catch_hp;
+                paintCatchHpSlider();
+            }
+            if (s.skills !== undefined && $('engineSkills')) $('engineSkills').value = s.skills;
+            if (s.open_ball_key !== undefined && $('engineOpenKey')) $('engineOpenKey').value = s.open_ball_key;
+            if (s.ball_slot_key !== undefined && $('engineBallKey')) $('engineBallKey').value = s.ball_slot_key;
+            if (s.patrol_enabled !== undefined && $('patrolEnabled')) $('patrolEnabled').checked = Boolean(s.patrol_enabled);
+            if (s.patrol_move_key !== undefined && $('patrolMoveKey')) $('patrolMoveKey').value = s.patrol_move_key;
+            if (s.patrol_turn_mode !== undefined && $('patrolTurnMode')) $('patrolTurnMode').value = s.patrol_turn_mode;
+        }
+    } catch (e) { /* 后端未就绪 */ }
+}
+
+function paintCatchHpSlider() {
+    const el = $('engineCatchHp');
+    if (!el) return;
+    const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
+    el.style.setProperty('--fill', pct + '%');
+    const valEl = $('engineCatchHpVal');
+    if (valEl) valEl.textContent = el.value + '%';
+}
 
 async function engineToggle() {
     try {
@@ -208,25 +350,45 @@ async function engineToggle() {
             await pywebview.api.engine_stop();
             showToast('引擎已停止', 'warning');
         } else {
-            const params = {
-                catch_hp: Number($('engineCatchHp').value),
-                skills: $('engineSkills').value,
-                open_ball_key: $('engineOpenKey').value,
-                ball_slot_key: $('engineBallKey').value,
-                patrol_enabled: $('patrolEnabled').checked,
-                patrol_move_key: $('patrolMoveKey').value,
-                patrol_turn_mode: $('patrolTurnMode').value,
-            };
+            const params = collectEngineSettings();
             const dry = $('engineDry').checked;
             const r = await pywebview.api.engine_start(dry, params);
             if (!r.success) {
                 addLog('引擎启动失败: ' + (r.message || ''), 'error');
             } else {
+                notifyAutoStopped(r);
                 showToast(dry ? '引擎已启动(模拟模式)' : '引擎已启动', 'success');
             }
         }
         refreshState();
     } catch (e) { addLog('引擎操作异常: ' + e.message, 'error'); }
+}
+
+// 模式互斥提示: 后端启动新模式时自动停止了其它组
+function notifyAutoStopped(r) {
+    if (r && Array.isArray(r.auto_stopped) && r.auto_stopped.length) {
+        showToast('模式互斥: 已自动停止 ' + r.auto_stopped.join('、'), 'warning', 6000);
+        addLog('模式互斥: 已自动停止 ' + r.auto_stopped.join('、'), 'warning');
+    }
+}
+
+// ========================================
+// 运行模式 (开发者版 / 用户版)
+// 用户版隐藏: 视觉调试台、配置文件编辑器、数据采集、诊断工具、演示数据
+// ========================================
+function isUserMode() {
+    return document.body.classList.contains('mode-user');
+}
+
+async function applyAppMode() {
+    try {
+        const r = await pywebview.api.get_app_mode();
+        if (r && r.success && r.dev === false) {
+            document.body.classList.add('mode-user');
+            // 若当前停留在被隐藏的开发者页面,跳回丢球助手
+            if (document.querySelector('#page-vision.active')) switchPage('throw');
+        }
+    } catch (e) { /* 后端未就绪,默认按开发者版显示 */ }
 }
 
 function applyEngineStatus(s) {
@@ -242,37 +404,106 @@ function applyEngineStatus(s) {
     $('engBattles').textContent = s.battles_done ?? 0;
     $('engBalls').textContent = s.catch_attempts ?? 0;
     $('engCatches').textContent = s.catches ?? 0;
+    if ($('engShiny')) $('engShiny').textContent = s.shiny_count ?? 0;
+    if ($('engBallsUsed')) $('engBallsUsed').textContent = s.balls_used_total ?? 0;
 }
-
-// 捕获血线滑杆
-document.addEventListener('DOMContentLoaded', () => {
-    const el = $('engineCatchHp');
-    const paint = () => {
-        const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
-        el.style.setProperty('--fill', pct + '%');
-        $('engineCatchHpVal').textContent = el.value + '%';
-    };
-    el.addEventListener('input', paint);
-    paint();
-});
 
 // ========================================
 // 页面导航
 // ========================================
 
-function switchPage(name) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    const page = $(`page-${name}`);
-    const nav = document.querySelector(`.nav-item[data-page="${name}"]`);
+// 合并页映射: 旧页面名 → [侧边栏包装页, 页内子tab]
+// 自动挂机 = 丢球助手 + 挂机引擎; PVP对战 = 实时对战 + 赛季战报
+const MERGED_PAGE_MAP = {
+    auto:    ['auto', 'throw'],
+    throw:   ['auto', 'throw'],
+    engine:  ['auto', 'engine'],
+    pvp:     ['pvp', 'battle'],
+    battle:  ['pvp', 'battle'],
+    history: ['pvp', 'history'],
+};
 
-    if (page) page.classList.add('active');
-    if (nav) nav.classList.add('active');
+function switchPage(name) {
+    const merged = MERGED_PAGE_MAP[name];
+    if (merged) {
+        activateNavPage(merged[0]);
+        activatePageTab(merged[0], merged[1]);
+        // 切到赛季战报子页时刷新数据
+        if (merged[0] === 'pvp' && merged[1] === 'history' && typeof loadMatchHistory === 'function') {
+            setTimeout(loadMatchHistory, 50);
+        }
+        return;
+    }
+
+    activateNavPage(name);
 
     // 切换到视觉调试台时刷新模板列表
     if (name === 'vision' && typeof tmplRefreshList === 'function') {
         setTimeout(tmplRefreshList, 200);
     }
+}
+
+// 高亮侧边栏入口并显示对应 .page 区块
+function activateNavPage(name) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const page = $(`page-${name}`);
+    const nav = document.querySelector(`.nav-item[data-page="${name}"]`);
+    if (page) page.classList.add('active');
+    if (nav) nav.classList.add('active');
+}
+
+// 在合并页内切换子 tab(丢球助手/挂机引擎、实时对战/赛季战报)
+function activatePageTab(wrapper, tab) {
+    document.querySelectorAll(`#page-${wrapper} .page-tab-btn`).forEach(b =>
+        b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll(`#page-${wrapper} .page-tab-pane`).forEach(d =>
+        d.classList.toggle('active', d.dataset.tab === tab));
+}
+
+// ========================================
+// 咕噜球库存卡片
+// ========================================
+
+function renderBallInventory(bi) {
+    const card = $('ballInventoryCard');
+    if (!card) return;
+    if (!bi) { card.style.display = 'none'; return; }
+    card.style.display = '';
+
+    // 诊断状态行: 监视是否启用 / 采样次数
+    const state = $('ballInvState');
+    if (state) {
+        if (!bi.enabled) {
+            state.textContent = ' · ⚠ 监视未启用(缺 咕噜球1 ROI 或球模板)';
+        } else {
+            const real = bi.real_throw_count > 0 ? ` · 实际丢球 ${bi.real_throw_count} 颗` : '';
+            const corner = (bi.corner && bi.corner.present && bi.corner.ball_name)
+                ? ` · 右下角:${bi.corner.ball_name}` : '';
+            state.textContent = ` · 已采样 ${bi.samples || 0} 次 · 模式:${bi.mode || 'log'}${real}${corner}`
+                + ((bi.samples || 0) === 0 ? ' · 启动丢球后自动识别' : '');
+        }
+    }
+
+    const blank = { present: false, ball_name: null, count: null, score: 0 };
+    const slots = Array.isArray(bi.slots) && bi.slots.length === 6 ? bi.slots : [1, 2, 3, 4, 5, 6].map(i => ({ slot: i, ...blank }));
+    const everSampled = (bi.samples || 0) > 0 || bi.updated_at;
+
+    $('ballInvGrid').innerHTML = slots.map(s => {
+        if (!s.present) {
+            const label = everSampled ? '空' : '未识别';
+            return `<div class="bi-cell off"><span class="bi-slot">${s.slot}号</span><span class="bi-name">${label}</span><span class="bi-count">—</span></div>`;
+        }
+        const name = s.ball_name || '未知球';
+        const count = s.count != null ? s.count : '?';
+        return `<div class="bi-cell on" title="${name}${s.count != null ? ' × ' + s.count : ''} (匹配度 ${s.score})">`
+            + `<span class="bi-slot">${s.slot}号</span>`
+            + `<span class="bi-name">${name}</span>`
+            + `<span class="bi-count">${count}</span></div>`;
+    }).join('');
+
+    const t = $('ballInvTime');
+    if (t) t.textContent = bi.updated_at ? '更新于 ' + bi.updated_at : '';
 }
 
 // ========================================
@@ -289,8 +520,26 @@ function paintSlider(el) {
 function collectConfig() {
     const cfg = {};
     CONFIG_KEYS.forEach(k => { cfg[k] = Number($(k).value); });
+    if ($('chkExitOnBattle')) {
+        cfg.exit_on_battle = $('chkExitOnBattle').checked;
+    }
+    // 自动停止条件(0 = 不限制)
+    if ($('stop_after_count')) cfg.stop_after_count = Math.max(0, Number($('stop_after_count').value) || 0);
+    if ($('stop_after_minutes')) cfg.stop_after_minutes = Math.max(0, Number($('stop_after_minutes').value) || 0);
     return cfg;
 }
+
+async function toggleExitOnBattle(checked) {
+    try {
+        const r = await pywebview.api.update_config({ exit_on_battle: checked });
+        if (r.success) {
+            showToast(checked ? '已开启遭遇战斗自动退出丢球' : '已关闭遭遇战斗自动退出丢球', 'info');
+        }
+    } catch (e) {
+        showToast('设置失败: ' + e.message, 'error');
+    }
+}
+window.toggleExitOnBattle = toggleExitOnBattle;
 
 async function pushConfig() {
     try {
@@ -326,6 +575,7 @@ async function toggleMode(mode) {
     try {
         const r = await pywebview.api[m.api]();
         addLog(`${m.name} ${r.running ? '已启动' : '已停止'}`, r.running ? 'success' : 'warning');
+        if (r.running) notifyAutoStopped(r);
         refreshState();
     } catch (e) { addLog('操作异常: ' + e.message, 'error'); }
 }
@@ -368,7 +618,25 @@ function applyState(s) {
             if (Number(el.value) !== Number(s.config[k])) el.value = s.config[k];
             paintSlider(el);
         });
+        if (s.config.exit_on_battle !== undefined && $('chkExitOnBattle')) {
+            if (document.activeElement !== $('chkExitOnBattle')) {
+                $('chkExitOnBattle').checked = Boolean(s.config.exit_on_battle);
+            }
+        }
+        // 自动停止条件回填(不干扰正在输入的框)
+        [['stop_after_count', 'stop_after_count'], ['stop_after_minutes', 'stop_after_minutes']].forEach(([key, id]) => {
+            const el = $(id);
+            if (el && s.config[key] !== undefined && document.activeElement !== el) {
+                if (Number(el.value) !== Number(s.config[key])) el.value = s.config[key];
+            }
+        });
     }
+
+    // 咕噜球库存卡片(识别结果或上次持久化数据)
+    renderBallInventory(s.ball_inventory);
+
+    // 本轮计时 + 配额剩余 + 异色记录
+    renderRunMonitor(s.throw_run);
 
     // 任务栏
     const box = $('tbTasks');
@@ -437,8 +705,14 @@ function roiLoadConfig() {
     renderRoiOverlay();
 }
 
-function roiAddNew() {
-    const name = prompt('ROI 名称 (英文ID):', 'roi_' + (Object.keys(currentRoi || {}).length + 1));
+async function roiAddNew() {
+    const defaultId = 'roi_' + (Object.keys(currentRoi || {}).length + 1);
+    const name = await showModalPrompt({
+        title: '新建 ROI 区域',
+        desc: '请输入 ROI 的唯一英文标识 (ID)：',
+        defaultValue: defaultId,
+        placeholder: '例如: enemy_hp, skill_1'
+    });
     if (!name) return;
     if (currentRoi[name]) { showToast('ROI 已存在: ' + name, 'warning'); return; }
     // 进入拖框创建模式
@@ -462,8 +736,14 @@ function roiAddNewAt(name, x0, y0, x1, y1) {
     showToast('已创建 ROI: ' + name, 'success');
 }
 
-function roiDelete(id) {
-    if (!confirm(`删除 ROI「${id}」？`)) return;
+async function roiDelete(id) {
+    const ok = await showModalConfirm({
+        title: '删除 ROI 区域',
+        desc: `确定从当前模板中删除 ROI「${id}」？`,
+        danger: true,
+        confirmText: '删除'
+    });
+    if (!ok) return;
     delete currentRoi[id];
     if (roiSelected === id) roiSelected = null;
     renderRoiManager();
@@ -716,6 +996,17 @@ function roiOnCreateUp(e) {
     showToast('已创建 ROI: ' + name, 'success');
 }
 
+async function roiColorPrompt(id) {
+    const cur = ROI_COLORS[id] || '#6366f1';
+    const color = await showModalPrompt({
+        title: '修改 ROI 标注颜色',
+        desc: '请输入 16 进制颜色代码 (#hex)：',
+        defaultValue: cur,
+        placeholder: '#6366f1'
+    });
+    if (color) roiColorChange(id, color);
+}
+
 // ---- ROI 管理器列表 ----
 function renderRoiManager() {
     const list = $('rmList');
@@ -729,7 +1020,7 @@ function renderRoiManager() {
         const hidden = box._hidden;
         const active = (roiSelected === id);
         return `<div class="rm-item${active ? ' active' : ''}" onclick="roiSelect('${id}')">
-            <span class="rm-swatch" style="background:${color}" onclick="event.stopPropagation();roiColorChange('${id}',prompt('颜色 (#hex):',color)||color)"></span>
+            <span class="rm-swatch" style="background:${color}" onclick="event.stopPropagation();roiColorPrompt('${id}')" title="点击修改颜色"></span>
             <input class="rm-name" value="${label}" onfocus="this.select()"
                 onchange="roiRename('${id}',this.value)" onclick="event.stopPropagation()">
             <span class="rm-vis" onclick="event.stopPropagation();roiToggleVis('${id}')" title="显隐">${hidden ? '👁' : '👁'}</span>
@@ -794,7 +1085,15 @@ function renderTagFilters() {
 }
 
 async function tmplSaveDialog() {
-    const name = $('tmplNameInput').value.trim() || tmplName || prompt('模板名称:', '新模板');
+    let name = $('tmplNameInput').value.trim() || tmplName;
+    if (!name) {
+        name = await showModalPrompt({
+            title: '保存 ROI 模板',
+            desc: '请输入保存的模板名称：',
+            defaultValue: '新模板',
+            placeholder: '例如: PVP标准模板'
+        });
+    }
     if (!name) return;
     const rois = [];
     Object.keys(currentRoi || {}).forEach(id => {
@@ -842,8 +1141,14 @@ async function tmplImport() {
     } catch (e) { showToast('导入失败: ' + e, 'error'); }
 }
 
-function tmplNewBlank() {
-    const name = prompt('新模板名称:', 'PVP模板_' + new Date().toISOString().slice(5, 10).replace(/-/g, ''));
+async function tmplNewBlank() {
+    const defaultName = 'PVP模板_' + new Date().toISOString().slice(5, 10).replace(/-/g, '');
+    const name = await showModalPrompt({
+        title: '新建空白模板',
+        desc: '请输入新模板名称：',
+        defaultValue: defaultName,
+        placeholder: '例如: 自定义模板'
+    });
     if (!name) return;
     currentRoi = {};
     tmplRois = []; tmplName = name; tmplTags = [];
@@ -860,7 +1165,13 @@ function tmplNewBlank() {
 async function tmplDelete() {
     const name = $('tmplSelect').value;
     if (!name) { showToast('请先选择模板', 'warning'); return; }
-    if (!confirm(`确定删除模板「${name}」？`)) return;
+    const ok = await showModalConfirm({
+        title: '删除模板',
+        desc: `确定永久删除模板文件「${name}」？此操作不可恢复。`,
+        danger: true,
+        confirmText: '删除模板'
+    });
+    if (!ok) return;
     try {
         const r = await pywebview.api.roi_template_delete(name);
         if (r.success) { tmplRefreshList(); showToast('模板已删除', 'success'); }
@@ -1103,23 +1414,51 @@ async function visionSave() {
 // 工具箱
 // ========================================
 
+let currentToolCategory = 'all';
+
+function filterTools(category) {
+    currentToolCategory = category;
+    document.querySelectorAll('.tool-tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.filter === category);
+    });
+    renderTools(toolsCache);
+}
+
 function renderTools(tools) {
-    toolsCache = tools;
+    toolsCache = tools || [];
     const grid = $('toolGrid');
-    grid.innerHTML = tools.map(t => `
+    if (!grid) return;
+
+    const filtered = currentToolCategory === 'all'
+        ? toolsCache
+        : toolsCache.filter(t => t.category === currentToolCategory);
+
+    if (!filtered.length) {
+        grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--dim); padding: 40px;">暂无该分类的小工具</div>';
+        return;
+    }
+
+    grid.innerHTML = filtered.map(t => {
+        const catClass = t.category ? `tag-${t.category}` : '';
+        const icon = t.gui ? '🖼' : '⌨';
+        return `
         <div class="tool-card ${t.running ? 'running' : ''}" id="tool-${t.id}">
             <div class="tool-head">
-                <div class="tool-icon">${t.gui ? '🖼' : '⌨'}</div>
+                <div class="tool-icon">${icon}</div>
                 <div>
-                    <div class="tool-name">${t.name}<span class="tool-tag">${t.gui ? 'GUI' : 'CLI'}</span></div>
+                    <div class="tool-name">
+                        ${t.name}
+                        <span class="tool-tag ${catClass}">${t.tag || (t.gui ? 'GUI' : 'CLI')}</span>
+                    </div>
                 </div>
             </div>
             <div class="tool-desc">${t.desc}</div>
             <div class="tool-foot">
-                <button class="tool-btn" onclick="toolToggle('${t.id}')">${t.running ? '停止' : '启动'}</button>
+                <button class="tool-btn" onclick="toolToggle('${t.id}')">${t.running ? '■ 停止' : '▶ 启动'}</button>
                 <span class="tool-pid" id="toolpid-${t.id}"></span>
             </div>
-        </div>`).join('');
+        </div>`;
+    }).join('');
 }
 
 async function refreshTools() {
@@ -1145,6 +1484,9 @@ async function toolToggle(id) {
 // 配置中心
 // ========================================
 
+let configFilesCache = [];
+let currentConfigMeta = null;
+
 function markConfigActive(name) {
     document.querySelectorAll('.config-item').forEach(el => el.classList.remove('active'));
     const el = document.querySelector(`.config-item[data-name="${name}"]`);
@@ -1152,10 +1494,20 @@ function markConfigActive(name) {
 }
 
 function renderConfigList(files) {
-    $('configList').innerHTML = files.map(f => `
+    configFilesCache = files || [];
+    const listEl = $('configList');
+    if (!listEl) return;
+    listEl.innerHTML = configFilesCache.map(f => `
         <div class="config-item ${f.name === currentFile ? 'active' : ''}" data-name="${f.name}" onclick="openConfig('${f.name}')">
-            <div class="ci-name">${f.name}<span class="ci-badge">${f.type.toUpperCase()}</span></div>
-            <div class="ci-desc">${f.desc}${f.exists ? '' : '（尚未创建）'}</div>
+            <div class="ci-title">
+                <span>${f.icon || '📄'} ${f.title || f.name}</span>
+                ${f.gui_page ? `<span class="ci-page-badge">${f.page_hint}</span>` : ''}
+            </div>
+            <div class="ci-name">
+                <span>${f.name}</span>
+                <span class="ci-badge">${f.type.toUpperCase()}</span>
+            </div>
+            <div class="ci-desc">${f.desc}</div>
         </div>`).join('');
 }
 
@@ -1170,16 +1522,61 @@ async function openConfig(name) {
     currentFile = name;
     markConfigActive(name);
     $('cfgMsg').textContent = '';
+
+    const meta = configFilesCache.find(f => f.name === name);
+    currentConfigMeta = meta;
+
+    if (meta) {
+        $('cfgGuideTitle').textContent = `${meta.icon || '📄'} ${meta.title || meta.name} 指南说明`;
+        $('cfgDesc').textContent = meta.desc || '';
+
+        const jumpBtn = $('cfgJumpBtn');
+        if (jumpBtn) {
+            if (meta.gui_page) {
+                jumpBtn.style.display = '';
+                jumpBtn.textContent = `🔗 前往「${meta.page_hint || '对应'}」页面调整`;
+            } else {
+                jumpBtn.style.display = 'none';
+            }
+        }
+
+        const fieldsSection = $('cfgFieldsSection');
+        const fieldsGrid = $('cfgFieldsGrid');
+        if (fieldsSection && fieldsGrid) {
+            if (meta.fields && meta.fields.length > 0) {
+                fieldsSection.style.display = '';
+                fieldsGrid.innerHTML = meta.fields.map(fld => `
+                    <div class="ce-field-item">
+                        <span class="ce-field-key">${fld.key || fld.name}</span>
+                        <span class="ce-field-desc">${fld.desc}</span>
+                    </div>
+                `).join('');
+            } else {
+                fieldsSection.style.display = 'none';
+            }
+        }
+
+        const btnFmt = $('btnCfgFormat');
+        if (btnFmt) {
+            btnFmt.style.display = meta.type === 'json' ? '' : 'none';
+        }
+    }
+
     try {
-        const [meta] = (await pywebview.api.config_list()).files.filter(f => f.name === name);
-        $('cfgDesc').textContent = meta ? meta.desc : '';
         const r = await pywebview.api.config_read(name);
         $('cfgText').value = r.success ? (r.content || '') : `读取失败: ${r.message}`;
     } catch (e) { $('cfgText').value = '读取异常: ' + e.message; }
 }
 
+function jumpToConfigGuiPage() {
+    if (currentConfigMeta && currentConfigMeta.gui_page) {
+        switchPage(currentConfigMeta.gui_page);
+    }
+}
+
 function setCfgMsg(text, ok) {
     const el = $('cfgMsg');
+    if (!el) return;
     el.textContent = text;
     el.className = 'ce-msg ' + (ok ? 'ok' : 'err');
 }
@@ -1189,7 +1586,7 @@ async function configSave() {
     try {
         const r = await pywebview.api.config_save(currentFile, $('cfgText').value);
         if (r.success) {
-            setCfgMsg(`✓ 已保存 ${new Date().toLocaleTimeString()}`, true);
+            setCfgMsg(`✓ 已保存 (${new Date().toLocaleTimeString()})`, true);
             refreshConfigList();
         } else {
             setCfgMsg('✗ ' + r.message, false);
@@ -1212,6 +1609,22 @@ function configFormat() {
     } catch (e) { setCfgMsg('✗ JSON 解析失败: ' + e.message, false); }
 }
 
+async function configResetDefault() {
+    if (!currentFile) return;
+    const ok = await showModalConfirm(`确认将「${currentFile}」重置为推荐的默认参数吗？\n当前修改将会被覆盖。`);
+    if (!ok) return;
+    try {
+        const r = await pywebview.api.config_reset_default(currentFile);
+        if (r.success) {
+            $('cfgText').value = r.content || '';
+            setCfgMsg('✓ 已成功恢复推荐默认配置', true);
+            showToast('已恢复默认配置', 'success');
+        } else {
+            setCfgMsg('✗ 重置失败: ' + r.message, false);
+        }
+    } catch (e) { setCfgMsg('✗ 重置异常: ' + e.message, false); }
+}
+
 // ========================================
 // 轮询
 // ========================================
@@ -1230,24 +1643,140 @@ async function refreshState() {
 // 初始化
 // ========================================
 
-window.addEventListener('pywebviewready', () => {
+window.addEventListener('pywebviewready', async () => {
     addLog('后端已连接', 'success');
+    await applyAppMode();
+    initEngineSettings();
     refreshState();
     refreshTools();
-    refreshConfigList().then(() => {
-        // 默认打开第一个配置
-        const first = document.querySelector('.config-item');
-        if (first) openConfig(first.dataset.name);
-    });
+    if (!isUserMode()) {
+        refreshConfigList().then(() => {
+            // 默认打开第一个配置
+            const first = document.querySelector('.config-item');
+            if (first) openConfig(first.dataset.name);
+        });
+    }
     setInterval(refreshState, 1000);
     setInterval(refreshTools, 2000);
 });
 
 document.addEventListener('DOMContentLoaded', () => {
     CONFIG_KEYS.forEach(k => paintSlider($(k)));
+
+    const catchHp = $('engineCatchHp');
+    if (catchHp) {
+        catchHp.addEventListener('input', () => { paintCatchHpSlider(); pushEngineSettings(); });
+        paintCatchHpSlider();
+    }
+
+    ['engineSkills', 'engineOpenKey', 'engineBallKey', 'patrolEnabled', 'patrolMoveKey', 'patrolTurnMode', 'engineDry'].forEach(id => {
+        const el = $(id);
+        if (el) {
+            el.addEventListener('change', pushEngineSettings);
+            if (el.type === 'text') {
+                el.addEventListener('input', pushEngineSettings);
+            }
+        }
+    });
+
+    // 自动停止条件: 修改即持久化
+    ['stop_after_count', 'stop_after_minutes'].forEach(id => {
+        const el = $(id);
+        if (el) el.addEventListener('change', () => {
+            if (Number(el.value) < 0 || isNaN(Number(el.value))) el.value = 0;
+            pushConfig();
+        });
+    });
+
     addLog('控制台加载完成,等待后端连接…', 'info');
     pollMode();
+    updateResourceStats();
 });
+
+// 退出窗口前保存用户配置
+window.addEventListener('beforeunload', () => {
+    try {
+        if (window.pywebview && window.pywebview.api) {
+            if (typeof collectConfig === 'function' && window.pywebview.api.update_config) {
+                pywebview.api.update_config(collectConfig());
+            }
+            if (typeof collectEngineSettings === 'function' && window.pywebview.api.engine_save_settings) {
+                pywebview.api.engine_save_settings(collectEngineSettings());
+            }
+        }
+    } catch (e) { /* ignore */ }
+});
+
+// ========================================
+// 官方数据与资源同步
+// ========================================
+async function doResourceSync() {
+    const btn = $('btnResourceSync');
+    const tag = $('rscStatusTag');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="rsc-btn-icon">⏳</span> 正在从官方同步数据...';
+    }
+    if (tag) {
+        tag.textContent = '同步中…';
+        tag.style.background = 'rgba(245, 158, 11, 0.2)';
+        tag.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+        tag.style.color = '#fbbf24';
+    }
+    showToast('🚀 正在连接官方 API 同步最新图鉴与技能素材...', 'info');
+
+    try {
+        const r = await pywebview.api.resource_sync();
+        if (r.success) {
+            showToast(r.message, 'success');
+            addLog(r.message, 'success');
+            if (r.stats) {
+                if ($('rscStatPets')) $('rscStatPets').textContent = r.stats.pets || '375+';
+                if ($('rscStatSkills')) $('rscStatSkills').textContent = r.stats.skills || '569+';
+                if ($('rscStatIcons')) $('rscStatIcons').textContent = r.stats.icons || '18';
+            }
+            if (tag) {
+                tag.textContent = '已是最新';
+                tag.style.background = 'rgba(34, 197, 94, 0.2)';
+                tag.style.borderColor = 'rgba(34, 197, 94, 0.4)';
+                tag.style.color = '#4ade80';
+            }
+            // 刷新 PVP 缓存
+            if (typeof loadPVPData === 'function') {
+                loadPVPData();
+            }
+        } else {
+            showToast('同步失败: ' + r.message, 'error');
+            addLog('官方资源同步失败: ' + r.message, 'error');
+            if (tag) {
+                tag.textContent = '同步异常';
+                tag.style.background = 'rgba(239, 68, 68, 0.2)';
+                tag.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                tag.style.color = '#f87171';
+            }
+        }
+    } catch (e) {
+        showToast('资源同步异常: ' + e, 'error');
+        addLog('资源同步异常: ' + e, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="rsc-btn-icon">⚡</span> 一键自动更新资源';
+        }
+    }
+}
+
+async function updateResourceStats() {
+    try {
+        if (!window.pywebview || !pywebview.api || !pywebview.api.resource_get_stats) return;
+        const r = await pywebview.api.resource_get_stats();
+        if (r.success && r.stats) {
+            if ($('rscStatPets')) $('rscStatPets').textContent = r.stats.pets || '375+';
+            if ($('rscStatSkills')) $('rscStatSkills').textContent = r.stats.skills || '569+';
+            if ($('rscStatIcons')) $('rscStatIcons').textContent = r.stats.icons || '18';
+        }
+    } catch (e) {}
+}
 
 // ========================================
 // 模式轮询 (更新侧边栏模式指示器)
@@ -1263,4 +1792,111 @@ async function pollMode() {
         }
     } catch (e) { /* 静默 */ }
     setTimeout(pollMode, 3000);
+}
+// ========================================
+// 本轮计时 / 配额剩余 / 异色记录
+// ========================================
+
+function _fmtDuration(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    const mm = String(m).padStart(2, '0'), ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function renderRunMonitor(tr) {
+    const timer = $('runTimer'), thrown = $('runThrown'), quota = $('runQuota');
+    if (!timer) return;
+    tr = tr || {};
+    timer.textContent = _fmtDuration(tr.elapsed || 0);
+    thrown.textContent = `已丢 ${tr.thrown || 0} 球`;
+
+    let quotaText = '—';
+    if ((tr.quota_count > 0 || tr.quota_minutes > 0) && tr.running) {
+        const parts = [];
+        if (tr.quota_count > 0) parts.push(`剩 ${Math.max(0, tr.quota_count - (tr.thrown || 0))} 球`);
+        if (tr.quota_minutes > 0) parts.push(`剩 ${_fmtDuration(tr.quota_minutes * 60 - (tr.elapsed || 0))}`);
+        quotaText = parts.join(' / ');
+    } else if (tr.running) {
+        quotaText = '不限';
+    } else {
+        quotaText = '未运行';
+    }
+    quota.textContent = quotaText;
+    renderShiny(tr.thrown || 0);
+}
+
+function _loadShiny() {
+    try { return parseInt(localStorage.getItem('lkw_shiny') || '0', 10) || 0; }
+    catch (e) { return 0; }
+}
+
+function shinyAdjust(delta) {
+    const v = Math.max(0, _loadShiny() + delta);
+    try { localStorage.setItem('lkw_shiny', String(v)); } catch (e) {}
+    renderShiny(null);
+}
+
+function renderShiny(thrown) {
+    const el = $('shinyCount'), rate = $('shinyRate');
+    if (!el) return;
+    if (thrown === null || thrown === undefined) {
+        el.textContent = _loadShiny();
+        if (rate) rate.textContent = '—';
+        return;
+    }
+    const n = _loadShiny();
+    el.textContent = n;
+    if (rate) rate.textContent = (n > 0 && thrown > 0) ? `约 ${Math.round(thrown / n)} 球/只` : '—';
+}
+
+
+// ========================================
+// 背包盘点(新页面): 打开背包并盘点 / 直接盘点
+// ========================================
+async function _bagRun(fn, btnId) {
+    const btn = $(btnId);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 进行中…'; }
+    try {
+        const r = await fn();
+        if (!r.success) {
+            showToast('操作失败: ' + (r.message || ''), 'error');
+            $('bagStatus').textContent = '操作失败: ' + (r.message || '');
+            return;
+        }
+        renderBagResult(r);
+        showToast(`盘点完成: ${Object.keys(r.totals || {}).length} 种球`, 'success');
+    } catch (e) {
+        showToast('盘点异常: ' + e, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = btnId === 'btnBagOpenScan' ? '📦 打开背包并盘点' : '🔍 直接盘点(背包已开)'; }
+    }
+}
+
+function bagOpenScan() { _bagRun(() => pywebview.api.bag_open_and_scan(), 'btnBagOpenScan'); }
+function bagScanDirect() { _bagRun(() => pywebview.api.bag_scan(), 'btnBagScanDirect'); }
+
+function renderBagResult(r) {
+    const status = $('bagStatus'), grid = $('bagGrid');
+    if (!grid) return;
+    if (status) {
+        status.textContent = `盘点于 ${r.updated_at || '?'} · 较上次快照`
+            + (r.debug_shot ? ` · 现场截图: ${r.debug_shot} (data/screenshots/)` : '');
+    }
+    const totals = Object.entries(r.totals || {}).sort((a, b) => (b[1].count || 0) - (a[1].count || 0));
+    const consumed = r.consumed || {};
+    if (!totals.length) {
+        grid.innerHTML = '<div class="bag-empty">未识别到咕噜球(背包界面是否正确打开?)</div>';
+        return;
+    }
+    grid.innerHTML = totals.map(([bid, e]) => {
+        const used = consumed[bid] ? `<span class="bag-used">较上次 -${consumed[bid].used}</span>` : '';
+        const cnt = e.count != null ? e.count : '?';
+        return `<div class="bag-cell">
+            <img class="bag-img" src="assets/img/balls/${bid}.png" onerror="this.style.visibility='hidden'">
+            <div class="bag-name">${e.name}</div>
+            <div class="bag-count">×${cnt}</div>
+            ${used}
+        </div>`;
+    }).join('');
 }

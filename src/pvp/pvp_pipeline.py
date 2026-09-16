@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -30,10 +31,23 @@ _TESSERACT_PATH = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 TESSDATA_DIR = PROJECT_ROOT / "data" / "models" / "tessdata"
 
 
+def _bundled_tesseract() -> Optional[Path]:
+    """PyInstaller 打包环境下随包分发的 tesseract"""
+    if getattr(sys, "frozen", False):
+        bundled = Path(sys._MEIPASS) / "tesseract" / "tesseract.exe"
+        if bundled.exists():
+            return bundled
+    return None
+
+
 def _ensure_tesseract() -> bool:
     import shutil
     import pytesseract
     if getattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract") != "tesseract":
+        return True
+    bundled = _bundled_tesseract()
+    if bundled:
+        pytesseract.pytesseract.tesseract_cmd = str(bundled)
         return True
     if shutil.which("tesseract"):
         return True
@@ -44,71 +58,32 @@ def _ensure_tesseract() -> bool:
 
 
 def ocr_number(crop: np.ndarray, percent: bool = False) -> Optional[str]:
-    """Tesseract 数字识别 (照抄挂机引擎 OcrNumberReader.read())"""
-    import pytesseract
-    if not _ensure_tesseract():
-        return None
+    """数字识别(RapidOCR)。返回如 '100%' / '123/456' 或 None"""
+    from src.utils.ocr_engine import read_combined
     if crop.size == 0:
         return None
-
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    big = cv2.resize(gray, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
-    _, bright = cv2.threshold(big, 180, 255, cv2.THRESH_BINARY)
-    _, otsu = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    whitelist = "0123456789%/" if percent else "0123456789/"
-    config = f'--psm 7 --tessdata-dir "{TESSDATA_DIR}" -c tessedit_char_whitelist={whitelist}'
-    text = ""
-    for candidate in (bright, cv2.bitwise_not(bright), otsu, cv2.bitwise_not(otsu)):
-        try:
-            result = pytesseract.image_to_string(candidate, config=config).strip()
-        except Exception:
-            continue
-        if sum(ch.isdigit() for ch in result) > sum(ch.isdigit() for ch in text):
-            text = result
-        if percent and re.search(r"\d{1,3}\s*%", text):
-            break
-    return text.replace(" ", "") or None
+    text, _ = read_combined(crop)
+    if not text:
+        return None
+    text = text.replace(" ", "")
+    if not sum(ch.isdigit() for ch in text):
+        return None
+    if percent:
+        return text if re.search(r"\d{1,3}\s*%", text) else None
+    m = re.search(r"\d+(?:/\d+)?", text)
+    return m.group(0) if m else None
 
 
 def ocr_name(crop: np.ndarray, pet_list: list[str]) -> tuple[Optional[str], float, str]:
-    """Tesseract 中文精灵名识别 (照抄挂机引擎 OcrNameReader.read())"""
-    import pytesseract
-    if not _ensure_tesseract() or not TESSDATA_DIR.exists():
+    """中文精灵名识别(RapidOCR) + 名单模糊纠错"""
+    from src.utils.ocr_engine import read_best
+    text, score = read_best(crop)
+    if not text:
         return None, 0.0, ""
-
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    big = cv2.resize(gray, None, fx=3.5, fy=3.5, interpolation=cv2.INTER_CUBIC)
-    _, bright = cv2.threshold(big, 180, 255, cv2.THRESH_BINARY)
-    _, bright2 = cv2.threshold(big, 150, 255, cv2.THRESH_BINARY)
-    _, otsu = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    config = f'--psm 7 --tessdata-dir "{TESSDATA_DIR}"'
-    best_text, best_conf = "", -1.0
-    for candidate in (bright, bright2, otsu, cv2.bitwise_not(bright), cv2.bitwise_not(otsu)):
-        try:
-            data = pytesseract.image_to_data(
-                candidate, lang="chi_sim", config=config, output_type=pytesseract.Output.DICT)
-        except Exception:
-            continue
-        words = [(t.strip(), float(c)) for t, c in zip(data["text"], data["conf"]) if t.strip()]
-        if not words:
-            continue
-        text = "".join(w for w, _ in words)
-        conf = sum(wc * len(w) for w, wc in words) / max(1, len(text))
-        if conf > best_conf:
-            best_text, best_conf = text, conf
-        # 早退: 已命中精灵名单
-        cleaned = "".join(ch for ch in text if ("\u4e00" <= ch <= "\u9fff") or ch.isalnum())
-        if _fuzzy_match(cleaned, pet_list):
-            best_text = text
-            break
-
-    cleaned = "".join(ch for ch in best_text if ("\u4e00" <= ch <= "\u9fff") or ch.isalnum())
+    cleaned = "".join(ch for ch in text if ("\u4e00" <= ch <= "\u9fff") or ch.isalnum())
     matched = _fuzzy_match(cleaned, pet_list)
     value = matched or cleaned or None
-    conf = min(1.0, max(0.0, best_conf / 100.0))
-    return value, conf, best_text
+    return value, min(1.0, score), text
 
 
 def _fuzzy_match(name: str, pet_list: list[str]) -> Optional[str]:
@@ -210,10 +185,10 @@ def _get_paddleocr():
 
 
 def ocr_batch_chinese(crops: list[tuple[str, np.ndarray]]) -> dict[str, str]:
-    """PaddleOCR 批量识别中文（合成一张图，一次 predict）"""
+    """批量识别中文(RapidOCR 合成一张图,一次调用)"""
+    from src.utils.ocr_engine import get_ocr
     if not crops:
         return {}
-    ocr = _get_paddleocr()
 
     # 合成图：竖排拼接所有 ROI，中间加分隔线
     pad = 10
@@ -229,20 +204,20 @@ def ocr_batch_chinese(crops: list[tuple[str, np.ndarray]]) -> dict[str, str]:
         y_offsets.append((y, y + h))
         y += h + pad
 
-    # 一次 OCR
-    res = ocr.predict(composite)
-    if not res or not res[0]:
-        return {rid: "" for rid, _ in crops}
-
-    rec_texts = res[0].get('rec_texts', [])
-    rec_polys = res[0].get('rec_polys', [])
-
-    # 按 y 位置分配回各个 ROI
     results = {rid: "" for rid, _ in crops}
-    for text, poly in zip(rec_texts, rec_polys):
-        if poly is None or len(poly) == 0:
+    try:
+        res, _ = get_ocr()(composite)
+    except Exception as e:
+        print(f"[PvpPipeline] RapidOCR 批量识别异常: {e}")
+        return results
+    if not res:
+        return results
+
+    # 按 y 中心分配回各个 ROI
+    for box, text, _score in res:
+        if box is None or len(box) == 0:
             continue
-        cy = float(np.mean([p[1] for p in poly]))
+        cy = float(np.mean([p[1] for p in box]))
         for i, (rid, _) in enumerate(crops):
             if y_offsets[i][0] <= cy <= y_offsets[i][1]:
                 results[rid] = results[rid] + text

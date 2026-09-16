@@ -1,7 +1,19 @@
 # -*- coding: utf-8 -*-
 """综合测试: PVP 模块 + Bridge API + 数据完整性"""
 import sys, json, os
-sys.path.insert(0, ".")
+from pathlib import Path
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+os.chdir(str(PROJECT_ROOT))
 
 print("=" * 60)
 print("1. PVP 模块导入测试")
@@ -192,7 +204,7 @@ print("\n" + "=" * 60)
 print("9. 前端文件检查")
 print("=" * 60)
 
-web_dir = os.path.join(os.path.dirname(__file__), "src", "gui", "web")
+web_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "gui", "web")
 files_to_check = [
     "index.html", "assets/app.css", "assets/app.js", "assets/pvp.js",
     "widget.html", "pvp_float_overlay.html",

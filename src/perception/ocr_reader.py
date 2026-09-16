@@ -41,7 +41,7 @@ def _ensure_tesseract() -> bool:
 
 
 class OcrNumberReader(BaseReader[int]):
-    """Tesseract OCR 数字识别(血量百分比等 HUD 数字,支持 85%、123/456 格式)"""
+    """OCR 数字识别(RapidOCR,血量百分比等 HUD 数字,支持 85%、123/456 格式)"""
 
     reader_name = "ocr_number"
 
@@ -51,12 +51,7 @@ class OcrNumberReader(BaseReader[int]):
         self.percent = percent
 
     def read(self, frame: np.ndarray) -> RecognitionResult[int]:
-        if not _ensure_tesseract():
-            return RecognitionResult(
-                reader_name=self.reader_name, value=None, confidence=0.0,
-                roi_name=self.roi.name, debug={"reason": "tesseract 未安装"})
-
-        import pytesseract
+        from src.utils.ocr_engine import read_combined
 
         cropped = self.roi.crop(frame)
         if cropped.size == 0:
@@ -64,43 +59,25 @@ class OcrNumberReader(BaseReader[int]):
                 reader_name=self.reader_name, value=None, confidence=0.0,
                 roi_name=self.roi.name)
 
-        gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
-        big = cv2.resize(gray, None, fx=self.upscale, fy=self.upscale,
-                         interpolation=cv2.INTER_CUBIC)
-
-        # 游戏 HUD 数字为亮字+深色描边:固定亮度截断(只留亮像素)效果最稳,
-        # OTSU 作为兜底;正反相都试,取数字字符最多的一版
-        _, bright = cv2.threshold(big, 180, 255, cv2.THRESH_BINARY)
-        _, otsu = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        candidates = (bright, cv2.bitwise_not(bright), otsu, cv2.bitwise_not(otsu))
-
-        whitelist = "0123456789%/" if self.percent else "0123456789/"
-        config = f'--psm 7 -c tessedit_char_whitelist={whitelist}'
-        text = ""
-        # 白字黑底/黑字白底都试;百分比模式出结果即早退(省时)
-        for candidate in (bright, cv2.bitwise_not(bright), otsu, cv2.bitwise_not(otsu)):
-            try:
-                result = pytesseract.image_to_string(candidate, config=config).strip()
-            except Exception:
-                continue
-            if sum(ch.isdigit() for ch in result) > sum(ch.isdigit() for ch in text):
-                text = result
-            if self.percent and re.search(r"\d{1,3}\s*%", text):
-                break
-        text = text.replace(" ", "")
+        text, score = read_combined(cropped)
+        text = (text or "").replace(" ", "")
 
         if self.percent:
             # 百分比模式必须带 %,避免把非血量数字误读进来
-            match = re.match(r"^(\d{1,3})\s*%", text)
+            match = re.search(r"(\d{1,3})\s*%", text)
+            if not match:
+                return RecognitionResult(
+                    reader_name=self.reader_name, value=None, confidence=0.0,
+                    roi_name=self.roi.name, debug={"raw": text})
         else:
             match = re.match(r"^(\d+)(?:/(\d+))?", text)
-        if not match:
-            return RecognitionResult(
-                reader_name=self.reader_name, value=None, confidence=0.0,
-                roi_name=self.roi.name, debug={"raw": text})
+            if not match:
+                return RecognitionResult(
+                    reader_name=self.reader_name, value=None, confidence=0.0,
+                    roi_name=self.roi.name, debug={"raw": text})
 
         value = int(match.group(1))
-        confidence = min(1.0, sum(ch.isdigit() for ch in text) / max(1, len(text)))
+        confidence = min(1.0, max(0.0, score))
         return RecognitionResult(
             reader_name=self.reader_name, value=value, confidence=confidence,
             roi_name=self.roi.name,
@@ -109,10 +86,8 @@ class OcrNumberReader(BaseReader[int]):
 
 
 def make_number_reader(roi: ROI) -> BaseReader[int]:
-    """数字读取出厂:优先 OCR,不可用时退回模板匹配"""
-    if _ensure_tesseract():
-        return OcrNumberReader(roi)
-    return DigitSequenceReader(roi)
+    """数字读取出厂"""
+    return OcrNumberReader(roi)
 
 
 class OcrNameReader(BaseReader[str]):
@@ -173,12 +148,7 @@ class OcrNameReader(BaseReader[str]):
         return None, None
 
     def read(self, frame: np.ndarray) -> RecognitionResult[str]:
-        if not _ensure_tesseract() or not TESSDATA_DIR.exists():
-            return RecognitionResult(
-                reader_name=self.reader_name, value=None, confidence=0.0,
-                roi_name=self.roi.name, debug={"reason": "tesseract/chi_sim 不可用"})
-
-        import pytesseract
+        from src.utils.ocr_engine import read_best
 
         cropped = self.roi.crop(frame)
         if cropped.size == 0:
@@ -186,43 +156,13 @@ class OcrNameReader(BaseReader[str]):
                 reader_name=self.reader_name, value=None, confidence=0.0,
                 roi_name=self.roi.name)
 
-        gray = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
-        big = cv2.resize(gray, None, fx=self.upscale, fy=self.upscale,
-                         interpolation=cv2.INTER_CUBIC)
-        _, bright = cv2.threshold(big, 180, 255, cv2.THRESH_BINARY)
-        _, bright2 = cv2.threshold(big, 150, 255, cv2.THRESH_BINARY)
-        _, otsu = cv2.threshold(big, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        config = f'--psm 7 --tessdata-dir "{TESSDATA_DIR}"'
-        best_text, best_conf = "", -1.0
-        for candidate in (bright, bright2, otsu,
-                          cv2.bitwise_not(bright), cv2.bitwise_not(otsu)):
-            try:
-                data = pytesseract.image_to_data(
-                    candidate, lang="chi_sim", config=config,
-                    output_type=pytesseract.Output.DICT)
-            except Exception:
-                continue
-            words = [(t.strip(), float(c)) for t, c in zip(data["text"], data["conf"])
-                     if t.strip()]
-            if not words:
-                continue
-            text = "".join(w for w, _ in words)
-            conf = sum(wc * len(w) for w, wc in words) / max(1, len(text))
-            if conf > best_conf:
-                best_text, best_conf = text, conf
-            # 早退:某种预处理已能命中精灵名单,不再试后面的(省大头耗时)
-            corrected, _ = self._correct_with_pet_list(self._clean(text))
-            if corrected:
-                best_text, best_conf = text, max(conf, best_conf)
-                break
-
-        cleaned = self._clean(best_text)
+        text, score = read_best(cropped)
+        cleaned = self._clean(text or "")
         corrected, ratio = self._correct_with_pet_list(cleaned)
         value = corrected or (cleaned or None)
-        debug = {"raw": best_text, "ocr_conf": round(best_conf, 1),
+        debug = {"raw": text or "", "ocr_conf": round(score * 100, 1),
                  "corrected": corrected is not None, "ratio": round(ratio, 2) if ratio else None}
-        confidence = min(1.0, max(0.0, best_conf / 100.0))
+        confidence = min(1.0, max(0.0, score))
         return RecognitionResult(
             reader_name=self.reader_name, value=value, confidence=confidence,
             roi_name=self.roi.name, debug=debug)

@@ -44,6 +44,7 @@ class BattleEngine:
         self.flee_hp = 8
         self.flee_key = ""          # 为空则不启用逃跑
         self.skills = ["1", "2", "3", "4"]
+        self.skill_mode = "cycle"   # cycle=按间隔轮换 / sequence=按序列依次施放
         self.skill_interval = (1.2, 2.0)
         self.open_ball_key = "w"    # 打开丢球界面的键
         self.ball_slot_key = "1"    # 球槽键(1-6,用户自选丢哪种球)
@@ -64,6 +65,11 @@ class BattleEngine:
         self.state_detail = ""
         self.battles_done = 0
         self.catch_attempts = 0     # 丢球次数
+        self.shiny_count = 0        # 异色精灵检测计数
+        self.balls_used_total = 0   # 挂机期间实际消耗球数(选中球数量差值)
+        self._ball_count_last = None
+        self._ball_count_reader = None
+        self._shiny_this_battle = False
         self.catches = 0            # 丢过球后战斗结束的场次数(视为捕获成功)
         self.skills_used = 0
 
@@ -73,6 +79,7 @@ class BattleEngine:
         self._balls_this_battle = 0
         self._hp_miss_count = 0
         self._skill_index = 0
+        self._seq_pos = 0  # 序列模式游标
         self._enemy_name = ""          # 当前敌方精灵名
         self._enemy_hp = None          # 当前敌方血量%
         self._battle_detector = None  # 丢球界面判定用的角标检测器(懒加载)
@@ -86,11 +93,19 @@ class BattleEngine:
     def load_strategy(self):
         """从 settings.yaml 读取策略参数"""
         self.catch_hp = cfg_get("battle.catch_hp", self.catch_hp)
+        # 战斗内球型识别切球: 安全球名单(命中即直接丢) + 严格模式(切不到安全球就放弃)
+        self.safe_ball_ids = set(cfg_get("battle.safe_ball_ids", ["100003", "540801"]))   # 默认高级咕噜球
+        self.strict_safe = bool(cfg_get("battle.strict_safe", False))
+        # 异色检测: 命中提示文本时计数; shiny_stop=True 自动停止引擎让你手动捕捉
+        self.shiny_stop = bool(cfg_get("battle.shiny_stop", True))
+        self._ball_matcher = None
+        self._battle_ball_rois = None
         self.flee_hp = cfg_get("battle.flee_hp", self.flee_hp)
         self.flee_key = cfg_get("battle.flee_key", "") or ""
         skills = cfg_get("battle.skills", self.skills)
         if isinstance(skills, list) and skills:
             self.skills = [str(s) for s in skills]
+        self.skill_mode = str(cfg_get("battle.skill_mode", "cycle") or "cycle")
         self.skill_interval = (cfg_get("battle.skill_interval_min", self.skill_interval[0]),
                                cfg_get("battle.skill_interval_max", self.skill_interval[1]))
         self.ball_cooldown = cfg_get("battle.ball_cooldown", self.ball_cooldown)
@@ -152,6 +167,8 @@ class BattleEngine:
             "detail": self.state_detail,
             "battles_done": self.battles_done,
             "catch_attempts": self.catch_attempts,
+            "shiny_count": self.shiny_count,
+            "balls_used_total": self.balls_used_total,
             "catches": self.catches,
             "skills_used": self.skills_used,
             "catch_hp": self.catch_hp,
@@ -171,6 +188,36 @@ class BattleEngine:
         self._balls_this_battle = 0
         self._hp_miss_count = 0
         self._skill_index = 0
+        self._seq_pos = 0
+        self._shiny_this_battle = False
+
+    # ---- 异色精灵检测 ----
+
+    def _shiny_check_async(self):
+        """进战斗后延迟 1.5s(等提示文本出现)对整帧做一次 OCR 关键词扫描。
+        游戏机制: 出异色时屏幕会出现「出现异色精灵」类文本提示。
+        纯后台线程, 每场只查一次, 不影响主循环节奏。"""
+        def _job():
+            if self._stop_event.wait(1.5):
+                return
+            try:
+                from src.utils.ocr_engine import read_combined
+                info, frame = self._frame_provider()
+                if frame is None or frame.size == 0:
+                    return
+                text, score = read_combined(frame)
+                if text and "异色" in str(text):
+                    if self._shiny_this_battle:
+                        return   # 本场已计过
+                    self._shiny_this_battle = True
+                    self.shiny_count += 1
+                    self._log(f"🌈🌈 [异色] 检测到异色精灵提示！(累计 {self.shiny_count} 只)"
+                              f"{', 引擎已自动停止, 请手动捕捉' if self.shiny_stop else ''}", "success")
+                    if self.shiny_stop:
+                        self.stop("出现异色精灵")
+            except Exception:
+                pass
+        threading.Thread(target=_job, daemon=True, name="ShinyCheck").start()
 
     def _loop(self):
         from src.perception import VisionPipeline
@@ -227,6 +274,8 @@ class BattleEngine:
                     self._enemy_name = ""
                     self._enemy_hp = None
                 self._log(f"进入战斗: {name}(血量{hp if hp is not None else '?'}%)", "success")
+                if not self._shiny_this_battle:
+                    self._shiny_check_async()   # 异色提示文本扫描(后台,每场一次)
 
             # ---- 超时保护 ----
             if time.time() - self._battle_start > self.battle_timeout:
@@ -390,7 +439,68 @@ class BattleEngine:
         except Exception:
             return False
 
+
+    def _act_skill_sequence(self):
+        """固定序列模式: 按用户给的键序依次施放。
+
+        释放标识: 技能施放时游戏会隐藏左下角战斗角标(逃跑按钮所在);
+        等角标消失(施放成功)→再出现(界面恢复)→才施放序列中的下一个。
+        """
+        import random as _r
+        from src.driver import human_input
+
+        if not self.skills:
+            return
+        key = self.skills[self._seq_pos % len(self.skills)]
+        self.state = "fighting"
+        self.state_detail = f"序列技能 {key}(第{self._seq_pos + 1}步)"
+
+        if self.dry_run:
+            self._log(f"[模拟] 序列施放技能 {key}", "info")
+        else:
+            if not self._check_foreground():
+                self.state = "paused"
+                self.state_detail = "游戏不在前台,暂停操作"
+                self._stop_event.wait(1.0)
+                return
+            human_input.press(key)
+            self.skills_used += 1
+
+            # 等待角标消失(确认技能已释放)
+            if not self._wait_indicator(lambda s: s < 0.55, timeout=12.0):
+                self._log(f"未检测到技能释放标志(角标未消失),继续下一步", "warning")
+            # 等待角标恢复(界面回到可选技能状态)
+            self._wait_indicator(lambda s: s >= 0.55, timeout=12.0)
+
+        self._seq_pos += 1
+        self._stop_event.wait(_r.uniform(0.4, 0.9))
+
+    def _wait_indicator(self, cond, timeout: float) -> bool:
+        """等待左角标匹配分数满足条件,超时返回 False"""
+        import time as _t
+        if self._battle_detector is None:
+            from src.perception.battle_detector import BattleDetector
+            from src.perception.vision_pipeline import load_roi_config
+            rois = load_roi_config()
+            self._battle_detector = BattleDetector(
+                rois["battle_left_indicator"], rois["battle_right_indicator"])
+        deadline = _t.time() + timeout
+        while _t.time() < deadline and self._running and not self._stop_event.is_set():
+            try:
+                _, frame = self._frame_provider()
+                result = self._battle_detector.detect(frame)
+                if cond(float(result["left_score"])):
+                    return True
+            except Exception:
+                pass
+            if self._stop_event.wait(0.2):
+                break
+        return False
+
     def _act_skill(self):
+        if self.skill_mode == "sequence":
+            self._act_skill_sequence()
+            return
         # 技能轮换为主,偶尔重复/跳过,避免严格周期性
         import random as _r
         if _r.random() < 0.10 and self._skill_index > 0:
@@ -415,11 +525,16 @@ class BattleEngine:
         self._stop_event.wait(random.uniform(*self.skill_interval))
 
     def _act_throw_ball(self):
-        """丢球流程: 按 W 开界面 → 确认左角标消失(界面已开) → 按球槽键 → 按空格丢出。
+        """丢球流程: 按 W 开界面 → 确认左角标消失(界面已开) → 识别当前选中的球 →
+        (贵重球则滚轮切换到安全球) → 按空格丢出。
 
         游戏机制: 丢球界面打开时只隐藏左下角战斗角标(右下角仍在);
         选球后需按空格才会真正丢出。捕捉失败仍在战斗中,
         外层循环检测到 hp 仍≤捕获线会再次进入本流程。
+
+        球型识别: 界面打开后用「进入战斗后咕噜球1」ROI 识别当前选中的球,
+        命中贵重球名单时用内核级滚轮(interception.scroll)切换, 直到安全球。
+        识别不可用(无模板/无ROI)时回退旧的槽位键流程。
         """
         self._balls_this_battle += 1
         self.catch_attempts += 1
@@ -428,7 +543,7 @@ class BattleEngine:
 
         if self.dry_run:
             self._log(f"[模拟] 按{self.open_ball_key}开界面(左角标消失确认) → "
-                      f"按{self.ball_slot_key}选球 → 按空格丢出(第{self._balls_this_battle}球)", "info")
+                      f"识别球型+滚轮切球 → 按空格丢出(第{self._balls_this_battle}球)", "info")
             self._stop_event.wait(self.ball_cooldown)
             return
 
@@ -454,11 +569,112 @@ class BattleEngine:
             self._balls_this_battle = self.max_balls  # 阻止继续丢球
             return
 
+        # 球型识别 + 滚轮切球(替代盲按槽位键, 防止丢出贵重球)
+        selected = self._select_safe_ball()
+        if selected is not None:
+            ball_id, ball_name = selected
+            self._stop_event.wait(0.3)
+            human_input.press("space")   # 选球后按空格才会丢出
+            self._log(f"已丢球(第{self._balls_this_battle}球, 球型:{ball_name})", "info")
+            self._stop_event.wait(self.ball_cooldown)
+            return
+
+        # 回退: 识别不可用时按原槽位键流程
         human_input.press(self.ball_slot_key)
         self._stop_event.wait(0.3)
         human_input.press("space")   # 选球后按空格才会丢出
-        self._log(f"已丢球(第{self._balls_this_battle}球,槽位{self.ball_slot_key})", "info")
+        self._log(f"已丢球(第{self._balls_this_battle}球,槽位{self.ball_slot_key},识别不可用回退)", "info")
         self._stop_event.wait(self.ball_cooldown)
+
+    # ---- 战斗内球型识别与滚轮切球 ----
+
+    def _ensure_ball_matcher(self) -> bool:
+        """懒加载球模板匹配器与战斗内球槽 ROI; 不可用返回 False"""
+        if getattr(self, "_ball_matcher", None) is not None:
+            return True
+        try:
+            from src.perception.ball_watcher import BallSlotWatcher, BallTemplateMatcher
+            cfg = BallSlotWatcher._load_config()
+            active = set(cfg.get("active_balls") or []) or None
+            self._ball_matcher = BallTemplateMatcher(active, cfg.get("prefer", "official"))
+            self._battle_ball_rois = BallSlotWatcher._load_postbattle_rects()
+            return bool(self._ball_matcher.refs and self._battle_ball_rois)
+        except Exception:
+            return False
+
+    def _identify_selected_ball(self, frame):
+        """识别丢球界面当前选中的球(取「进入战斗后咕噜球1」) → (ball_id, ball_name) 或 None"""
+        if not self._ensure_ball_matcher():
+            return None
+        roi = self._battle_ball_rois.get(1)
+        if roi is None or frame is None or frame.size == 0:
+            return None
+        r = self._ball_matcher.match_frame_rect(frame, roi)
+        if r["present"] and r["ball_id"]:
+            return (r["ball_id"], r["ball_name"])
+        return None
+
+    def _select_safe_ball(self):
+        """确认当前选中球安全; 贵重球则内核级滚轮切换, 最多 6 轮。
+        返回 (ball_id, ball_name) 表示可以丢; None 表示识别不可用(走旧流程)。
+        未知球型(模板未覆盖)按可丢处理, strict_safe=True 时才拦截。"""
+        try:
+            frame = self._frame_provider()
+        except Exception:
+            frame = None
+        selected = self._identify_selected_ball(frame)
+        if selected is None:
+            return None   # 识别不可用 → 旧流程
+
+        # 数量统计: 读当前选中球的库存数字, 与上次差值累计为引擎实际消耗
+        try:
+            from src.perception.ocr_reader import OcrNumberReader
+            from src.ocr.base import ROI
+            if getattr(self, "_ball_count_reader", None) is None:
+                rx, ry, rw, rh = self._battle_ball_rois[1]
+                self._ball_count_reader = OcrNumberReader(
+                    ROI(name="battle_ball_count", left=rx, top=ry + rh * 0.5,
+                        width=rw, height=rh * 0.5), percent=False)
+            rr = self._ball_count_reader.read(frame)
+            if rr and rr.value is not None:
+                cur = int(rr.value)
+                prev = getattr(self, "_ball_count_last", None)
+                if prev is not None and cur < prev:
+                    self.balls_used_total = getattr(self, "balls_used_total", 0) + (prev - cur)
+                    self._log(f"🏀 [引擎用球] {prev} → {cur}, 挂机累计消耗 {self.balls_used_total} 颗", "info")
+                self._ball_count_last = cur
+        except Exception:
+            pass
+
+        import interception
+        for attempt in range(6):
+            ball_id, ball_name = selected
+            if ball_id in self.safe_ball_ids:
+                if attempt:
+                    self._log(f"🎯 滚轮切球完成: 当前 {ball_name}(安全)", "success")
+                return selected
+            self._log(f"💎 当前选中 {ball_name} 在贵重球名单, 滚轮切换 ({attempt + 1}/6)", "warning")
+            interception.scroll('down')
+            self._stop_event.wait(0.5)
+            try:
+                frame = self._frame_provider()
+            except Exception:
+                frame = None
+            new_selected = self._identify_selected_ball(frame)
+            if new_selected is None:
+                return None   # 切换后识别不到(界面异常), 走旧流程兜底
+            if new_selected == selected:
+                self._log("滚轮滚动后选择未变化(可能到队尾), 停止切换", "warning")
+                break
+            selected = new_selected
+
+        # 6 轮未找到安全球
+        if selected[0] not in self.safe_ball_ids and not self.strict_safe:
+            self._log(f"未切到名单内安全球, 按非严格模式丢弃 {selected[1]}", "warning")
+            return selected
+        self._log("未切到安全球且严格模式开启, 本轮放弃丢球", "error")
+        self._balls_this_battle = self.max_balls   # 阻止继续丢球
+        return None
 
     def _ball_ui_open(self) -> bool:
         """丢球界面打开的判定: 左下战斗角标消失。

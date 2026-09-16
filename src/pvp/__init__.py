@@ -47,6 +47,7 @@ from .pet_loader import (
     is_leader_form,
     search_pets,
     get_all_pet_names,
+    get_all_pets_list,
     pet_to_dict,
 )
 from .skill_loader import (

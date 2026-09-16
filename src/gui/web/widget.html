@@ -2,159 +2,161 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>状态悬浮窗</title>
+<title>挂机悬浮战情</title>
+<script src="assets/pet_asset_map.js"></script>
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
-        --bg: rgba(8, 12, 24, 0.95);
-        --border: rgba(255, 255, 255, 0.09);
-        --text: #e3e7f0;
-        --dim: #7880a0;
+        --bg: rgba(15, 23, 42, 0.94);
+        --border: rgba(255, 255, 255, 0.12);
+        --text: #f8fafc;
+        --dim: #94a3b8;
         --accent: #6366f1;
-        --ok: #4ade80;
-        --warn: #fbbf24;
-        --err: #f87171;
-        --cyan: #22d3ee;
-        --radius: 12px;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --err: #ef4444;
+        --purple: #a855f7;
     }
-    html, body { background: transparent; }
+    html, body {
+        background: transparent;
+        width: 100%; height: 100%;
+        overflow: hidden;
+    }
     body {
-        font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
-        color: var(--text); overflow: hidden;
-        -webkit-user-select: none; user-select: none;
-        -webkit-font-smoothing: antialiased;
+        font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        color: var(--text); user-select: none; font-size: 12px;
     }
     .card {
+        width: 100%;
         background: var(--bg); border: 1px solid var(--border);
-        border-radius: var(--radius); backdrop-filter: blur(22px);
-        -webkit-backdrop-filter: blur(22px);
-        box-shadow: 0 8px 36px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+        border-radius: 12px; backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
         overflow: hidden;
-        transition: box-shadow 0.3s ease;
     }
-    .card:hover {
-        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
-    }
-
-    /* 头部 */
     .head {
-        display: flex; align-items: center; gap: 8px;
-        padding: 10px 14px; cursor: default;
+        display: flex; align-items: center; gap: 8px; padding: 8px 12px;
         border-bottom: 1px solid var(--border);
-        background: rgba(0, 0, 0, 0.15);
+        background: rgba(255, 255, 255, 0.03);
+        cursor: move;
+        height: 42px;
     }
-    .dot {
-        width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
-        background: #555c6e; transition: all 0.3s ease;
-    }
-    .dot.run { background: var(--ok); box-shadow: 0 0 10px var(--ok); animation: pulse 1.5s infinite; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+    .dot.run { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: pulse 1.5s infinite; }
     .dot.throwing { background: var(--warn); box-shadow: 0 0 10px var(--warn); animation: pulse 0.8s infinite; }
-    .dot.paused { background: var(--err); box-shadow: 0 0 10px var(--err); }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .dot.fleeing { background: var(--err); box-shadow: 0 0 10px var(--err); animation: pulse 0.5s infinite; }
+    .dot.fled { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
+    .dot.paused { background: var(--warn); }
+    @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.15); } }
 
-    .title {
-        font-size: 13px; font-weight: 700; flex: 1;
-        letter-spacing: 0.5px; line-height: 1.2;
-    }
-    .title small {
-        color: var(--dim); font-weight: 400;
-        margin-left: 6px; font-size: 10px;
-    }
+    .title { font-size: 13px; font-weight: 700; flex: 1; letter-spacing: 0.3px; }
+    .title small { font-size: 10.5px; color: var(--warn); font-weight: 400; margin-left: 4px; }
     .fold-btn {
-        background: none; border: 1px solid var(--border);
-        color: var(--dim); width: 24px; height: 24px;
+        background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border);
+        color: var(--dim); width: 22px; height: 22px;
         border-radius: 6px; cursor: pointer; font-size: 11px;
         line-height: 1; display: flex; align-items: center;
         justify-content: center;
-        transition: all 0.2s ease;
     }
-    .fold-btn:hover { color: var(--text); border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
+    .fold-btn:hover { color: var(--text); border-color: var(--accent); }
 
-    /* 主体 */
-    .body { padding: 12px 14px 14px; }
+    .body { padding: 10px 12px; }
     .row {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 5px 0; font-size: 12px;
+        display: flex; justify-content: space-between;
+        align-items: center; margin-bottom: 6px;
+        font-size: 12px;
     }
-    .row .k { color: var(--dim); }
-    .row .v {
-        font-weight: 700; font-variant-numeric: tabular-nums;
-        transition: color 0.3s ease;
-    }
-    .v.ok { color: var(--cyan); }
+    .row:last-child { margin-bottom: 0; }
+    .k { color: var(--dim); }
+    .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .v.ok { color: var(--ok); }
     .v.warn { color: var(--warn); }
-    .divider {
-        height: 1px; background: var(--border);
-        margin: 8px 0;
+    .v.err { color: var(--err); }
+    .v.accent { color: #818cf8; }
+
+    .divider { height: 1px; background: var(--border); margin: 8px 0; }
+
+    /* 敌方战情卡片 */
+    .enemy-card {
+        display: flex; align-items: center; gap: 8px;
+        padding: 7px 10px; border-radius: 8px;
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(99, 102, 241, 0.06));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 8px;
+    }
+    .enemy-card.in-battle {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(245, 158, 11, 0.1));
+        border-color: rgba(239, 68, 68, 0.35);
+    }
+    .enemy-avatar-box {
+        position: relative; width: 34px; height: 34px; flex-shrink: 0;
+        border-radius: 8px; overflow: hidden; background: rgba(0,0,0,0.3);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .idle-badge {
+        font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center;
+    }
+    .enemy-avatar {
+        width: 100%; height: 100%; object-fit: cover;
+    }
+    .enemy-attr-icon {
+        position: absolute; bottom: 0; right: 0; width: 13px; height: 13px;
+        background: rgba(0,0,0,0.6); border-radius: 3px;
+    }
+    .enemy-detail {
+        flex: 1; min-width: 0;
+    }
+    .enemy-name-row {
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;
+    }
+    .enemy-name {
+        font-size: 12px; font-weight: 700; color: var(--text);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .enemy-name.none { color: var(--dim); font-weight: 500; }
+    .enemy-tag {
+        font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+        background: rgba(255, 255, 255, 0.08); color: var(--dim);
+    }
+    .enemy-tag.battle {
+        background: rgba(239, 68, 68, 0.2); color: #fca5a5;
     }
 
-    /* 敌方血量专用大块展示 */
-    .enemy-card {
-        margin: 2px 0 4px; padding: 10px 12px;
-        border-radius: 10px;
-        background: linear-gradient(135deg, rgba(248,113,113,0.08), rgba(251,191,36,0.05));
-        border: 1px solid rgba(248, 113, 113, 0.22);
-    }
-    .enemy-card .enemy-name {
-        font-size: 15px; font-weight: 700; color: #fca5a5;
-        margin-bottom: 8px; letter-spacing: 0.5px;
+    .hpbar-wrap {
         display: flex; align-items: center; gap: 6px;
     }
-    .enemy-card .enemy-name .tag {
-        font-size: 9px; font-weight: 400; color: var(--dim);
-        border: 1px solid var(--border); border-radius: 4px;
-        padding: 1px 5px; letter-spacing: 0;
-    }
-    .enemy-card .enemy-name.none { color: #555c6e; font-weight: 400; }
-    .hpbar-wrap { display: flex; align-items: center; gap: 10px; }
-    .hpbar {
-        flex: 1; height: 10px; border-radius: 999px;
-        background: rgba(255, 255, 255, 0.07);
-        overflow: hidden; position: relative;
-    }
-    .hpbar-fill {
-        height: 100%; border-radius: 999px;
-        background: linear-gradient(90deg, #4ade80, #a3e635);
-        width: 0%; transition: width 0.45s cubic-bezier(.4,0,.2,1), background 0.3s ease;
-    }
-    .hpbar-fill.mid { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
-    .hpbar-fill.low { background: linear-gradient(90deg, #f87171, #ef4444); }
+    .hpbar { height: 6px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #22c55e, #eab308 55%, #ef4444); }
+    .hpbar-fill { height: 100%; border-radius: 0 999px 999px 0; margin-left: auto; background: rgba(8, 12, 22, 0.82); transition: width 0.45s ease; }
+    .hpbar-fill.mid { background: linear-gradient(90deg, #eab308, #facc15); }
+    .hpbar-fill.low ~ .hp-num { background: linear-gradient(90deg, #ef4444, #f87171); }
     .hp-num {
-        font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums;
-        color: var(--text); min-width: 64px; text-align: right;
-        line-height: 1;
+        font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+        color: #38bdf8; min-width: 32px; text-align: right;
     }
-    .hp-num span { font-size: 11px; color: var(--dim); font-weight: 400; }
+    .hp-num span { font-size: 8.5px; color: var(--dim); font-weight: 400; margin-left: 1px; }
 
-    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+    .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
     .chip {
-        font-size: 10px; padding: 3px 10px; border-radius: 999px;
-        background: rgba(99, 102, 241, 0.12);
-        border: 1px solid rgba(99, 102, 241, 0.4);
-        color: #c7cdf9;
-        transition: all 0.2s ease;
+        font-size: 10px; padding: 2px 6px; border-radius: 4px;
+        background: rgba(99, 102, 241, 0.15); color: #c7cdf9;
+        border: 1px solid rgba(99, 102, 241, 0.3);
     }
     .chip.none {
-        background: none; border-color: var(--border);
-        color: #555c6e;
+        background: rgba(255, 255, 255, 0.03); color: var(--dim);
+        border-color: rgba(255, 255, 255, 0.06);
     }
+
     .game {
-        margin-top: 9px; font-size: 10px; color: var(--dim);
-        display: flex; align-items: center; gap: 6px;
-        padding: 4px 8px; border-radius: 6px;
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid var(--border);
-        transition: all 0.3s ease;
+        display: flex; align-items: center; gap: 5px;
+        font-size: 10.5px; color: var(--dim); margin-top: 6px;
+        padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, 0.08);
     }
     .game i {
-        width: 6px; height: 6px; border-radius: 50%;
-        background: #555c6e; flex-shrink: 0;
-        transition: all 0.3s ease;
+        width: 6px; height: 6px; border-radius: 50%; background: #64748b;
     }
     .game.on {
         color: var(--ok);
-        border-color: rgba(74, 222, 128, 0.25);
-        background: rgba(74, 222, 128, 0.05);
     }
     .game.on i { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 </style>
@@ -164,20 +166,32 @@
     <div class="head" id="head">
         <span class="dot" id="dot"></span>
         <span class="title" id="title">待机<small id="subtitle"></small></span>
-        <button class="fold-btn" id="foldBtn" onclick="toggleFold()">▾</button>
+        <button class="fold-btn" id="foldBtn" onclick="toggleFold()" title="折叠/展开">▾</button>
     </div>
-    <div class="body" id="body">
-        <div class="row"><span class="k">挂机状态</span><span class="v" id="wState">停止</span></div>
-        <div class="row"><span class="k">状态详情</span><span class="v" id="wDetail" style="font-weight:400;color:#9aa3b8">—</span></div>
+    <div class="body" id="wBody">
+        <div class="row"><span class="k">运行状态</span><span class="v accent" id="wState">停止</span></div>
+        <div class="row"><span class="k">实时详情</span><span class="v" id="wDetail" style="font-weight:400;color:#94a3b8;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span></div>
         <div class="divider"></div>
-        <div class="enemy-card">
-            <div class="enemy-name none" id="wEnemyNameCard"><span class="tag">敌方</span><span id="wEnemyName">未在战斗</span></div>
-            <div class="hpbar-wrap">
-                <div class="hpbar"><div class="hpbar-fill" id="wEnemyHpBar"></div></div>
-                <div class="hp-num" id="wEnemyHpNum">--<span>%</span></div>
+
+        <!-- 敌方战情卡片 -->
+        <div class="enemy-card" id="wEnemyCard">
+            <div class="enemy-avatar-box">
+                <div class="idle-badge" id="wIdleBadge">🎯</div>
+                <img class="enemy-avatar" id="wEnemyAvatar" style="display:none;" src="" alt="" onerror="this.style.display='none'">
+            </div>
+            <div class="enemy-detail">
+                <div class="enemy-name-row">
+                    <span class="enemy-name none" id="wEnemyName">未在战斗</span>
+                    <span class="enemy-tag" id="wEnemyTag">待命中</span>
+                </div>
+                <div class="hpbar-wrap">
+                    <div class="hpbar"><div class="hpbar-fill" id="wEnemyHpBar"></div></div>
+                    <div class="hp-num" id="wEnemyHpNum">--<span>%</span></div>
+                </div>
             </div>
         </div>
-        <div class="row"><span class="k">完成战斗</span><span class="v ok" id="wBattles">0</span></div>
+
+        <div class="row"><span class="k">战斗 / 逃跑</span><span class="v ok" id="wBattles">0</span></div>
         <div class="row"><span class="k">丢球 / 捕获</span><span class="v warn" id="wBalls">0 / 0</span></div>
         <div class="divider"></div>
         <div class="chips" id="wChips"><span class="chip none">全部空闲</span></div>
@@ -187,15 +201,70 @@
 <script>
     const $ = id => document.getElementById(id);
     let folded = false;
-    const H_EXPANDED = 300, H_FOLDED = 40;
+    const W_WIDTH = 340, H_EXPANDED = 350, H_FOLDED = 42;
 
-    const STATE_TXT = { stopped: '停止', waiting: '巡逻找怪', fighting: '战斗中', throwing: '丢球中', paused: '暂停' };
+    const STATE_TXT = {
+        stopped: '停止',
+        waiting: '巡逻找怪',
+        fighting: '战斗中',
+        throwing: '丢球中',
+        fleeing: '遭遇战斗·逃跑中',
+        fled: '已脱离战斗',
+        paused: '暂停'
+    };
+
+    function getPetAvatar(name) {
+        if (!name || name === '?' || name === '未在战斗' || name === '遭遇精灵') return '';
+        const map = window.PET_ASSET_MAP;
+        if (!map) return '';
+
+        const raw = String(name).trim();
+        // 1. 直接精准匹配
+        if (map[raw]) return `assets/img/pets/${map[raw]}`;
+
+        // 2. 去除括号形态修饰（如 "白金独角兽（变体形态）" -> "白金独角兽"）
+        const clean = raw.replace(/[\(（].*?[\)）]/g, '').trim();
+        if (clean && map[clean]) return `assets/img/pets/${map[clean]}`;
+
+        // 3. 数字编号匹配（如 117 或 #117）
+        const numMatch = raw.match(/\d+/);
+        if (numMatch) {
+            const num = parseInt(numMatch[0], 10);
+            const pad3 = String(num).padStart(3, '0');
+            for (const [k, v] of Object.entries(map)) {
+                if (v.startsWith(`${pad3}_`) || v.startsWith(`${num}_`)) {
+                    return `assets/img/pets/${v}`;
+                }
+            }
+        }
+
+        // 4. 模糊包含匹配
+        for (const [k, v] of Object.entries(map)) {
+            if (clean && (k.includes(clean) || clean.includes(k))) {
+                return `assets/img/pets/${v}`;
+            }
+        }
+
+        return '';
+    }
+
+    // 按内容真实高度同步窗口尺寸(乘 devicePixelRatio 换算物理像素,修复 DPI 缩放下折叠变形)
+    function syncSize() {
+        const card = document.getElementById('card');
+        if (!card || !window.pywebview || !pywebview.api.widget_resize) return;
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.ceil(Math.max(card.offsetWidth, document.body.scrollWidth) * dpr);
+        const h = Math.ceil(Math.max(card.offsetHeight, document.body.scrollHeight) * dpr);
+        pywebview.api.widget_resize(w, h);
+    }
 
     async function toggleFold() {
         folded = !folded;
-        $('body').style.display = folded ? 'none' : '';
+        $('wBody').style.display = folded ? 'none' : '';
         $('foldBtn').textContent = folded ? '▴' : '▾';
-        try { await pywebview.api.widget_resize(folded ? H_FOLDED : H_EXPANDED); } catch (e) {}
+        try { await pywebview.api.widget_set_folded(folded); } catch (e) {}
+        // 等布局完成再量尺寸
+        requestAnimationFrame(() => setTimeout(syncSize, 30));
     }
 
     function setHp(pct) {
@@ -207,46 +276,107 @@
             return;
         }
         const v = Math.max(0, Math.min(100, pct));
-        bar.style.width = v + '%';
+        bar.style.width = (100 - v) + '%';
         bar.className = 'hpbar-fill' + (v <= 20 ? ' low' : v <= 50 ? ' mid' : '');
         num.innerHTML = v + '<span>%</span>';
     }
 
     async function tick() {
         try {
+            if (!window.pywebview || !pywebview.api) return;
             const s = await pywebview.api.get_state();
             const e = await pywebview.api.engine_status();
 
-            const state = e.running ? e.state : 'stopped';
+            const isRunning = !!e.running;
+            const stateKey = isRunning ? (e.state || 'running') : 'stopped';
             const dot = $('dot');
-            dot.className = 'dot' + (e.running
-                ? ({ throwing: ' throwing', paused: ' paused' }[e.state] || ' run')
-                : '');
-            $('title').childNodes[0].textContent = e.running ? (STATE_TXT[e.state] || e.state) : '待机';
-            $('subtitle').textContent = e.dry_run ? '模拟' : '';
 
-            $('wState').textContent = STATE_TXT[state] || state;
+            let dotClass = 'dot';
+            if (isRunning) {
+                if (stateKey === 'fleeing') dotClass += ' fleeing';
+                else if (stateKey === 'throwing') dotClass += ' throwing';
+                else if (stateKey === 'fled') dotClass += ' fled';
+                else if (stateKey === 'paused') dotClass += ' paused';
+                else dotClass += ' run';
+            }
+            dot.className = dotClass;
+
+            $('title').childNodes[0].textContent = isRunning ? (STATE_TXT[stateKey] || stateKey) : '待机';
+            $('subtitle').textContent = e.dry_run ? ' (模拟)' : '';
+
+            $('wState').textContent = STATE_TXT[stateKey] || stateKey;
             $('wDetail').textContent = e.detail || '—';
+            $('wDetail').title = e.detail || '';
             $('wBattles').textContent = e.battles_done ?? 0;
-            $('wBalls').textContent = `${e.catch_attempts ?? 0} / ${e.catches ?? 0}`;
+            
+            if (e.mode_type === 'tool') {
+                $('wBalls').textContent = `${e.catch_attempts ?? 0} 球`;
+            } else {
+                $('wBalls').textContent = `${e.catch_attempts ?? 0} / ${e.catches ?? 0}`;
+            }
 
-            // 敌方卡片
-            const nameCard = $('wEnemyNameCard');
-            const hasName = !!(e.enemy_name && e.enemy_name !== '?');
-            nameCard.className = 'enemy-name' + (hasName ? '' : ' none');
-            $('wEnemyName').textContent = hasName ? e.enemy_name : (e.running ? '识别中…' : '未在战斗');
-            setHp(e.enemy_hp != null ? e.enemy_hp : null);
+            // 敌方战情卡片展示
+            const enemyName = e.enemy_name;
+            const watching = !!e.watching;  // 观察模式: 引擎没跑也监视到了战斗
+            const inBattle = !!(enemyName && enemyName !== '?' && enemyName !== 'None') || watching;
+            const enemyCard = $('wEnemyCard');
+            const idleBadge = $('wIdleBadge');
+            const enemyAvatar = $('wEnemyAvatar');
+            const enemyTag = $('wEnemyTag');
 
+            if (inBattle) {
+                enemyCard.className = 'enemy-card in-battle';
+                $('wEnemyName').className = 'enemy-name';
+                $('wEnemyName').textContent = enemyName;
+                enemyTag.className = 'enemy-tag battle';
+                enemyTag.textContent = stateKey === 'fleeing' ? '遭遇对战' : '战斗中';
+
+                const avatarUrl = getPetAvatar(enemyName);
+                if (avatarUrl) {
+                    enemyAvatar.src = avatarUrl;
+                    enemyAvatar.style.display = 'block';
+                    idleBadge.style.display = 'none';
+                } else {
+                    enemyAvatar.style.display = 'none';
+                    idleBadge.textContent = '⚔️';
+                    idleBadge.style.display = 'flex';
+                }
+                setHp(e.enemy_hp != null ? e.enemy_hp : (watching ? 100 : null));
+            } else {
+                enemyCard.className = 'enemy-card';
+                $('wEnemyName').className = 'enemy-name none';
+                $('wEnemyName').textContent = watching ? '战斗识别中…'
+                    : (isRunning ? (stateKey === 'fled' ? '战斗已脱离' : '巡逻/丢球中') : '未在战斗');
+                enemyTag.className = 'enemy-tag';
+                enemyTag.textContent = watching ? '观察中' : (isRunning ? '待命中' : '空闲');
+
+                enemyAvatar.style.display = 'none';
+                idleBadge.textContent = watching ? '👁' : (isRunning ? (stateKey === 'fled' ? '✨' : '🎯') : '💤');
+                idleBadge.style.display = 'flex';
+                setHp(null);
+            }
+
+            // 任务列表
             const chips = [];
             (s.tasks || []).forEach(t => chips.push(`<span class="chip">${t.name}</span>`));
             $('wChips').innerHTML = chips.length ? chips.join('') : '<span class="chip none">全部空闲</span>';
 
+            // 游戏前台/后台状态
             $('wGame').className = 'game' + (s.game_active ? ' on' : '');
             $('wGame').querySelector('span').textContent = s.game_active ? '游戏窗口前台' : '游戏窗口后台';
-        } catch (err) { /* 后端未就绪 */ }
+        } catch (err) { /* 后端未就绪，静默 */ }
     }
 
-    window.addEventListener('pywebviewready', () => { tick(); setInterval(tick, 1000); });
+    window.addEventListener('pywebviewready', async () => {
+        // 应用上次记住的折叠偏好
+        try {
+            const st = await pywebview.api.widget_get_state();
+            if (st.folded && !folded) await toggleFold();
+        } catch (e) {}
+        syncSize();  // 初始就按内容真实尺寸校准(修 DPI 缩放偏差)
+        tick();
+        setInterval(tick, 400);
+    });
 </script>
 </body>
 </html>

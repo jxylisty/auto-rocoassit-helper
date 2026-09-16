@@ -1,142 +1,293 @@
 // ========================================
-// 洛克王国 PVP 实时对战 · 智能预设 + 全技能伤害预览
+// 洛克王国 PVP 实时对战 · 智能预设 + 全技能伤害预览 + 图标可视化
 // ========================================
 
-const TYPE_EN = {'火':'fire','水':'water','草':'grass','电':'electric','冰':'ice','虫':'bug','翼':'flying','地':'ground','萌':'fairy','武':'fighting','毒':'poison','龙':'dragon','幽':'ghost','恶':'dark','光':'light','普通':'normal','机械':'steel','幻':'psychic'};
-const STAT_LABEL = {hp:'HP',attack:'物攻',mattack:'魔攻',defense:'物防',mdefense:'魔防',speed:'速度'};
-const STATS = ['hp','attack','mattack','defense','mdefense','speed'];
+const TYPE_EN = {
+    '火':'fire', '水':'water', '草':'grass', '电':'electric', '冰':'ice',
+    '虫':'bug', '翼':'flying', '地':'ground', '萌':'fairy', '武':'fighting',
+    '毒':'poison', '龙':'dragon', '幽':'ghost', '恶':'dark', '光':'light',
+    '普通':'normal', '机械':'steel', '幻':'psychic'
+};
+const STAT_LABEL = {hp:'HP', attack:'物攻', mattack:'魔攻', defense:'物防', mdefense:'魔防', speed:'速度'};
+const STATS = ['hp', 'attack', 'mattack', 'defense', 'mdefense', 'speed'];
 
-let pvpPetCache=[], pvpAtkPet=null, pvpDefPet=null, pvpAllSkills=[], pvpAtkPanels=null, pvpDefPanels=null;
-let pvpFloatVisible=false, pvpCalcTimer=null;
+let pvpPetCache = [], pvpAtkPet = null, pvpDefPet = null, pvpAllSkills = [], pvpAtkPanels = null, pvpDefPanels = null;
+let pvpFloatVisible = false, pvpCalcTimer = null;
+
+// ---------- 资源助手 ----------
+function getPetAvatarUrl(name) {
+    if (!name) return 'assets/img/icons/normal.webp';
+    const map = window.PET_ASSET_MAP;
+    if (!map) return 'assets/img/icons/normal.webp';
+
+    const raw = String(name).trim();
+    // 1. 直接精准匹配
+    if (map[raw]) return `assets/img/pets/${map[raw]}`;
+
+    // 2. 去除括号形态修饰（如 "白金独角兽（变体形态）" -> "白金独角兽"）
+    const clean = raw.replace(/[\(（].*?[\)）]/g, '').trim();
+    if (clean && map[clean]) return `assets/img/pets/${map[clean]}`;
+
+    // 3. 数字编号匹配（如 117 或 #117）
+    const numMatch = raw.match(/\d+/);
+    if (numMatch) {
+        const num = parseInt(numMatch[0], 10);
+        const pad3 = String(num).padStart(3, '0');
+        for (const [k, v] of Object.entries(map)) {
+            if (v.startsWith(`${pad3}_`) || v.startsWith(`${num}_`)) {
+                return `assets/img/pets/${v}`;
+            }
+        }
+    }
+
+    // 4. 模糊包含匹配
+    for (const [k, v] of Object.entries(map)) {
+        if (clean && (k.includes(clean) || clean.includes(k))) {
+            return `assets/img/pets/${v}`;
+        }
+    }
+
+    return 'assets/img/icons/normal.webp';
+}
+window.getPetAvatar = getPetAvatarUrl;
+
+
+function getAttrIconUrl(attr) {
+    if (!attr) return '';
+    const clean = String(attr).replace('系', '').trim();
+    const en = TYPE_EN[clean] || TYPE_EN[clean.toLowerCase()];
+    return en ? `assets/img/icons/${en}.webp` : '';
+}
+
+function getSkillIconUrl(name) {
+    if (!name) return '';
+    return `assets/img/skills/${encodeURIComponent(name.trim())}.webp`;
+}
 
 // ---------- 页面切换 ----------
-function switchToPVP(){switchPage('pvp');if(!pvpPetCache.length)loadPVPData();}
+function switchToPVP() {
+    switchPage('pvp');
+    if (!pvpPetCache.length) loadPVPData();
+}
 
-async function loadPVPData(){
-    try{
-        const r=await pywebview.api.pvp_get_all_pets();
-        if(r.success){pvpPetCache=r.pets;renderPetList('pvpAtkList','pvpAtkInput','atk');renderPetList('pvpDefList','pvpDefInput','def');}
-    }catch(e){addLog('PVP数据加载失败: '+e,'error');}
+async function loadPVPData() {
+    try {
+        const r = await pywebview.api.pvp_get_all_pets();
+        if (r.success) {
+            pvpPetCache = r.pets;
+            renderPetList('pvpAtkList', 'pvpAtkInput', 'atk');
+            renderPetList('pvpDefList', 'pvpDefInput', 'def');
+        }
+    } catch (e) {
+        addLog('PVP数据加载失败: ' + e, 'error');
+    }
 }
 
 // ---------- 精灵列表 ----------
-function renderPetList(listId,inputId,side){
-    const list=$(listId);if(!list)return;
-    list.innerHTML=pvpPetCache.map(p=>`<div class="pvp-pet-item" onclick="selectPVPPet(${p.seq},'${side}','${p.name.replace(/'/g,"\\'")}')"><span class="pvp-pet-seq">#${p.seq}</span><span class="pvp-pet-name">${p.name}</span></div>`).join('');
+function renderPetList(listId, inputId, side) {
+    const list = $(listId);
+    if (!list) return;
+    list.innerHTML = pvpPetCache.map(p => {
+        const avatar = getPetAvatarUrl(p.name);
+        return `
+        <div class="pvp-pet-item" onclick="selectPVPPet(${p.seq},'${side}','${p.name.replace(/'/g, "\\'")}')">
+            <img class="pvp-pet-item-thumb" src="${avatar}" onerror="this.src='assets/img/icons/normal.webp'">
+            <span class="pvp-pet-seq">#${p.seq}</span>
+            <span class="pvp-pet-name">${p.name}</span>
+        </div>`;
+    }).join('');
 }
-function filterPVPPets(inputId,listId){
-    const input=$(inputId),list=$(listId),q=input.value.trim().toLowerCase();
-    if(!q){renderPetList(listId,inputId,listId==='pvpAtkList'?'atk':'def');list.style.display='block';return;}
-    const f=pvpPetCache.filter(p=>p.name.toLowerCase().includes(q)||String(p.seq).includes(q)).slice(0,30);
-    list.innerHTML=f.map(p=>`<div class="pvp-pet-item" onclick="selectPVPPet(${p.seq},'${listId==='pvpAtkList'?'atk':'def'}','${p.name.replace(/'/g,"\\'")}')"><span class="pvp-pet-seq">#${p.seq}</span><span class="pvp-pet-name">${p.name}</span></div>`).join('');
-    list.style.display='block';
+
+function filterPVPPets(inputId, listId) {
+    const input = $(inputId), list = $(listId), q = input.value.trim().toLowerCase();
+    const side = listId === 'pvpAtkList' ? 'atk' : 'def';
+    if (!q) {
+        renderPetList(listId, inputId, side);
+        list.style.display = 'block';
+        return;
+    }
+    const f = pvpPetCache.filter(p => p.name.toLowerCase().includes(q) || String(p.seq).includes(q)).slice(0, 35);
+    list.innerHTML = f.map(p => {
+        const avatar = getPetAvatarUrl(p.name);
+        return `
+        <div class="pvp-pet-item" onclick="selectPVPPet(${p.seq},'${side}','${p.name.replace(/'/g, "\\'")}')">
+            <img class="pvp-pet-item-thumb" src="${avatar}" onerror="this.src='assets/img/icons/normal.webp'">
+            <span class="pvp-pet-seq">#${p.seq}</span>
+            <span class="pvp-pet-name">${p.name}</span>
+        </div>`;
+    }).join('');
+    list.style.display = 'block';
 }
-document.addEventListener('click',e=>{if(!e.target.closest('.pvp-pet-dropdown')){$$('pvp-pet-list').forEach(l=>l.style.display='none');}});
-function $$(id){return document.querySelectorAll('.'+id);}
+
+document.addEventListener('click', e => {
+    if (!e.target.closest('.pvp-pet-dropdown')) {
+        $$('pvp-pet-list').forEach(l => l.style.display = 'none');
+    }
+});
+function $$(id) { return document.querySelectorAll('.' + id); }
 
 // ---------- 精灵选择 + 智能预设 ----------
-async function selectPVPPet(seq,side,name){
-    try{
+async function selectPVPPet(seq, side, name) {
+    try {
         const [petR, presetR] = await Promise.all([
             pywebview.api.pvp_get_pet(seq, name),
             pywebview.api.pvp_get_pet_preset(seq)
         ]);
-        if(!petR.success){showToast(petR.message,'error');return;}
-        const pet=petR.pet;
-        if(side==='atk'){pvpAtkPet=pet;renderPetPanel('pvpAtkPanel',pet,name,'pvpAtkInput');}
-        else{pvpDefPet=pet;renderPetPanel('pvpDefPanel',pet,name,'pvpDefInput');}
-        $(side==='atk'?'pvpAtkList':'pvpDefList').style.display='none';
+        if (!petR.success) { showToast(petR.message, 'error'); return; }
+        const pet = petR.pet;
+        if (side === 'atk') {
+            pvpAtkPet = pet;
+            renderPetPanel('pvpAtkPanel', pet, name, 'pvpAtkInput');
+        } else {
+            pvpDefPet = pet;
+            renderPetPanel('pvpDefPanel', pet, name, 'pvpDefInput');
+        }
+        $(side === 'atk' ? 'pvpAtkList' : 'pvpDefList').style.display = 'none';
+
         // 应用智能预设
-        if(presetR.success){
-            applyPreset(side==='atk'?'pvpAtk':'pvpDef', presetR);
+        if (presetR.success) {
+            applyPreset(side === 'atk' ? 'pvpAtk' : 'pvpDef', presetR);
         }
         pvpIVChanged();
-    }catch(e){showToast('选择失败: '+e,'error');}
+    } catch (e) {
+        showToast('选择失败: ' + e, 'error');
+    }
 }
 
-async function renderPetPanel(panelId,pet,name,inputId){
-    const panel=$(panelId),input=$(inputId);
-    if(!panel)return;
-    input.value=name;
-    const race=pet.race||{},types=pet.types||[],speedRace=pet.speed_race||0;
-    let avatar='';
-    try{const r=await pywebview.api.pvp_get_asset('pet',`${pet.seq}|${pet.name}`);if(r.success)avatar=r.image;}catch(e){}
-    const typeIcons=await Promise.all(types.map(async t=>{
-        const en=TYPE_EN[t]||'normal';
-        try{const r=await pywebview.api.pvp_get_asset('icon',en);return r.success?`<img class="pvp-type-icon" src="${r.image}" alt="${t}">`:'';}catch(e){return'';}
-    }));
-    panel.innerHTML=`
+async function renderPetPanel(panelId, pet, name, inputId) {
+    const panel = $(panelId), input = $(inputId);
+    if (!panel) return;
+    input.value = name;
+    const race = pet.race || {}, types = pet.types || [], speedRace = pet.speed_race || 0;
+    const avatar = getPetAvatarUrl(name);
+
+    const typeIcons = types.map(t => {
+        const iconUrl = getAttrIconUrl(t);
+        return iconUrl ? `<img class="pvp-type-icon" src="${iconUrl}" alt="${t}" title="${t}">` : '';
+    });
+
+    panel.innerHTML = `
         <div class="pvp-pet-header">
-            <img class="pvp-pet-avatar" src="${avatar||''}" alt="${name}" onerror="this.style.display='none'">
+            <img class="pvp-pet-avatar" src="${avatar}" alt="${name}" onerror="this.src='assets/img/icons/normal.webp'">
             <div class="pvp-pet-info">
-                <div class="pvp-pet-name">${pet.name||name}</div>
-                <div class="pvp-type-icons">${typeIcons.join('')}${types.join(' ')}</div>
+                <div class="pvp-pet-name">${pet.name || name}</div>
+                <div class="pvp-type-icons">${typeIcons.join('')} <span>${types.join(' / ')}</span></div>
             </div>
         </div>
         <div class="pvp-race">
-            <span>HP:${race.hp||0}</span><span>攻:${race.attack||0}</span><span>魔攻:${race.mattack||0}</span>
-            <span>防:${race.defense||0}</span><span>魔防:${race.mdefense||0}</span><span>速:${speedRace}</span>
+            <span>HP:${race.hp || 0}</span><span>攻:${race.attack || 0}</span><span>魔攻:${race.mattack || 0}</span>
+            <span>防:${race.defense || 0}</span><span>魔防:${race.mdefense || 0}</span><span>速:${speedRace}</span>
         </div>
     `;
-    panel.style.display='block';
+    panel.style.display = 'block';
 }
 
-function applyPreset(prefix, preset){
-    const ivConfig = document.getElementById(prefix+'IVConfig');
-    if(ivConfig) ivConfig.style.display='block';
-    const highIVs = preset.high_ivs || ['attack','mattack','speed'];
-    document.querySelectorAll(`#${prefix}IVChecks input[data-stat]`).forEach(cb=>{
+function applyPreset(prefix, preset) {
+    const ivConfig = document.getElementById(prefix + 'IVConfig');
+    if (ivConfig) ivConfig.style.display = 'block';
+    const highIVs = preset.high_ivs || ['attack', 'mattack', 'speed'];
+    document.querySelectorAll(`#${prefix}IVChecks input[data-stat]`).forEach(cb => {
         cb.checked = highIVs.includes(cb.dataset.stat);
     });
-    const ivVal = $(prefix+'IVValue');
-    if(ivVal) ivVal.value = String(preset.iv_value || 10);
-    const nu = $(prefix+'NatureUp');
-    if(nu) nu.value = preset.nature_up || '';
-    const nd = $(prefix+'NatureDown');
-    if(nd) nd.value = preset.nature_down || '';
+    const ivVal = $(prefix + 'IVValue');
+    if (ivVal) ivVal.value = String(preset.iv_value || 10);
+    const nu = $(prefix + 'NatureUp');
+    if (nu) nu.value = preset.nature_up || '';
+    const nd = $(prefix + 'NatureDown');
+    if (nd) nd.value = preset.nature_down || '';
 }
 
 // ---------- IV/性格 变更 → 自动重算 ----------
-function pvpIVChanged(){
+function pvpIVChanged() {
     clearTimeout(pvpCalcTimer);
-    pvpCalcTimer=setTimeout(doCalcAllSkills,300);
+    pvpCalcTimer = setTimeout(doCalcAllSkills, 300);
 }
 
-function getIVConfig(prefix){
-    const checks=document.querySelectorAll(`#${prefix}IVChecks input[data-stat]:checked`);
-    const highIVs=Array.from(checks).map(c=>c.dataset.stat);
-    const val=parseInt($(prefix+'IVValue')?.value||'10');
-    const nu=$(prefix+'NatureUp')?.value||null;
-    const nd=$(prefix+'NatureDown')?.value||null;
-    return {highIVs,val,nu,nd};
+function getIVConfig(prefix) {
+    const checks = document.querySelectorAll(`#${prefix}IVChecks input[data-stat]:checked`);
+    const highIVs = Array.from(checks).map(c => c.dataset.stat);
+    const val = parseInt($(prefix + 'IVValue')?.value || '10');
+    const nu = $(prefix + 'NatureUp')?.value || null;
+    const nd = $(prefix + 'NatureDown')?.value || null;
+    return { highIVs, val, nu, nd };
 }
 
-async function doCalcAllSkills(){
-    if(!pvpAtkPet||!pvpDefPet)return;
-    const atkCfg=getIVConfig('pvpAtk'),defCfg=getIVConfig('pvpDef');
-    try{
-        const r=await pywebview.api.pvp_calc_all_skills(
-            pvpAtkPet.seq,pvpDefPet.seq,
-            atkCfg.highIVs,atkCfg.val,defCfg.highIVs,defCfg.val,
-            atkCfg.nu,atkCfg.nd,defCfg.nu,defCfg.nd
+async function doCalcAllSkills() {
+    if (!pvpAtkPet || !pvpDefPet) return;
+    const atkCfg = getIVConfig('pvpAtk'), defCfg = getIVConfig('pvpDef');
+    try {
+        const r = await pywebview.api.pvp_calc_all_skills(
+            pvpAtkPet.seq, pvpDefPet.seq,
+            atkCfg.highIVs, atkCfg.val, defCfg.highIVs, defCfg.val,
+            atkCfg.nu, atkCfg.nd, defCfg.nu, defCfg.nd
         );
-        if(!r.success){showToast(r.message,'error');return;}
-        pvpAllSkills=r.skills;pvpAtkPanels=r.atkPanels;pvpDefPanels=r.defPanels;
+        if (!r.success) { showToast(r.message, 'error'); return; }
+        pvpAllSkills = r.skills;
+        pvpAtkPanels = r.atkPanels;
+        pvpDefPanels = r.defPanels;
         renderSkillTable('all');
-        updatePanelStats('pvpAtkPanel',r.atkPanels);
-        updatePanelStats('pvpDefPanel',r.defPanels);
+        updatePanelStats('pvpAtkPanel', r.atkPanels);
+        updatePanelStats('pvpDefPanel', r.defPanels);
+
         // 速度对比
         updateSpeedCompare(r);
+        renderResonanceSection(r.resonance_impact);
         updateFloatIfVisible(r);
-        $('pvpSkillSection').style.display='block';
-    }catch(e){showToast('计算失败: '+e,'error');}
+        $('pvpSkillSection').style.display = 'block';
+    } catch (e) {
+        showToast('计算失败: ' + e, 'error');
+    }
 }
 
-function updatePanelStats(panelId,panels){
-    const panel=$(panelId);if(!panel||!panels)return;
-    const raceEl=panel.querySelector('.pvp-race');
-    if(raceEl){
-        raceEl.innerHTML=`
+function renderResonanceSection(res) {
+    const sec = $('pvpResonanceSection');
+    if (!sec || !res || !res.cases) {
+        if (sec) sec.style.display = 'none';
+        return;
+    }
+    const likelyIcons = (res.likely_counter_attrs || []).map(t => 
+        `<span class="attr-pill"><img class="attr-pill-img" src="${getAttrIconUrl(t)}" alt="${t}"><span>${t}</span></span>`
+    ).join(' ');
+
+    const casesHtml = res.cases.map(c => {
+        const isLethal = c.is_lethal;
+        const tagClass = c.id === '3x_no_counter' ? 'extreme' : (c.counter_mult > 1.0 ? 'warn' : '');
+        const attrIconHtml = c.attr ? `<img class="pvp-type-icon" src="${getAttrIconUrl(c.attr)}" title="${c.attr}" onerror="this.style.display='none'">` : '';
+        return `
+        <div class="res-case-card ${isLethal ? 'lethal' : ''}">
+            <div class="res-left">
+                ${attrIconHtml}
+                <span class="res-name">${c.name}</span>
+                <span class="res-tag ${tagClass}">${c.badge}</span>
+                <span style="font-size:11.5px;color:var(--dim);margin-left:6px;">${c.desc}</span>
+            </div>
+            <div class="res-right">
+                <span class="res-dmg ${isLethal ? 'lethal' : ''}">${c.dmg_min} ~ ${c.dmg_max}</span>
+                ${isLethal ? `<span class="kill-tag" style="font-size:9px;">致死预警</span>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+
+    sec.innerHTML = `
+    <div class="resonance-box">
+        <div class="resonance-head">
+            <span class="resonance-title">🔮 敌方暗手 · 愿力冲击伤害推演 (基础威力 80 · ${res.atk_stat_name || '主攻'})</span>
+            <span style="font-size:10.5px;color:var(--dim);">共鸣魔法预警</span>
+        </div>
+        ${likelyIcons ? `<div class="resonance-inferred"><span>🎯 预测敌方针对反制愿力:</span> ${likelyIcons}</div>` : ''}
+        <div class="resonance-cases-grid">
+            ${casesHtml}
+        </div>
+    </div>`;
+    sec.style.display = 'block';
+}
+
+function updatePanelStats(panelId, panels) {
+    const panel = $(panelId);
+    if (!panel || !panels) return;
+    const raceEl = panel.querySelector('.pvp-race');
+    if (raceEl) {
+        raceEl.innerHTML = `
             <span>HP:${Math.round(panels.hp)}</span><span>攻:${Math.round(panels.attack)}</span>
             <span>魔攻:${Math.round(panels.mattack)}</span><span>防:${Math.round(panels.defense)}</span>
             <span>魔防:${Math.round(panels.mdefense)}</span><span>速:${Math.round(panels.speed)}</span>
@@ -144,117 +295,177 @@ function updatePanelStats(panelId,panels){
     }
 }
 
-function updateSpeedCompare(r){
+function updateSpeedCompare(r) {
     const el = $('pvpSpeedCompare');
-    if(!el) return;
+    if (!el) return;
     const mySpd = r.mySpeed || 0, enemySpd = r.enemySpeed || 0;
     const result = r.speedResult || '速度相同';
-    const cls = result==='我方先手'?'speed-win':result==='敌方先手'?'speed-lose':'speed-tie';
-    el.innerHTML = `<span class="pvp-speed-label">⚡ 先手：</span>
-        <span class="pvp-speed-val">我方${mySpd}</span> vs <span class="pvp-speed-val">敌方${enemySpd}</span>
+    const cls = result === '我方先手' ? 'speed-win' : result === '敌方先手' ? 'speed-lose' : 'speed-tie';
+    el.innerHTML = `<span class="pvp-speed-label">⚡ 先手判定：</span>
+        <span class="pvp-speed-val">我方 ${mySpd}</span> vs <span class="pvp-speed-val">敌方 ${enemySpd}</span>
         <span class="pvp-speed-result ${cls}">${result}</span>`;
     el.style.display = 'block';
 }
 
-// ---------- 技能表格渲染 ----------
-function renderSkillTable(filter){
-    const table=$('pvpSkillTable');if(!table)return;
-    document.querySelectorAll('.pvp-filter-btn').forEach(b=>b.classList.toggle('active',b.dataset.filter===filter));
-    let skills=pvpAllSkills;
-    if(filter==='strong')skills=skills.filter(s=>s.isDamage&&s.attrMultiplier>=2);
-    else if(filter==='normal')skills=skills.filter(s=>s.isDamage&&s.attrMultiplier>=1&&s.attrMultiplier<2);
-    else if(filter==='resist')skills=skills.filter(s=>s.isDamage&&s.attrMultiplier>0&&s.attrMultiplier<1);
-    else if(filter==='status')skills=skills.filter(s=>!s.isDamage);
+// ---------- 技能表格渲染 (集成技能图标) ----------
+function renderSkillTable(filter) {
+    const table = $('pvpSkillTable');
+    if (!table) return;
+    document.querySelectorAll('.pvp-filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === filter));
+    let skills = pvpAllSkills;
+    if (filter === 'strong') skills = skills.filter(s => s.isDamage && s.attrMultiplier >= 2);
+    else if (filter === 'normal') skills = skills.filter(s => s.isDamage && s.attrMultiplier >= 1 && s.attrMultiplier < 2);
+    else if (filter === 'resist') skills = skills.filter(s => s.isDamage && s.attrMultiplier > 0 && s.attrMultiplier < 1);
+    else if (filter === 'status') skills = skills.filter(s => !s.isDamage);
 
-    if(!skills.length){table.innerHTML='<div class="pvp-table-empty">无匹配技能</div>';return;}
+    if (!skills.length) {
+        table.innerHTML = '<div class="pvp-table-empty">无匹配技能</div>';
+        return;
+    }
 
-    const defHp=pvpDefPanels?Math.round(pvpDefPanels.hp):100;
-    const maxDmg=Math.max(1,...skills.filter(s=>s.isDamage).map(s=>s.maxDamage));
+    const defHp = pvpDefPanels ? Math.round(pvpDefPanels.hp) : 100;
+    const maxDmg = Math.max(1, ...skills.filter(s => s.isDamage).map(s => s.maxDamage));
 
-    table.innerHTML=skills.map(s=>{
-        if(!s.isDamage){
-            return `<div class="pvp-skill-row nodmg">
-                <span class="pvp-skill-name">${s.name}</span><span class="pvp-skill-type">${s.type==='状态'?'状':'变'}</span>
-                <span class="pvp-skill-power">-</span><span class="pvp-skill-cost">${s.consume}</span>
-                <span class="pvp-skill-mult">-</span><span class="pvp-skill-dmg">-</span><span class="pvp-skill-bar">-</span></div>`;
+    const header = `<div class="pvp-skill-row pvp-skill-cols">
+        <span>技能</span><span>类型</span><span>威力</span><span>PP</span><span>克制</span>
+        <span>伤害</span><span>占敌方血量</span><span>对比</span></div>`;
+    table.innerHTML = header + skills.map(s => {
+        const iconUrl = getSkillIconUrl(s.name);
+        const iconHtml = `<img class="pvp-skill-icon" src="${iconUrl}" onerror="this.src='assets/img/icons/normal.webp'">`;
+
+        if (!s.isDamage) {
+            return `
+            <div class="pvp-skill-row nodmg">
+                <div class="pvp-skill-name-wrap">
+                    ${iconHtml}
+                    <span class="pvp-skill-name">${s.name}</span>
+                </div>
+                <span class="pvp-skill-type">${s.type === '状态' ? '状态' : '变化'}</span>
+                <span class="pvp-skill-power">-</span>
+                <span class="pvp-skill-cost">${s.consume}</span>
+                <span class="pvp-skill-mult">-</span>
+                <span class="pvp-skill-dmg">-</span>
+                <span class="pvp-skill-hppct">-</span>
+                <span class="pvp-skill-bar">-</span>
+            </div>`;
         }
-        const mul=s.attrMultiplier;
-        const cls=mul>=2?'strong':mul>=1?'normal':'resist';
-        const mulText=mul>=2?mul.toFixed(1)+'x':mul>=1?mul.toFixed(1)+'x':mul.toFixed(1)+'x';
-        const pct=Math.min(100,(s.maxDamage/defHp)*100);
-        const barColor=pct>=100?'#f87171':pct>=50?'#fbbf24':'#4ade80';
-        const barWidth=Math.min(100,(s.maxDamage/maxDmg)*100);
-        return `<div class="pvp-skill-row ${cls}">
-            <span class="pvp-skill-name">${s.name}</span>
-            <span class="pvp-skill-type">${s.type==='物攻'?'物':'魔'}</span>
+        const mul = s.attrMultiplier;
+        const cls = mul >= 2 ? 'strong' : mul >= 1 ? 'normal' : 'resist';
+        const mulText = mul.toFixed(1) + 'x';
+        const pct = Math.min(100, (s.maxDamage / defHp) * 100);
+        const pctMin = Math.min(100, Math.round((s.minDamage / defHp) * 100));
+        const pctDisp = Math.round(pct);
+        const barColor = pct >= 100 ? '#ef4444' : pct >= 50 ? '#f59e0b' : '#22c55e';
+        const barWidth = Math.min(100, (s.maxDamage / maxDmg) * 100);
+
+        return `
+        <div class="pvp-skill-row ${cls}">
+            <div class="pvp-skill-name-wrap">
+                ${iconHtml}
+                <span class="pvp-skill-name">${s.name}</span>
+            </div>
+            <span class="pvp-skill-type">${s.type === '物攻' ? '物攻' : '魔攻'}</span>
             <span class="pvp-skill-power">${s.power}</span>
             <span class="pvp-skill-cost">${s.consume}</span>
             <span class="pvp-skill-mult">${mulText}</span>
-            <span class="pvp-skill-dmg">${s.minDamage}~${s.maxDamage}</span>
+            <span class="pvp-skill-dmg">${s.minDamage} ~ ${s.maxDamage}</span>
+            <span class="pvp-skill-hppct ${pct >= 100 ? 'lethal' : pct >= 50 ? 'big' : ''}">${pctMin}%~${pctDisp}%</span>
             <span class="pvp-skill-bar"><span class="pvp-bar-inner" style="width:${barWidth}%;background:${barColor}"></span></span>
         </div>`;
     }).join('');
 }
 
-function filterSkillTable(f){renderSkillTable(f);}
+function filterSkillTable(f) { renderSkillTable(f); }
 
 // ---------- 重置预设 ----------
-async function resetPreset(side){
-    const pet = side==='atk'?pvpAtkPet:pvpDefPet;
-    if(!pet) return;
+async function resetPreset(side) {
+    const pet = side === 'atk' ? pvpAtkPet : pvpDefPet;
+    if (!pet) return;
     const r = await pywebview.api.pvp_get_pet_preset(pet.seq);
-    if(r.success){
-        applyPreset(side==='atk'?'pvpAtk':'pvpDef', r);
+    if (r.success) {
+        applyPreset(side === 'atk' ? 'pvpAtk' : 'pvpDef', r);
         pvpIVChanged();
     }
 }
 
 // ---------- 识别精灵 ----------
-async function pvpRecognize(){
-    showToast('正在捕获游戏画面并识别...','info');
-    try{
-        const r=await pywebview.api.pvp_recognize();
-        if(!r.success){showToast(r.message,'error');return;}
-        const pets=r.pets||[];
-        showToast(`识别到 ${pets.length} 只精灵`,'success');
-        if(pets.length>=1){
-            const seq=pets[0].seq;
-            if(seq){selectPVPPet(seq,'atk',pets[0].name||'');}
+async function pvpRecognize() {
+    showToast('正在捕获游戏画面并识别...', 'info');
+    try {
+        const r = await pywebview.api.pvp_recognize();
+        if (!r.success) { showToast(r.message, 'error'); return; }
+        const pets = r.pets || [];
+        showToast(`识别到 ${pets.length} 只精灵`, 'success');
+        if (pets.length >= 1) {
+            const seq = pets[0].seq;
+            if (seq) { selectPVPPet(seq, 'atk', pets[0].name || ''); }
         }
-        if(pets.length>=2){
-            const seq=pets[1].seq;
-            if(seq){selectPVPPet(seq,'def',pets[1].name||'');}
+        if (pets.length >= 2) {
+            const seq = pets[1].seq;
+            if (seq) { selectPVPPet(seq, 'def', pets[1].name || ''); }
         }
-    }catch(e){showToast('识别失败: '+e,'error');}
+    } catch (e) {
+        showToast('识别失败: ' + e, 'error');
+    }
 }
 
 // ---------- 悬浮窗 ----------
-async function togglePVPFloat(){
-    try{
-        const r=await pywebview.api.pvp_float_toggle();
-        if(!r.success){showToast('悬浮窗: '+r.message,'warning');return;}
-        pvpFloatVisible=r.visible;
-        if(pvpFloatVisible){setTimeout(()=>updateFloatIfVisible(null),500);}
-    }catch(e){showToast('悬浮窗: '+e,'error');}
+async function togglePVPFloat() {
+    try {
+        const r = await pywebview.api.pvp_float_toggle();
+        if (!r.success) { showToast('悬浮窗: ' + r.message, 'warning'); return; }
+        pvpFloatVisible = r.visible;
+        if (pvpFloatVisible) { setTimeout(() => updateFloatIfVisible(null), 500); }
+    } catch (e) {
+        showToast('悬浮窗: ' + e, 'error');
+    }
 }
 
-async function updateFloatIfVisible(calcResult){
-    if(!pvpFloatVisible)return;
-    const data=calcResult||{atkPanels:pvpAtkPanels,defPanels:pvpDefPanels,skills:pvpAllSkills,atkTypes:pvpAtkPet?.types||[],defTypes:pvpDefPet?.types||[],atkName:pvpAtkPet?.name||'?',defName:pvpDefPet?.name||'?'};
-    const topSkill=(data.skills||[]).filter(s=>s.isDamage)[0];
-    const defHp=data.defPanels?Math.round(data.defPanels.hp):100;
-    const mySpeed=data.atkPanels?Math.round(data.atkPanels.speed):0;
-    const enemySpeed=data.defPanels?Math.round(data.defPanels.speed):0;
-    try{
-        const r=await pywebview.api.pvp_float_update({
-            atkName:data.atkName,atkTypes:data.atkTypes,defName:data.defName,defTypes:data.defTypes,
-            skillName:topSkill?topSkill.name:'?',damage:topSkill?topSkill.maxDamage:0,
-            attrMul:topSkill?topSkill.attrMultiplier:1,atkUsed:data.atkPanels?Math.round(data.atkPanels.attack):0,
-            defHp,mySpeed,enemySpeed,
-            speedResult:mySpeed>enemySpeed?'我方先手':mySpeed<enemySpeed?'敌方先手':'平速'
+async function updateFloatIfVisible(calcResult) {
+    if (!pvpFloatVisible) return;
+    const data = calcResult || {
+        atkPanels: pvpAtkPanels,
+        defPanels: pvpDefPanels,
+        skills: pvpAllSkills,
+        atkTypes: pvpAtkPet?.types || [],
+        defTypes: pvpDefPet?.types || [],
+        atkName: pvpAtkPet?.name || '?',
+        defName: pvpDefPet?.name || '?'
+    };
+    const topSkill = (data.skills || []).filter(s => s.isDamage)[0];
+    const defHp = data.defPanels ? Math.round(data.defPanels.hp) : 100;
+    const mySpeed = data.atkPanels ? Math.round(data.atkPanels.speed) : 0;
+    const enemySpeed = data.defPanels ? Math.round(data.defPanels.speed) : 0;
+
+    const calcSkills = (data.skills || []).slice(0, 6).map(s => ({
+        name: s.name,
+        type: s.type,
+        dmg_min: s.minDamage || 0,
+        dmg_max: s.maxDamage || 0,
+        mult: s.attrMultiplier || 1.0,
+        is_kill: (s.maxDamage || 0) >= defHp
+    }));
+
+    try {
+        await pywebview.api.pvp_float_update({
+            in_battle: true,
+            player: {
+                name: data.atkName,
+                types: data.atkTypes,
+                hp: data.atkPanels ? Math.round(data.atkPanels.hp) : 450,
+                hp_max: data.atkPanels ? Math.round(data.atkPanels.hp) : 450,
+                energy: 5
+            },
+            enemy: {
+                name: data.defName,
+                types: data.defTypes,
+                hp_pct: 1.0
+            },
+            speed_diff: mySpeed - enemySpeed,
+            calc_skills: calcSkills,
+            resonance_impact: data.resonance_impact || null
         });
-        if(!r.success){/* 加载中静默忽略 */}
-    }catch(e){/* 悬浮窗未就绪，静默 */}
+    } catch (e) { /* 悬浮窗未就绪，静默 */ }
 }
 
 // ---- PVP 实时识别引擎 ----
@@ -266,11 +477,96 @@ async function togglePVPEngine() {
     try {
         if (pvpEngineRunning) {
             const r = await pywebview.api.pvp_engine_stop();
-            if (r.success) { pvpEngineRunning = false; btn.textContent = '▶ 启动识别'; btn.className = 'btn btn-primary'; addLog('PVP 引擎已停止', 'info'); }
+            if (r.success) {
+                pvpEngineRunning = false;
+                btn.textContent = '▶ 启动识别';
+                btn.className = 'btn btn-primary';
+                addLog('PVP 引擎已停止', 'info');
+            }
         } else {
             const r = await pywebview.api.pvp_engine_start();
-            if (r.success) { pvpEngineRunning = true; btn.textContent = '⏹ 停止识别'; btn.className = 'btn btn-danger'; addLog('PVP 引擎已启动(每500ms识别一帧)', 'success'); }
+            if (r.success) {
+                pvpEngineRunning = true;
+                btn.textContent = '⏹ 停止识别';
+                btn.className = 'btn btn-danger';
+                addLog('PVP 引擎已启动 (每500ms识别一帧)', 'success');
+                if (typeof notifyAutoStopped === 'function') notifyAutoStopped(r);
+            }
         }
-    } catch (e) { addLog('PVP 引擎操作异常: ' + e.message, 'error'); }
-    finally { btn.disabled = false; }
+    } catch (e) {
+        addLog('PVP 引擎操作异常: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
 }
+// ========================================
+// PVP 数据采集器
+// ========================================
+
+let collectorOn = false;
+
+async function collectorToggle() {
+    try {
+        if (collectorOn) {
+            const r = await pywebview.api.pvp_collector_stop();
+            if (r.summary) addLog('[采集] ' + r.summary, 'warning');
+            setCollectorUI(false);
+        } else {
+            const r = await pywebview.api.pvp_collector_start();
+            if (r.success) setCollectorUI(true);
+            else addLog('[采集] ' + (r.message || '启动失败'), 'error');
+        }
+    } catch (e) { addLog('[采集] 操作异常: ' + e.message, 'error'); }
+}
+
+async function collectorManual() {
+    try {
+        const r = await pywebview.api.pvp_collector_manual();
+        if (!r.success) addLog('[采集] ' + (r.message || '截图失败'), 'warning');
+    } catch (e) { addLog('[采集] 异常: ' + e.message, 'error'); }
+}
+
+function setCollectorUI(on) {
+    collectorOn = on;
+    const btn = document.getElementById('btnCollector');
+    if (!btn) return;
+    btn.textContent = on ? '■ 停止采集' : '▶ 启动采集';
+    btn.classList.toggle('btn-danger', on);
+    if (!on) {
+        const st = document.getElementById('collectorStats');
+        if (st) st.textContent = '';
+    }
+}
+
+async function refreshCollector() {
+    if (!collectorOn) return;
+    try {
+        const s = await pywebview.api.pvp_collector_status();
+        if (!s.running) { setCollectorUI(false); return; }
+        const st = document.getElementById('collectorStats');
+        if (st) st.textContent = `已收 ${s.auto_saved} 只 · 失败样本 ${s.fail_saved} · 手动 ${s.manual_saved} · 遇到 ${s.pets} 种`;
+    } catch (e) { /* 静默 */ }
+}
+setInterval(refreshCollector, 3000);
+
+// ---------- 悬浮窗同步入口 ----------
+// PVP 实时引擎识别到双方精灵后,自动填进详细查询页(玩家切屏细看)
+window.syncPvpFromFloat = async function(atkName, defName) {
+    try {
+        if (!window.pywebview || !pywebview.api.pvp_search_pets) return;
+        let done = 0;
+        for (const [name, side] of [[atkName, 'atk'], [defName, 'def']]) {
+            if (!name) continue;
+            const r = await pywebview.api.pvp_search_pets(name);
+            // pvp_search_pets 返回字段是 pets(不是 results)
+            if (r && r.success && r.pets && r.pets.length) {
+                const first = r.pets[0];
+                await selectPVPPet(String(first.seq), side, first.name);
+                done++;
+            }
+        }
+        if (done === 2 && typeof showToast === 'function') showToast('已从悬浮窗同步双方精灵', 'ok');
+    } catch (e) {
+        if (typeof addLog === 'function') addLog('悬浮窗同步精灵失败: ' + e, 'error');
+    }
+};

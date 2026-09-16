@@ -1,0 +1,61 @@
+{
+ "updated_at": "2026-09-14 00:39:04",
+ "slots": [
+  {
+   "slot": 1,
+   "present": false,
+   "score": 0.203,
+   "ball_id": null,
+   "ball_name": null,
+   "count": null
+  },
+  {
+   "slot": 2,
+   "present": false,
+   "score": 0.391,
+   "ball_id": null,
+   "ball_name": null,
+   "count": null
+  },
+  {
+   "slot": 3,
+   "present": false,
+   "score": 0.189,
+   "ball_id": null,
+   "ball_name": null,
+   "count": null
+  },
+  {
+   "slot": 4,
+   "present": false,
+   "score": 0.395,
+   "ball_id": null,
+   "ball_name": null,
+   "count": null
+  },
+  {
+   "slot": 5,
+   "present": false,
+   "score": 0.525,
+   "ball_id": null,
+   "ball_name": null,
+   "count": null
+  },
+  {
+   "slot": 6,
+   "present": false,
+   "score": 0.455,
+   "ball_id": null,
+   "ball_name": null,
+   "count": null
+  }
+ ],
+ "corner": {
+  "enabled": true,
+  "present": true,
+  "ball_id": "540801",
+  "ball_name": "高级咕噜球",
+  "count": 999,
+  "score": 0.707
+ }
+}

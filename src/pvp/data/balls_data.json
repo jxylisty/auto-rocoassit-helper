@@ -1,0 +1,425 @@
+[
+  {
+    "id": 100002,
+    "name": "普通咕噜球",
+    "is_ball": true,
+    "quality": 3,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100002.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100002/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100003,
+    "name": "高级咕噜球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100003.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100003/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100204,
+    "name": "损坏的国王球",
+    "is_ball": false,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100204.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100204/big.png",
+    "type_name": "材料"
+  },
+  {
+    "id": 100255,
+    "name": "国王球",
+    "is_ball": true,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100255.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100255/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100261,
+    "name": "瞌睡球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100261.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100261/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100262,
+    "name": "美妙球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100262.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100262/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100263,
+    "name": "好战球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100263.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100263/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100271,
+    "name": "光合球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100271.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100271/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100272,
+    "name": "网兜球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100272.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100272/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100273,
+    "name": "暗星球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100273.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100273/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100274,
+    "name": "调温球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100274.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100274/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100275,
+    "name": "绝缘球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100275.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100275/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100281,
+    "name": "水珠球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100281.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100281/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100282,
+    "name": "冰凌球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100282.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100282/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100283,
+    "name": "淘沙球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100283.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100283/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100284,
+    "name": "变幻球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100284.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100284/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100285,
+    "name": "捕光球",
+    "is_ball": true,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100285.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100285/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100286,
+    "name": "棱镜球",
+    "is_ball": true,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100286.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100286/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100287,
+    "name": "可可果球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100287.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100287/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100288,
+    "name": "织梦棱镜球",
+    "is_ball": true,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100288.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100288/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100289,
+    "name": "狂欢棱镜球",
+    "is_ball": true,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100289.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100289/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100290,
+    "name": "奇趣球",
+    "is_ball": true,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100290.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100290/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100291,
+    "name": "铅绘棱镜球",
+    "is_ball": true,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100291.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100291/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100682,
+    "name": "红色水晶球",
+    "is_ball": false,
+    "quality": 2,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100682.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100682/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 100683,
+    "name": "蓝色水晶球",
+    "is_ball": false,
+    "quality": 2,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100683.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100683/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 100684,
+    "name": "黄色水晶球",
+    "is_ball": false,
+    "quality": 2,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100684.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100684/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 100685,
+    "name": "绿色水晶球",
+    "is_ball": false,
+    "quality": 2,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100685.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100685/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 100740,
+    "name": "国王球",
+    "is_ball": true,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100740.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100740/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100741,
+    "name": "普通咕噜球",
+    "is_ball": true,
+    "quality": 3,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100741.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100741/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 100756,
+    "name": "紫色水晶球",
+    "is_ball": false,
+    "quality": 2,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100756.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100756/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 100757,
+    "name": "橙色水晶球",
+    "is_ball": false,
+    "quality": 2,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100757.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100757/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 100758,
+    "name": "粉色水晶球",
+    "is_ball": false,
+    "quality": 2,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100758.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100758/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 100982,
+    "name": "童话球",
+    "is_ball": true,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100982.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/100982/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 112024,
+    "name": "炫彩煤球憨憨拼图",
+    "is_ball": false,
+    "quality": 5,
+    "icon": null,
+    "big_icon": null,
+    "type_name": "炫彩拼图"
+  },
+  {
+    "id": 215009,
+    "name": "配方-光球",
+    "is_ball": false,
+    "quality": 3,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/215009.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/215009/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 218014,
+    "name": "配方-雪球",
+    "is_ball": false,
+    "quality": 3,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/218014.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/218014/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 225010,
+    "name": "配方-砂糖弹球",
+    "is_ball": false,
+    "quality": 3,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/225010.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/225010/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 235009,
+    "name": "光球",
+    "is_ball": false,
+    "quality": 3,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/235009.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/235009/big.png",
+    "type_name": "技能石"
+  },
+  {
+    "id": 238014,
+    "name": "雪球",
+    "is_ball": false,
+    "quality": 3,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/238014.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/238014/big.png",
+    "type_name": "技能石"
+  },
+  {
+    "id": 245010,
+    "name": "砂糖弹球",
+    "is_ball": false,
+    "quality": 3,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/245010.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/245010/big.png",
+    "type_name": "技能石"
+  },
+  {
+    "id": 280001,
+    "name": "柔软咕噜球",
+    "is_ball": true,
+    "quality": 3,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/280001.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/280001/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 291007,
+    "name": "露萌的暗星球",
+    "is_ball": false,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/291007.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/291007/big.png",
+    "type_name": "材料"
+  },
+  {
+    "id": 310039,
+    "name": "咕噜球魔法箱",
+    "is_ball": false,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/310039.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/310039/big.png",
+    "type_name": "随机礼盒"
+  },
+  {
+    "id": 310040,
+    "name": "神奇咕噜球魔法箱",
+    "is_ball": false,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/310040.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/310040/big.png",
+    "type_name": "随机礼盒"
+  },
+  {
+    "id": 310041,
+    "name": "咕噜球补给礼盒",
+    "is_ball": false,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/310041.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/310041/big.png",
+    "type_name": "贵重"
+  },
+  {
+    "id": 540801,
+    "name": "高级咕噜球",
+    "is_ball": true,
+    "quality": 4,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/540801.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/540801/big.png",
+    "type_name": "咕噜球"
+  },
+  {
+    "id": 1004031,
+    "name": "星球仪",
+    "is_ball": false,
+    "quality": 5,
+    "icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/1004031.png",
+    "big_icon": "https://wegame.shallow.ink/api/v1/resources/wiki/assets/items/bag/1004031/big.png",
+    "type_name": "家具"
+  }
+]

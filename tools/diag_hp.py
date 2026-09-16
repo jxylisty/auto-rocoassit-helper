@@ -1,27 +1,44 @@
+# -*- coding: utf-8 -*-
 """诊断：检查敌方血量 OCR 实际读到什么值"""
 import sys, os, time
-sys.path.insert(0, r'D:\洛克王国ai\lkwgai_pvp_assistant')
-os.chdir(r'D:\洛克王国ai\lkwgai_pvp_assistant')
+from pathlib import Path
 
-from src.gui.bridge import AppBridge
-from src.perception.vision_pipeline import VisionPipeline
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+os.chdir(str(PROJECT_ROOT))
+
 from src.capture.window_capture import find_window
+from src.capture.fast_capture import FastCapture
+from src.perception.vision_pipeline import VisionPipeline
+from src.utils.image_io import imread_unicode
 import cv2, numpy as np
 
-bridge = AppBridge()
-info = bridge._find_game_window()
-if not info:
-    print("❌ 未找到游戏窗口")
+frame = None
+if len(sys.argv) > 1 and Path(sys.argv[1]).exists():
+    img_path = Path(sys.argv[1])
+    frame = imread_unicode(img_path)
+    print(f"✅ 使用指定截图文件: {img_path.name}")
+else:
+    info = find_window(class_name="UnrealWindow") or find_window()
+    if not info:
+        print("❌ 未找到游戏窗口（亦未指定截图文件）")
+        sys.exit(1)
+    print(f"✅ 找到游戏窗口: {info.title}  rect={info.rect}")
+    left, top, right, bottom = info.rect
+    fc = FastCapture()
+    frame = fc.capture(rect=(left, top, right - left, bottom - top))
+
+if frame is None or frame.size == 0:
+    print("❌ 截图读取失败")
     sys.exit(1)
-
-print(f"✅ 窗口: {info.title}  rect={info.rect}")
-left, top, right, bottom = info.rect
-w, h = right - left, bottom - top
-
-# 截图
-from PIL import ImageGrab
-img = ImageGrab.grab(bbox=(left, top, right, bottom))
-frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
 # 跑管线
 pipeline = VisionPipeline()

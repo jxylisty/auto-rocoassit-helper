@@ -5,17 +5,56 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>洛克王国 · PVP 助手控制台</title>
 <link rel="stylesheet" href="assets/app.css">
+<script src="assets/pet_asset_map.js"></script>
 </head>
 <body>
-<div class="bg-glow"></div>
+<!-- 自绘标题栏(frameless 模式): 拖拽移动 / 置顶 / 最小化 / 关闭 -->
+    <div class="titlebar" id="titleBar">
+        <div class="tb-drag pywebview-drag-region" id="tbDragZone">
+            <img class="tb-logo" src="assets/img/balls/100740_国王球.png" alt="" onerror="this.style.display='none'">
+            <span class="tb-title">洛克王国 · PVP 助手控制台</span>
+        </div>
+        <div class="tb-btns">
+            <button class="tbtn" id="tbBtnTop" title="窗口置顶" onclick="toggleOnTop()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4.5h6M12 4.5v6M8 10.5h8l1.5 4h-11l1.5-4zM12 14.5v5"/></svg>
+            </button>
+            <button class="tbtn" id="tbBtnMin" title="最小化" onclick="minimize_window()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 12h12"/></svg>
+            </button>
+            <button class="tbtn tbtn-close" id="tbBtnClose" title="关闭" onclick="windowClose()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+            </button>
+        </div>
+    </div>
+    <div class="bg-glow"></div>
 
 <!-- Toast 通知容器 -->
 <div class="toast-container" id="toastContainer"></div>
 
+<!-- 全局自定义模态弹窗 -->
+<div class="custom-modal-overlay" id="customModalOverlay" onclick="closeCustomModal(event)">
+    <div class="custom-modal-panel" onclick="event.stopPropagation()">
+        <div class="custom-modal-head">
+            <h3 id="customModalTitle">提示</h3>
+            <button class="custom-modal-close" onclick="cancelCustomModal()">✕</button>
+        </div>
+        <div class="custom-modal-body">
+            <p id="customModalDesc"></p>
+            <div id="customModalInputWrap" style="display:none; margin-top:12px;">
+                <input type="text" id="customModalInput" class="form-input custom-modal-input" autocomplete="off">
+            </div>
+        </div>
+        <div class="custom-modal-foot">
+            <button class="btn btn-ghost" id="customModalCancelBtn" onclick="cancelCustomModal()">取消</button>
+            <button class="btn btn-primary" id="customModalConfirmBtn" onclick="confirmCustomModal()">确定</button>
+        </div>
+    </div>
+</div>
+
 <!-- 快捷键面板 -->
 <div class="shortcut-overlay" id="shortcutOverlay" onclick="closeShortcutPanel(event)">
     <div class="shortcut-panel" onclick="event.stopPropagation()">
-        <h3>⌨ 快捷键参考</h3>
+        <h3>快捷键参考</h3>
         <p>全局快捷键 · 游戏窗口前台时生效</p>
         <div class="shortcut-grid">
             <div class="shortcut-row"><span class="key">F4</span><span class="desc">普通丢球</span></div>
@@ -35,7 +74,7 @@
     <!-- ============ 侧边栏 ============ -->
     <aside class="sidebar">
         <div class="logo">
-            <div class="logo-icon">🎮</div>
+            <img class="logo-medal" src="assets/img/balls/100740_国王球.png" alt="洛克王国助手" onerror="this.style.display='none'">
             <div>
                 <div class="logo-title">洛克王国助手</div>
                 <div class="logo-sub">PVP CONSOLE v2.0</div>
@@ -43,30 +82,21 @@
         </div>
 
         <nav class="nav">
-            <button class="nav-item active" data-page="throw" onclick="switchPage('throw')">
-                <span class="nav-ico">🎯</span>丢球助手
-            </button>
-            <button class="nav-item" data-page="engine" onclick="switchPage('engine')">
-                <span class="nav-ico">⚔️</span>挂机引擎
-            </button>
-            <button class="nav-item" data-page="vision" onclick="switchPage('vision')">
-                <span class="nav-ico">👁</span>视觉调试台
-            </button>
-            <button class="nav-item" data-page="tools" onclick="switchPage('tools')">
-                <span class="nav-ico">🧰</span>工具箱
-            </button>
-            <button class="nav-item" data-page="config" onclick="switchPage('config')">
-                <span class="nav-ico">⚙️</span>配置中心
-            </button>
-            <button class="nav-item" data-page="pvp" onclick="switchToPVP()">
-                <span class="nav-ico">⚔️</span>PVP对战
-            </button>
+            <div class="nav-cap">自动挂机</div>
+            <button class="nav-item active" data-page="auto" onclick="switchPage('throw')"><span class="nav-idx">01</span>丢球助手</button>
+            <button class="nav-item" data-page="pvp" onclick="switchPage('pvp')"><span class="nav-idx">02</span>PVP 对战</button>
+            <button class="nav-item dev-only" data-page="vision" onclick="switchPage('vision')"><span class="nav-idx">03</span>视觉调试台<span class="nav-dev">DEV</span></button>
+            <div class="nav-sep"></div>
+            <div class="nav-cap">管家</div>
+            <button class="nav-item" data-page="tools" onclick="switchPage('tools')"><span class="nav-idx">04</span>工具箱</button>
+            <button class="nav-item" data-page="bag" onclick="switchPage('bag')"><span class="nav-idx">05</span>背包盘点</button>
+            <button class="nav-item" data-page="config" onclick="switchPage('config')"><span class="nav-idx">06</span>配置中心</button>
         </nav>
 
         <div class="sidebar-foot">
         <div class="header-right">
-            <button class="pin-btn" id="btnWidget" onclick="toggleWidget()" title="悬浮状态窗(F2)">📱 挂机窗</button>
-            <button class="pin-btn" id="btnPin" onclick="toggleOnTop()" title="窗口置顶">📌 置顶</button>
+            <button class="pin-btn" id="btnWidget" onclick="toggleWidget()" title="悬浮状态窗(F2)">挂机窗</button>
+            <button class="pin-btn" id="btnPin" onclick="toggleOnTop()" title="窗口置顶">置顶</button>
             <div class="game-pill" id="gamePill">
                 <span class="dot"></span><span id="gamePillText">检测游戏窗口…</span>
             </div>
@@ -78,6 +108,7 @@
         <div class="hotkey-hints">
             <div><kbd>F4</kbd> 普通 · <kbd>F9</kbd> 轰炸 · <kbd>F10</kbd> 技能</div>
             <div><kbd>F8</kbd> 截图 · <kbd>F11</kbd> 急停 · <kbd>F12</kbd> PVP</div>
+            <div>模式互斥 · 启动新组自动停旧组</div>
             <div>快捷键全局生效</div>
         </div>
     </div>
@@ -87,20 +118,85 @@
     <main class="main">
 
         <!-- ===== 页面: 丢球助手 ===== -->
-        <section class="page active" id="page-throw">
+        <section class="page active" id="page-auto">
+            <div class="page-tabs">
+                <button class="page-tab-btn active" data-tab="throw" onclick="switchPage('throw')">丢球助手</button>
+                <button class="page-tab-btn" data-tab="engine" onclick="switchPage('engine')">挂机引擎</button>
+            </div>
+            <div class="page-tab-pane active" data-tab="throw">
             <div class="page-head">
-                <h2>丢球助手</h2>
-                <p>Interception 内核级模拟 · 拟人化随机延迟 · 滑杆实时生效</p>
+                <div>
+                    <h2>丢球助手</h2>
+                    <p>Interception 内核级模拟 · 拟人化随机延迟 · 滑杆实时生效</p>
+                </div>
             </div>
 
-            <div class="stats">
-                <div class="stat c-cyan"><div class="num" id="statNormal">0</div><div class="label">普通丢球</div></div>
-                <div class="stat c-amber"><div class="num" id="statBomber">0</div><div class="label">轰炸丢球</div></div>
-                <div class="stat c-violet"><div class="num" id="statSkill">0</div><div class="label">技能释放</div></div>
-                <div class="stat c-green"><div class="num" id="statModes">0</div><div class="label">运行中模式</div></div>
+            <!-- 醒目突出的遭遇战斗自动逃跑卡片 -->
+            <div class="flee-hero-banner" id="fleeHeroBanner">
+                <div class="fhb-left">
+                    <div class="fhb-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 2.8v5.4c0 4.4-3 8.1-7 9.8-4-1.7-7-5.4-7-9.8V5.8L12 3z"/><path d="M9.5 12h5M12.5 9.5l2.5 2.5-2.5 2.5"/></svg></div>
+                    <div class="fhb-content">
+                        <div class="fhb-title">
+                            遭遇战斗自动逃跑 (按 Esc + OCR 检测确定框)
+                            <span class="fhb-tag">智能视觉识别</span>
+                        </div>
+                        <div class="fhb-desc">丢球或技能运行中若意外进入战斗，自动按下 Esc 键呼出菜单并通过 OCR 识别确定框点击「是」，安全退出战斗</div>
+                    </div>
+                </div>
+                <div class="fhb-right">
+                    <label class="switch-glow" title="开启/关闭遭遇战斗自动逃跑">
+                        <input type="checkbox" id="chkExitOnBattle" checked onchange="toggleExitOnBattle(this.checked)">
+                        <span class="switch-slider"></span>
+                    </label>
+                </div>
             </div>
 
-            <div class="mode-grid">
+            <!-- 本轮计时(大字醒目) + 异色记录 · 绘本监视条 -->
+            <div class="run-monitor-row">
+                <div class="run-monitor">
+                    <div class="hm-k">本轮运行</div>
+                    <div class="rm-timer" id="runTimer">00:00</div>
+                    <div class="hm-note"><span id="runThrown" class="hm-thrown">已丢 0 球</span></div>
+                </div>
+                <div class="run-monitor">
+                    <div class="hm-k">异色记录</div>
+                    <div class="rm-timer accent" id="shinyCount">0</div>
+                    <div class="hm-note"><span id="shinyRate">—</span>
+                        <span class="shiny-btns">
+                            <button class="btn" style="padding:2px 8px" onclick="shinyAdjust(1)">+1</button>
+                            <button class="btn" style="padding:2px 8px" onclick="shinyAdjust(-1)">-1</button>
+                        </span>
+                    </div>
+                </div>
+                <div class="run-monitor">
+                    <div class="hm-k">配额剩余</div>
+                    <div class="rm-timer" id="runQuota">—</div>
+                    <div class="hm-note">球数/时长任一达到即停</div>
+                </div>
+            </div>
+
+            <div class="stats session-strip">
+                <span class="ss-item">普通丢球 <b id="statNormal">0</b></span>
+                <span class="ss-sep"></span>
+                <span class="ss-item">轰炸机 <b id="statBomber">0</b></span>
+                <span class="ss-sep"></span>
+                <span class="ss-item">技能释放 <b id="statSkill">0</b></span>
+                <span class="ss-live"><span class="pd"></span><b id="statModes">0</b>&nbsp;个模式运行中</span>
+            </div>
+
+            <!-- 自动停止条件(定时/定量) · V4 前置于模式卡上方 -->
+            <div class="engine-controls">
+                <span class="es-label"><b>自动停止</b>(0 = 不限制):</span>
+                <div class="ctl-field">
+                    <label>丢球次数</label>
+                    <input type="number" id="stop_after_count" class="form-input" style="width:86px" min="0" max="9999" step="10" value="0">
+                </div>
+                <div class="ctl-field">
+                    <label>运行时长(分)</label>
+                    <input type="number" id="stop_after_minutes" class="form-input" style="width:86px" min="0" max="720" step="5" value="0">
+                </div>
+                <span class="es-note">仅对普通丢球/轰炸机生效 · 点击计数≈实际丢球数 · 达到任一条件自动停</span>
+            </div><div class="mode-grid">
                 <!-- 普通丢球 -->
                 <div class="mode-card" id="cardNormal">
                     <div class="mode-head">
@@ -183,20 +279,27 @@
                     </div>
                 </div>
             </div>
-        </section>
+        </div>
 
         <!-- ===== 页面: 挂机引擎 ===== -->
-        <section class="page" id="page-engine">
+        <div class="page-tab-pane" data-tab="engine">
             <div class="page-head">
                 <h2>挂机引擎 <span class="dry-badge" id="engineDryBadge" style="display:none">模拟模式</span></h2>
-                <p>自动战斗闭环:等战斗 → 技能循环 → 低血丢球 → 循环 · 游戏需保持前台</p>
+                <p>自动战斗闭环:等战斗 技能循环 低血丢球 循环 · 游戏需保持前台</p>
             </div>
 
             <div class="engine-controls">
                 <label class="chk"><input type="checkbox" id="engineDry" checked> 模拟模式(只决策不按键)</label>
                 <div class="ctl-field">
-                    <label>技能键</label>
-                    <input type="text" id="engineSkills" value="1" placeholder="逗号分隔">
+                    <label>技能模式</label>
+                    <select id="engineSkillMode">
+                        <option value="cycle">循环轮换</option>
+                        <option value="sequence">固定序列</option>
+                    </select>
+                </div>
+                <div class="ctl-field">
+                    <label>技能键/序列</label>
+                    <input type="text" id="engineSkills" value="1" placeholder="逗号分隔,如 1,3,4,1,1">
                 </div>
                 <div class="ctl-field">
                     <label>开丢球界面</label>
@@ -221,13 +324,13 @@
                 <label class="chk"><input type="checkbox" id="patrolEnabled" checked> 战斗间隙巡逻找怪</label>
                 <div class="ctl-field">
                     <label>走动键</label>
-                    <input type="text" id="patrolMoveKey" value="w" maxlength="3">
+                    <input type="text" id="patrolMoveKey" class="form-input" value="w" maxlength="3">
                 </div>
                 <div class="ctl-field">
                     <label>转向方式</label>
-                    <select id="patrolTurnMode">
-                        <option value="mouse">鼠标转镜头</option><option value="keys">A/D 侧移</option>
+                    <select id="patrolTurnMode" class="form-select">
                         <option value="mouse">鼠标转镜头</option>
+                        <option value="keys">A/D 侧移</option>
                     </select>
                 </div>
                 <span style="font-size:10.5px;color:#555c6e">卡住自动脱困 · <kbd>F11</kbd> 全局急停</span>
@@ -239,14 +342,18 @@
                 <div class="stat c-green"><div class="num" id="engBattles">0</div><div class="label">完成战斗</div></div>
                 <div class="stat c-violet"><div class="num" id="engBalls">0</div><div class="label">丢球次数</div></div>
                 <div class="stat c-green"><div class="num" id="engCatches">0</div><div class="label">疑似捕获</div></div>
+                <div class="stat c-violet"><div class="num" id="engShiny">0</div><div class="label">异色</div></div>
+                <div class="stat c-amber"><div class="num" id="engBallsUsed">0</div><div class="label">实际用球</div></div>
             </div>
 
             <div class="engine-note">
-                <b>策略</b>:敌方血量 ≤ 捕获血线 → 蓄力丢球;否则轮流按技能 1-4。
+                <b>模式互斥</b>:丢球助手 / 挂机引擎 / PVP识别 三组不能同时运行——启动任一组会<b>自动停止</b>其它组并弹窗提示;
+                丢球内部三种模式(普通+轰炸+技能)可共存。<b>策略</b>:敌方血量 ≤ 捕获血线 蓄力丢球;否则轮流按技能 1-4。
                 血量识别失败会容忍等待;单场超时 / 丢球上限自动安全停止;
                 游戏不在前台时暂停操作。<b>模拟模式</b>下全程只记日志不碰键鼠,建议先用它看几场确认策略再关掉。
             </div>
-        </section>
+        </div>
+    </section>
 
         <!-- ===== 页面: 视觉调试台 ===== -->
         <section class="page" id="page-vision">
@@ -256,26 +363,26 @@
             </div>
 
             <div class="vision-toolbar">
-                <button class="btn btn-primary" id="btnLive" onclick="toggleLive()">▶ 实时识别</button>
-                <button class="btn" id="btnVCap" onclick="visionCapture()">📸 单次截图</button>
-                <button class="btn" id="btnVAna" onclick="visionAnalyze()">🔍 截图并识别</button>
+                <button class="btn btn-primary" id="btnLive" onclick="toggleLive()">实时识别</button>
+                <button class="btn" id="btnVCap" onclick="visionCapture()">单次截图</button>
+                <button class="btn" id="btnVAna" onclick="visionAnalyze()">截图并识别</button>
                 <label class="chk"><input type="checkbox" id="roiToggle" onchange="renderRoiOverlay()" checked> ROI 框</label>
-                <button class="btn" id="btnRoiAdd" onclick="roiAddNew()">➕ 新建</button>
-                <button class="btn" id="btnOcr" onclick="visionOcrPreview()" style="color:#a78bfa">🔤 OCR</button>
+                <button class="btn" id="btnRoiAdd" onclick="roiAddNew()">新建</button>
+                <button class="btn" id="btnOcr" onclick="visionOcrPreview()" style="color:#a78bfa">OCR</button>
                 <span class="vision-status" id="visionStatus">未截图</span>
             </div>
 
             <div class="vision-tmpl-bar">
-                <span class="calib-tip">📐 模板:</span>
-                <select id="tmplSelect" onchange="tmplLoad()" style="font-size:11px;padding:2px 4px;background:rgba(0,0,0,0.3);border:1px solid var(--border);color:var(--text);border-radius:3px">
+                <span class="calib-tip">模板:</span>
+                <select id="tmplSelect" class="form-select tmpl-select" onchange="tmplLoad()">
                     <option value="">-- 选择模板 --</option>
                 </select>
-                <input id="tmplNameInput" placeholder="模板名称" style="font-size:11px;padding:2px 6px;width:120px;background:rgba(0,0,0,0.3);border:1px solid var(--border);color:var(--text);border-radius:3px">
-                <button class="btn" onclick="tmplNewBlank()" style="font-size:10px;padding:2px 6px;color:#4ade80" title="清空画布，新建空白模板">➕ 新建空白</button>
-                <button class="btn" onclick="tmplSaveDialog()" style="font-size:10px;padding:2px 6px">💾 保存</button>
-                <button class="btn" onclick="tmplExport()" style="font-size:10px;padding:2px 6px">📤 导出</button>
-                <button class="btn" onclick="tmplImport()" style="font-size:10px;padding:2px 6px">📥 导入</button>
-                <button class="btn" onclick="tmplDelete()" style="font-size:10px;padding:2px 6px;color:#f87171" title="删除当前模板文件">🗑</button>
+                <input id="tmplNameInput" class="form-input tmpl-input" placeholder="模板名称">
+                <button class="btn" onclick="tmplNewBlank()" style="color:#4ade80" title="清空画布，新建空白模板">新建空白</button>
+                <button class="btn" onclick="tmplSaveDialog()">保存</button>
+                <button class="btn" onclick="tmplExport()">导出</button>
+                <button class="btn" onclick="tmplImport()">导入</button>
+                <button class="btn" onclick="tmplDelete()" style="color:#f87171" title="删除当前模板文件">删除</button>
                 <span class="calib-sep">|</span>
                 <span class="calib-tip">筛选:</span>
                 <span id="tagFilters"></span>
@@ -292,7 +399,7 @@
 
             <div class="vision-body">
                 <div class="shot-panel" id="shotPanel">
-                    <div class="shot-empty" id="shotEmpty">点击「📸 单次截图」获取游戏画面</div>
+                    <div class="shot-empty" id="shotEmpty">点击「单次截图」获取游戏画面</div>
                     <div class="shot-view" id="shotView" style="display:none">
                         <img id="shotImg" alt="游戏截图" draggable="false">
                         <svg class="roi-svg" id="roiSvg"></svg>
@@ -300,7 +407,7 @@
                 </div>
 
                 <div class="roi-manager" id="roiManager">
-                    <div class="rm-header">📋 ROI 管理 <span class="rm-count" id="rmCount">0</span></div>
+                    <div class="rm-header">ROI 管理  <span class="rm-count" id="rmCount">0</span></div>
                     <div class="rm-list" id="rmList"></div>
                 </div>
 
@@ -322,31 +429,111 @@
             </div>
         </section>
 
+
         <!-- ===== 页面: 工具箱 ===== -->
         <section class="page" id="page-tools">
-            <div class="page-head">
-                <h2>工具箱</h2>
-                <p>独立小工具 · GUI 工具会打开自己的窗口 · CLI 工具输出进日志</p>
+            <div class="page-head tools-head">
+                <div>
+                    <h2>实用小工具箱</h2>
+                    <p>内置开发与运行辅助小工具 · GUI 工具独立弹窗 · 诊断工具结果输出至运行日志</p>
+                </div>
+                <div class="tool-filter-tabs">
+                    <button class="tool-tab-btn active" data-filter="all" onclick="filterTools('all')">全部工具</button>
+                    <button class="tool-tab-btn" data-filter="visual" onclick="filterTools('visual')">画面标注与裁剪</button>
+                    <button class="tool-tab-btn" data-filter="diag" onclick="filterTools('diag')">诊断与自检</button>
+                    <button class="tool-tab-btn" data-filter="helper" onclick="filterTools('helper')">辅助工具</button>
+                </div>
             </div>
             <div class="tool-grid" id="toolGrid"></div>
         </section>
 
+        <!-- ===== 页面: 背包盘点 ===== -->
+        <section class="page" id="page-bag">
+            <div class="page-head bag-head">
+                <div>
+                    <h2>背包咕噜球盘点</h2>
+                    <p>自动开背包( Esc + 点击背包按钮 ) 网格识别每种球与数量 与上次快照做减法</p>
+                </div>
+                <div class="pvp-head-actions">
+                    <button class="btn btn-primary" id="btnBagOpenScan" onclick="bagOpenScan()">打开背包并盘点</button>
+                    <button class="btn" id="btnBagScanDirect" onclick="bagScanDirect()">直接盘点(背包已开)</button>
+                </div>
+            </div>
+            <div class="bag-status" id="bagStatus">尚未盘点 · 上次快照: <span id="bagLastTime">—</span></div>
+            <!-- 咕噜球库存(从丢球助手页迁移至此 · 同一数据源 ball_inventory) -->
+            <div class="ball-inv-card" id="ballInventoryCard">
+                <div class="ball-inv-head">
+                    <span><b>咕噜球库存</b><span class="ball-inv-sub" id="ballInvState"></span></span>
+                    <span class="ball-inv-time" id="ballInvTime"></span>
+                </div>
+                <div class="ball-inv-grid" id="ballInvGrid"></div>
+            </div>
+            <div class="bag-grid" id="bagGrid"><div class="bag-empty">点上方按钮开始盘点</div></div>
+        </section>
+
         <!-- ===== 页面: 配置中心 ===== -->
         <section class="page" id="page-config">
-            <div class="page-head">
-                <h2>配置中心</h2>
-                <p>保存前自动校验格式 · 丢球配置保存后热生效</p>
+            <div class="page-head config-head">
+                <div>
+                    <h2>配置管理中心</h2>
+                    <p>管理全局底层配置文件 · 推荐直接在对应功能页面可视化调整，也可在此进行高级修改</p>
+                </div>
             </div>
+
+            <!-- 官方资源与图鉴自动更新卡片 -->
+            <div class="resource-sync-card">
+                <div class="rsc-left">
+                    <div class="rsc-icon"></div>
+                    <div class="rsc-info">
+                        <div class="rsc-title">
+                            官方数据与高清素材同步
+                            <span class="rsc-status-tag" id="rscStatusTag">已就绪</span>
+                        </div>
+                        <div class="rsc-desc">从官方 API (wegame.shallow.ink) 增量拉取最新精灵图鉴、种族值、全技能库与 WebP 高清立绘/图标</div>
+                        <div class="rsc-stats" id="rscStats">
+                            <span class="rsc-stat-item">精灵立绘: <b id="rscStatPets">375+</b></span>
+                            <span class="rsc-stat-item">技能图标: <b id="rscStatSkills">569+</b></span>
+                            <span class="rsc-stat-item">属性徽章: <b id="rscStatIcons">18</b></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="rsc-right">
+                    <button class="btn btn-primary rsc-btn" id="btnResourceSync" onclick="doResourceSync()">
+                        <span class="rsc-btn-icon"></span> 一键自动更新资源
+                    </button>
+                </div>
+            </div>
+
             <div class="config-body">
                 <div class="config-list" id="configList"></div>
                 <div class="config-editor">
-                    <div class="ce-desc" id="cfgDesc"></div>
-                    <textarea id="cfgText" spellcheck="false" placeholder="该文件不存在,首次保存将创建"></textarea>
-                    <div class="ce-actions">
-                        <button class="btn btn-primary" onclick="configSave()">保存</button>
-                        <button class="btn" onclick="configReload()">重新加载</button>
-                        <button class="btn" onclick="configFormat()">格式化 JSON</button>
+                    <!-- 顶部中文字段指南与说明卡片 -->
+                    <div class="ce-guide-card" id="cfgGuideCard">
+                        <div class="ce-guide-header">
+                            <div class="ce-guide-title" id="cfgGuideTitle">配置文件指南</div>
+                            <button class="btn btn-sm ce-jump-btn" id="cfgJumpBtn" onclick="jumpToConfigGuiPage()" style="display:none">
+                                前往对应页面可视化调整
+                            </button>
+                        </div>
+                        <div class="ce-guide-desc" id="cfgDesc"></div>
+                        <div class="ce-fields-section" id="cfgFieldsSection">
+                            <div class="ce-fields-title">关键参数与字段中文说明：</div>
+                            <div class="ce-fields-grid" id="cfgFieldsGrid"></div>
+                        </div>
+                    </div>
+
+                    <!-- 代码编辑器主体 -->
+                    <div class="ce-code-header">
+                        <span class="ce-code-label">文件代码编辑：</span>
                         <span class="ce-msg" id="cfgMsg"></span>
+                    </div>
+                    <textarea id="cfgText" spellcheck="false" placeholder="该文件内容为空或尚未创建"></textarea>
+                    
+                    <div class="ce-actions">
+                        <button class="btn btn-primary" onclick="configSave()">保存配置</button>
+                        <button class="btn" onclick="configReload()">重新加载</button>
+                        <button class="btn" id="btnCfgFormat" onclick="configFormat()">格式化 JSON</button>
+                        <button class="btn btn-outline-danger" onclick="configResetDefault()">恢复默认推荐</button>
                     </div>
                 </div>
             </div>
@@ -354,24 +541,38 @@
 
         <!-- ===== 页面: PVP 实时对战 ===== -->
         <section class="page" id="page-pvp">
+            <div class="page-tabs">
+                <button class="page-tab-btn active" data-tab="battle" onclick="switchPage('pvp')">实时对战</button>
+                <button class="page-tab-btn" data-tab="history" onclick="switchPage('history')">赛季战报</button>
+            </div>
+            <div class="page-tab-pane active" data-tab="battle">
             <div class="page-head pvp-head">
                 <div>
-                    <h2>⚔️ PVP 实时对战</h2>
-                    <p>选择双方精灵 → 自动展示全部技能伤害</p>
+                    <h2>PVP 实时对战</h2>
+                    <p>选择双方精灵 自动展示全部技能伤害</p>
                 </div>
                 <div class="pvp-head-actions">
+                    <button class="btn btn-ghost" onclick="doResourceSync()" title="从官方更新精灵与技能图鉴">同步资源</button>
                     <button class="btn btn-primary" id="btnPVPEngine" onclick="togglePVPEngine()">▶ 启动识别</button>
-                    <button class="pin-btn" id="btnPVPFloat" onclick="togglePVPFloat()">📱 悬浮窗</button>
+                    <button class="pin-btn" id="btnPVPFloat" onclick="togglePVPFloat()">悬浮窗</button>
                 </div>
+            </div>
+
+            <!-- 数据采集条(模板训练素材收集,仅开发者模式显示) -->
+            <div class="engine-controls" id="collectorBar" style="margin-bottom:14px">
+                <span style="font-size:11.5px;color:var(--dim)"><b style="color:var(--text)">数据采集</b>(只读屏幕):战斗中自动存敌方头像/名牌,OCR失败帧单独保存;战备按「手动截图」</span>
+                <button class="btn btn-primary" id="btnCollector" onclick="collectorToggle()">▶ 启动采集</button>
+                <button class="btn" onclick="collectorManual()">手动截图</button>
+                <span class="tool-pid" id="collectorStats"></span>
             </div>
 
             <!-- 双方精灵面板 -->
             <div class="pvp-both-panels">
                 <!-- 我方 -->
                 <div class="pvp-card pvp-side-atk">
-                    <h3>🔴 我方</h3>
+                    <h3>我方</h3>
                     <div class="pvp-pet-dropdown">
-                        <input type="text" class="pvp-input" id="pvpAtkInput"
+                        <input type="text" class="pvp-input form-input" id="pvpAtkInput"
                                placeholder="搜索精灵名称或编号..."
                                oninput="filterPVPPets('pvpAtkInput','pvpAtkList')"
                                onfocus="filterPVPPets('pvpAtkInput','pvpAtkList')">
@@ -393,22 +594,22 @@
                         </div>
                         <div class="pvp-iv-row">
                             <span class="pvp-iv-label">IV值:</span>
-                            <select id="pvpAtkIVValue" onchange="pvpIVChanged()"><option>10</option><option>9</option><option>8</option><option>7</option></select>
+                            <select id="pvpAtkIVValue" class="form-select pvp-select" onchange="pvpIVChanged()"><option>10</option><option>9</option><option>8</option><option>7</option></select>
                             <span class="pvp-iv-label">性格:</span>
-                            <select id="pvpAtkNatureUp" onchange="pvpIVChanged()"><option value="">无</option><option>攻击</option><option>魔攻</option><option>防御</option><option>魔防</option><option>速度</option></select>
+                            <select id="pvpAtkNatureUp" class="form-select pvp-select" onchange="pvpIVChanged()"><option value="">无</option><option>攻击</option><option>魔攻</option><option>生命</option><option>防御</option><option>魔防</option><option>速度</option></select>
                             <span class="pvp-iv-label">+</span>
-                            <select id="pvpAtkNatureDown" onchange="pvpIVChanged()"><option value="">无</option><option>攻击</option><option>魔攻</option><option>防御</option><option>魔防</option><option>速度</option></select>
+                            <select id="pvpAtkNatureDown" class="form-select pvp-select" onchange="pvpIVChanged()"><option value="">无</option><option>攻击</option><option>魔攻</option><option>生命</option><option>防御</option><option>魔防</option><option>速度</option></select>
                             <span class="pvp-iv-label">-</span>
-                            <button class="pvp-reset-btn" onclick="resetPreset('atk')" title="重置为智能预设">↺</button>
+                            <button class="pvp-reset-btn" onclick="resetPreset('atk')" title="重置为智能预设"></button>
                         </div>
                     </div>
                 </div>
 
                 <!-- 敌方 -->
                 <div class="pvp-card pvp-side-def">
-                    <h3>🔵 敌方</h3>
+                    <h3>敌方</h3>
                     <div class="pvp-pet-dropdown">
-                        <input type="text" class="pvp-input" id="pvpDefInput"
+                        <input type="text" class="pvp-input form-input" id="pvpDefInput"
                                placeholder="搜索精灵名称或编号..."
                                oninput="filterPVPPets('pvpDefInput','pvpDefList')"
                                onfocus="filterPVPPets('pvpDefInput','pvpDefList')">
@@ -430,13 +631,13 @@
                         </div>
                         <div class="pvp-iv-row">
                             <span class="pvp-iv-label">IV值:</span>
-                            <select id="pvpDefIVValue" onchange="pvpIVChanged()"><option>10</option><option>9</option><option>8</option><option>7</option></select>
+                            <select id="pvpDefIVValue" class="form-select pvp-select" onchange="pvpIVChanged()"><option>10</option><option>9</option><option>8</option><option>7</option></select>
                             <span class="pvp-iv-label">性格:</span>
-                            <select id="pvpDefNatureUp" onchange="pvpIVChanged()"><option value="">无</option><option>攻击</option><option>魔攻</option><option>防御</option><option>魔防</option><option>速度</option></select>
+                            <select id="pvpDefNatureUp" class="form-select pvp-select" onchange="pvpIVChanged()"><option value="">无</option><option>攻击</option><option>魔攻</option><option>生命</option><option>防御</option><option>魔防</option><option>速度</option></select>
                             <span class="pvp-iv-label">+</span>
-                            <select id="pvpDefNatureDown" onchange="pvpIVChanged()"><option value="">无</option><option>攻击</option><option>魔攻</option><option>防御</option><option>魔防</option><option>速度</option></select>
+                            <select id="pvpDefNatureDown" class="form-select pvp-select" onchange="pvpIVChanged()"><option value="">无</option><option>攻击</option><option>魔攻</option><option>生命</option><option>防御</option><option>魔防</option><option>速度</option></select>
                             <span class="pvp-iv-label">-</span>
-                            <button class="pvp-reset-btn" onclick="resetPreset('def')" title="重置为智能预设">↺</button>
+                            <button class="pvp-reset-btn" onclick="resetPreset('def')" title="重置为智能预设"></button>
                         </div>
                     </div>
                 </div>
@@ -449,10 +650,10 @@
                     <span>全技能伤害</span>
                     <div class="pvp-filter-tabs">
                         <button class="pvp-filter-btn active" data-filter="all" onclick="filterSkillTable('all')">全部</button>
-                        <button class="pvp-filter-btn" data-filter="strong" onclick="filterSkillTable('strong')">🟢克制</button>
-                        <button class="pvp-filter-btn" data-filter="normal" onclick="filterSkillTable('normal')">🟡普通</button>
-                        <button class="pvp-filter-btn" data-filter="resist" onclick="filterSkillTable('resist')">🔴抵抗</button>
-                        <button class="pvp-filter-btn" data-filter="status" onclick="filterSkillTable('status')">⚪状态</button>
+                        <button class="pvp-filter-btn" data-filter="strong" onclick="filterSkillTable('strong')">克制</button>
+                        <button class="pvp-filter-btn" data-filter="normal" onclick="filterSkillTable('normal')">普通</button>
+                        <button class="pvp-filter-btn" data-filter="resist" onclick="filterSkillTable('resist')">抵抗</button>
+                        <button class="pvp-filter-btn" data-filter="status" onclick="filterSkillTable('status')">状态</button>
                     </div>
                 </div>
                 <div class="pvp-skill-table" id="pvpSkillTable"></div>
@@ -463,7 +664,86 @@
                     <span class="pvp-legend-item"><span class="pvp-legend-dot status"></span>状态/无伤害</span>
                     <span class="pvp-range-note">范围: 敌+0攻 ~ 敌+3攻</span>
                 </div>
+
+                <!-- 敌方暗手 · 愿力冲击推演卡片 -->
+                <div class="pvp-resonance-section" id="pvpResonanceSection" style="display:none; margin-top:12px;"></div>
             </div>
+        </div>
+
+        <!-- ===== 页面: 赛季战报 & ELO 分析 ===== -->
+        <div class="page-tab-pane" data-tab="history">
+            <div class="page-head pvp-head">
+                <div>
+                    <h2>赛季战报 & ELO 遇敌克制分析 & ELO 遇敌克制分析</h2>
+                    <p>突破官方 20 局上限 · 本地持久留存 · 胜率雷达与对战复盘</p>
+                </div>
+                <div class="pvp-head-actions">
+                    <button class="btn btn-ghost" onclick="loadMatchHistory()">刷新战报</button>
+                    <button class="btn btn-ghost" id="btnMockHistory" onclick="generateMockHistory()" title="快速生成15场实战演示数据">演示数据</button>
+                    <button class="btn btn-ghost" onclick="clearMatchHistoryConfirm()" style="color:#f87171;">清空</button>
+                </div>
+            </div>
+
+            <!-- 核心大盘指标 (5张卡片) -->
+            <div class="history-stats-grid">
+                <div class="history-stat-card">
+                    <span class="stat-label">天梯总对局</span>
+                    <span class="stat-val" id="statTotalMatches">0 场</span>
+                </div>
+                <div class="history-stat-card">
+                    <span class="stat-label">综合总胜率</span>
+                    <span class="stat-val good" id="statWinRate">0%</span>
+                </div>
+                <div class="history-stat-card">
+                    <span class="stat-label">连胜连败态势</span>
+                    <span class="stat-val" id="statCurrentStreak">0 连胜</span>
+                </div>
+                <div class="history-stat-card">
+                    <span class="stat-label">极限碾压局 (敌≤2只) (敌≤2只)</span>
+                    <span class="stat-val" id="statCrushWins">0 场</span>
+                </div>
+                <div class="history-stat-card">
+                    <span class="stat-label">平均对局时长</span>
+                    <span class="stat-val" id="statAvgDuration">0分0秒</span>
+                </div>
+            </div>
+
+            <!-- 深度分析双栏: 遇敌榜 + 属性分布 -->
+            <div class="history-analysis-row">
+                <!-- 左卡: 遭遇最多的敌方精灵 -->
+                <div class="analysis-card">
+                    <div class="analysis-head">
+                        <span>天梯常客 · 遭遇最多精灵 TOP 6 · 遭遇最多精灵 TOP 6</span>
+                    </div>
+                    <div id="eloTopPetsList"></div>
+                </div>
+
+                <!-- 右卡: 敌方属性分布 (ELO 雷达) -->
+                <div class="analysis-card">
+                    <div class="analysis-head">
+                        <span>敌方属性遭遇分布 (ELO 属性雷达) (ELO 属性雷达)</span>
+                    </div>
+                    <div id="eloAttrDistList"></div>
+                </div>
+            </div>
+
+            <!-- 历史对局记录列表 -->
+            <div class="history-section">
+                <div class="history-toolbar">
+                    <div class="analysis-head" style="margin-bottom:0;">
+                        <span>实战全量对局流水 (本地永久留存)</span>
+                    </div>
+                    <div class="history-tabs">
+                        <button class="history-tab-btn active" data-filter="ALL" onclick="filterHistory('ALL')">全部</button>
+                        <button class="history-tab-btn" data-filter="WIN" onclick="filterHistory('WIN')">仅胜利</button>
+                        <button class="history-tab-btn" data-filter="LOSS" onclick="filterHistory('LOSS')">仅失败</button>
+                        <button class="history-tab-btn" data-filter="CRUSH" onclick="filterHistory('CRUSH')">仅碾压局</button>
+                    </div>
+                </div>
+
+                <div class="match-cards-container" id="historyCardList"></div>
+            </div>
+        </div>
         </section>
 
         <!-- ===== 日志抽屉 ===== -->
@@ -484,13 +764,16 @@
             <div class="tb-label">运行任务</div>
             <div class="tb-tasks" id="tbTasks"><span class="tb-none">全部空闲</span></div>
             <div class="tb-lastlog" id="tbLastLog" title=""></div>
-            <button class="tb-logbtn" onclick="toggleLogDrawer()">日志 ▴</button>
+            <button class="tb-logbtn" onclick="toggleLogDrawer()">日志</button>
             <button class="tb-stop" id="btnStopAll" onclick="stopAll()" disabled>■ 全部停止</button>
         </footer>
     </main>
 </div>
 
+<script src="assets/theme.js"></script>
 <script src="assets/app.js"></script>
 <script src="assets/pvp.js"></script>
+<script src="assets/history.js"></script>
+    <div class="win-resize-grip" id="winResizeGrip" title="拖拽调整窗口大小"></div>
 </body>
 </html>

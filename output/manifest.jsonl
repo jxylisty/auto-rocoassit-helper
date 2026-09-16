@@ -1,0 +1,5 @@
+{"type": "manual", "reason": "界面手动", "file": "manual\\manual_215219.png", "time": "2026-09-12T21:52:19"}
+{"type": "ocr_fail_full", "ocr": null, "conf": 0.0, "file": "ocr_fail\\fail_0912_215228_full.png", "time": "2026-09-12T21:52:28"}
+{"type": "ocr_fail_plate", "ocr": null, "conf": 0.0, "file": "ocr_fail\\fail_0912_215228_plate.png", "time": "2026-09-12T21:52:28"}
+{"type": "enemy_avatar", "ocr": "绿翼鸟", "conf": 0.99, "file": "enemy_avatar\\绿翼鸟_215236.png", "time": "2026-09-12T21:52:36"}
+{"type": "enemy_nameplate", "ocr": "绿翼鸟", "conf": 0.99, "file": "enemy_nameplate\\绿翼鸟_215236.png", "time": "2026-09-12T21:52:36"}

@@ -20,8 +20,23 @@ DEFAULT_ROI_CONFIG = PROJECT_ROOT / "data" / "config" / "roi_config.json"
 
 
 def load_roi_config(path: Path = DEFAULT_ROI_CONFIG) -> dict[str, ROI]:
+    """容错加载: 只取坐标四字段, 忽略 label/_hidden 等前端附加字段(缺字段按 0 兜底)"""
     config = json.loads(path.read_text(encoding="utf-8"))
-    return {name: ROI(name=name, **values) for name, values in config.items()}
+    rois: dict[str, ROI] = {}
+    for name, values in config.items():
+        if not isinstance(values, dict):
+            continue
+        try:
+            rois[name] = ROI(
+                name=name,
+                left=float(values.get("left", 0.0)),
+                top=float(values.get("top", 0.0)),
+                width=float(values.get("width", 0.0)),
+                height=float(values.get("height", 0.0)),
+            )
+        except Exception:
+            continue
+    return rois
 
 
 def locate_hp_anchor(frame: np.ndarray) -> tuple[int, int] | None:
@@ -30,38 +45,34 @@ def locate_hp_anchor(frame: np.ndarray) -> tuple[int, int] | None:
     敌方名牌位置随战斗/视角漂移,固定 ROI 追不住;血量百分比是名牌上
     最独特的文字,用它做锚点把整套名牌框平移过去。
     """
-    import cv2
+    from src.utils.ocr_engine import read_texts
 
-    from .ocr_reader import _ensure_tesseract
-    if not _ensure_tesseract():
-        return None
-    import pytesseract
+    import cv2
 
     fh, fw = frame.shape[:2]
     x0, y0 = int(fw * 0.55), 0
     region = frame[y0:int(fh * 0.35), x0:fw]
     if region.size == 0:
         return None
-    gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-    big = cv2.resize(gray, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-    _, bright = cv2.threshold(big, 180, 255, cv2.THRESH_BINARY)
 
-    config = "--psm 11 -c tessedit_char_whitelist=0123456789%"
+    # 0.75 倍采样:实测该比例下 "NN%" 小字仍可检出且耗时减半(0.5 倍会漏检)
+    scale = 0.75
+    small = cv2.resize(region, None, fx=scale, fy=scale,
+                       interpolation=cv2.INTER_AREA)
+
     try:
-        data = pytesseract.image_to_data(
-            bright, config=config, output_type=pytesseract.Output.DICT)
+        items = read_texts(small)
     except Exception:
         return None
 
-    for text, conf, left, top, width, height in zip(
-            data["text"], data["conf"], data["left"], data["top"],
-            data["width"], data["height"]):
-        t = text.strip()
-        if not t or float(conf) < 40:
+    for item in items:
+        t = item["text"].strip()
+        if item["score"] < 0.4:
             continue
         if re.fullmatch(r"\d{1,3}%", t):
-            cx = x0 + (left + width / 2) / 2.0
-            cy = y0 + (top + height / 2) / 2.0
+            box = item["box"]
+            cx = x0 + float(np.mean([p[0] for p in box])) / scale
+            cy = y0 + float(np.mean([p[1] for p in box])) / scale
             return int(cx), int(cy)
     return None
 
@@ -83,20 +94,21 @@ class VisionPipeline:
             rois.get("battle_right_indicator"),
         )
         self.enemy_hp_reader = OcrNumberReader(rois["enemy_hp"], percent=True)
-        # 锚点扫描较贵(全区域OCR),结果缓存、每3帧重算一次
+        # 锚点扫描较贵(RapidOCR): 只在血量读失败/缓存过期(30s)时才重扫
         self._anchor_shift = None
-        self._anchor_age = 99
+        self._anchor_last_scan = 0.0
 
     def _shifted_rois(self, frame: np.ndarray) -> dict[str, ROI]:
         """若锚点与校准时血量框位置不一致,把名牌三框整体平移到锚点处"""
-        if self._anchor_age < 2 and self._anchor_shift is not None:
-            self._anchor_age += 1
+        import time as _t
+
+        if self._anchor_shift is not None and _t.time() - self._anchor_last_scan < 30:
             dx, dy = self._anchor_shift
         else:
             anchor = locate_hp_anchor(frame)
             if anchor is None:
                 self._anchor_shift = None
-                self._anchor_age = 0
+                self._anchor_last_scan = _t.time()
                 return self.rois
             fh, fw = frame.shape[:2]
             hp = self.rois["enemy_hp"]
@@ -105,7 +117,7 @@ class VisionPipeline:
             dx = (anchor[0] - hx) / fw
             dy = (anchor[1] - hy) / fh
             self._anchor_shift = (dx, dy)
-            self._anchor_age = 0
+            self._anchor_last_scan = _t.time()
             if abs(dx) < 0.005 and abs(dy) < 0.005:
                 return self.rois
 

@@ -128,7 +128,8 @@ def calculate_panel_value(
     elif down_key and down_key == attr_key:
         nature_mod = NATURE["down"]
 
-    pre_nature_panel = math.floor(raw_panel)
+    # 面板四舍五入(对齐 roco-cal normal_round = floor(x+0.5)), 再乘性格
+    pre_nature_panel = math.floor(raw_panel + 0.5)
     post_nature_panel = round(pre_nature_panel * nature_mod + 0.0000001)
     star_bonus = to_number(star, 0) * 20 if attr_key == "hp" else to_number(star, 0) * 10
 
@@ -138,6 +139,28 @@ def calculate_panel_value(
         panel += to_number((buffs or {}).get("speedFlat", 0), 0)
 
     return panel
+
+
+def calculate_world_speed_range(race_speed: float, level: int = LEVEL, star: int = STAR) -> dict:
+    """
+    计算《洛克王国：世界》PVP真实速度极值区间（完全对齐游戏内点击头像显示）
+    - 极限最低速度: 0加点, 减速性格 (0.9x)
+    - 中位基准速度: 0加点, 平衡性格 (1.0x)
+    - 满配平衡速度: 10满加点, 平衡性格 (1.0x)
+    - 极限最高速度: 10满加点, 5星加速性格 (1.2x)
+    """
+    s_min = int(calculate_panel_value(race_speed, input_iv=0, level=level, star=star, attr_key="speed", nature_down="速度"))
+    s_mid = int(calculate_panel_value(race_speed, input_iv=0, level=level, star=star, attr_key="speed"))
+    s_balanced_max = int(calculate_panel_value(race_speed, input_iv=10, level=level, star=star, attr_key="speed"))
+    s_max = int(calculate_panel_value(race_speed, input_iv=10, level=level, star=star, attr_key="speed", nature_up="速度"))
+    return {
+        "race": race_speed,
+        "min": s_min,
+        "mid": s_mid,
+        "balanced_max": s_balanced_max,
+        "max": s_max,
+        "range_str": f"{s_min} ~ {s_max}"
+    }
 
 
 def calculate_all_panels(
@@ -316,6 +339,11 @@ def normalize_battle_skill(skill: dict = None) -> dict:
     }
 
 
+def damage_constant(level: int = LEVEL) -> float:
+    """等级伤害常量(口径对齐 roco-cal damresult.py): (level*45/100 + 10) / 41, 60级≈0.9024"""
+    return (to_number(level, LEVEL) * 45 / 100 + 10) / 41
+
+
 def is_damage_skill(skill: dict = None) -> bool:
     """判断技能是否为伤害技能"""
     if skill is None:
@@ -380,6 +408,7 @@ def calculate_damage_full(
     def_level: float = None,
     hits: int = None,
     skip_attr_and_stab: bool = False,
+    level: int = LEVEL,
 ) -> dict:
     """
     完整伤害计算（与 JS 版公式完全一致）
@@ -435,10 +464,12 @@ def calculate_damage_full(
     hit_count = max(1, int(to_number(hits, 1)))
     reduction_multiplier = 1 - clamp(to_number(defense_reduction, 0), 0, 1)
 
+    # 等级伤害常量(对齐 luokewangguo pvpDamageEngine): (lv*0.45+10)/41, 60级≈0.9024, 而非固定 0.9
+    level_const = damage_constant(level)
     damage = max(
         1.0,
         (atk_used / def_used)
-        * 0.9
+        * level_const
         * to_number(skill_power, 0)
         * to_number(power_buff, 1)
         * same_type_bonus
@@ -458,7 +489,7 @@ def calculate_damage_full(
         "hits": hit_count,
         "formulaParts": {
             "attackRatio": round(atk_used / def_used, 4),
-            "baseConstant": 0.9,
+            "baseConstant": round(level_const, 4),
             "skillPower": to_number(skill_power, 0),
             "powerBuff": to_number(power_buff, 1),
             "sameTypeBonus": same_type_bonus,
@@ -537,3 +568,166 @@ def calc_pet_vs_pet(
         def_level=def_level,
         hits=hits,
     )
+
+
+def calculate_resonance_impact_damages(
+    enemy_panel: dict,
+    self_panel: dict,
+    enemy_types: list,
+    self_types: list,
+    self_current_hp: int = None,
+) -> dict:
+    """
+    推算敌方暗手【愿力冲击】（共鸣魔法）在不同情境下的即时伤害：
+    
+    设定规则：
+    1. 基础威力: 80
+    2. 攻防判定: 敌方物攻/魔攻较高项作为主攻输出
+    3. 本系加成: 若愿力属性在敌方本系中则乘 1.25x
+    4. 应对加成: 我方出状态技能时被应对到，伤害乘以 2.5 倍
+    5. 智能推算: 根据「克制敌方弱点的属性」与「克制我方属性」取交集，推算敌方针对性携带的愿力属性
+    
+    输出情境（至少3种）：
+    - 克制不应对愿力 (2.0x / 1.0x应对)
+    - 克制应对愿力 (2.0x / 2.5x应对)
+    - 不克制应对愿力 (1.0x / 2.5x应对)
+    - 特例：3倍极限克制不应对愿力 (若我方存在 3.0x 双弱点属性)
+    """
+    from .type_chart import ALL_ATTRS, get_attr_multiplier, normalize_attr_list
+
+    normalized_enemy_types = normalize_attr_list(enemy_types or [])
+    normalized_self_types = normalize_attr_list(self_types or [])
+
+    # 1. 敌方主攻类型推导
+    is_physical = to_number(enemy_panel.get("attack", 0)) >= to_number(enemy_panel.get("mattack", 0))
+    skill_type = "物攻" if is_physical else "魔攻"
+    atk_stat_name = "物攻" if is_physical else "魔攻"
+
+    # 2. 敌方的弱点属性集合
+    enemy_weak_attrs = [a for a in ALL_ATTRS if get_attr_multiplier(a, normalized_enemy_types) >= 2.0]
+
+    # 3. 敌方为了反制自身弱点可能携带的愿力属性
+    counter_attrs = set()
+    for w in enemy_weak_attrs:
+        for a in ALL_ATTRS:
+            if get_attr_multiplier(a, [w]) >= 2.0:
+                counter_attrs.add(a)
+
+    # 4. 对我方造成克制的属性
+    self_weak_2x = [a for a in ALL_ATTRS if get_attr_multiplier(a, normalized_self_types) == 2.0]
+    self_weak_3x = [a for a in ALL_ATTRS if get_attr_multiplier(a, normalized_self_types) >= 3.0]
+
+    # 5. 交集推导
+    intersect_2x = [a for a in sorted(counter_attrs) if a in self_weak_2x]
+    intersect_3x = [a for a in sorted(counter_attrs) if a in self_weak_3x]
+
+    likely_counter_attrs = intersect_2x if intersect_2x else self_weak_2x
+    rep_2x_attr = likely_counter_attrs[0] if likely_counter_attrs else ("火" if "草" in normalized_self_types else "普通")
+
+    # 3倍弱点代表属性
+    rep_3x_attr = intersect_3x[0] if intersect_3x else (self_weak_3x[0] if self_weak_3x else None)
+
+    hp_threshold = self_current_hp if (self_current_hp is not None and self_current_hp > 0) else int(self_panel.get("hp", 450))
+
+    def _calc_dmg(attr: str, counter_mult: float) -> dict:
+        base_res = calculate_damage_full(
+            attacker_panel=enemy_panel,
+            defender_panel=self_panel,
+            skill_power=80,
+            skill_type=skill_type,
+            skill_attr=attr,
+            attacker_attrs=normalized_enemy_types,
+            defender_attrs=normalized_self_types,
+        )
+        dmg_min = int(base_res["damage"] * counter_mult)
+        dmg_max = int(dmg_min * 1.15)
+        is_lethal = dmg_min >= hp_threshold
+        return {
+            "attr": attr,
+            "dmg_min": dmg_min,
+            "dmg_max": dmg_max,
+            "is_lethal": is_lethal,
+            "attr_mult": base_res["attrMultiplier"],
+            "same_type": base_res["sameTypeBonus"] > 1.0,
+        }
+
+    cases = []
+
+    # 场景1：克制不应对愿力 (2.0x, counter 1.0x)
+    c1 = _calc_dmg(rep_2x_attr, 1.0)
+    cases.append({
+        "id": "resist_no_counter",
+        "name": "克制不应对愿力",
+        "tag": "克制 · 常规",
+        "desc": f"对方克制愿力({rep_2x_attr})，我方出非状态技能 (2.0x)",
+        "attr": rep_2x_attr,
+        "dmg_min": c1["dmg_min"],
+        "dmg_max": c1["dmg_max"],
+        "is_lethal": c1["is_lethal"],
+        "multiplier": c1["attr_mult"],
+        "counter_mult": 1.0,
+        "badge": "2.0x 常规",
+    })
+
+    # 场景2：克制应对愿力 (2.0x, counter 2.5x)
+    c2 = _calc_dmg(rep_2x_attr, 2.5)
+    cases.append({
+        "id": "resist_counter",
+        "name": "克制应对愿力",
+        "tag": "克制 · 应对×2.5",
+        "desc": f"对方克制愿力({rep_2x_attr})应对我方状态技能 (2.0x × 2.5)",
+        "attr": rep_2x_attr,
+        "dmg_min": c2["dmg_min"],
+        "dmg_max": c2["dmg_max"],
+        "is_lethal": c2["is_lethal"],
+        "multiplier": c2["attr_mult"],
+        "counter_mult": 2.5,
+        "badge": "2.0x 应对爆发",
+    })
+
+    # 场景3：不克制应对愿力 (1.0x, counter 2.5x)
+    normal_attr = "普通"
+    for a in ALL_ATTRS:
+        if get_attr_multiplier(a, normalized_self_types) == 1.0 and a not in normalized_enemy_types:
+            normal_attr = a
+            break
+    c3 = _calc_dmg(normal_attr, 2.5)
+    cases.append({
+        "id": "normal_counter",
+        "name": "不克制应对愿力",
+        "tag": "非克制 · 应对×2.5",
+        "desc": f"对方非克制愿力({normal_attr})应对我方状态技能 (1.0x × 2.5)",
+        "attr": normal_attr,
+        "dmg_min": c3["dmg_min"],
+        "dmg_max": c3["dmg_max"],
+        "is_lethal": c3["is_lethal"],
+        "multiplier": 1.0,
+        "counter_mult": 2.5,
+        "badge": "1.0x 应对",
+    })
+
+    # 特殊情况：如果我方存在 3 倍双克制弱点
+    if rep_3x_attr:
+        c4 = _calc_dmg(rep_3x_attr, 1.0)
+        cases.append({
+            "id": "3x_no_counter",
+            "name": "3倍极限克制不应对愿力",
+            "tag": "3.0x 极限双克",
+            "desc": f"对方针对我方双弱点的愿力({rep_3x_attr}) (3.0x)",
+            "attr": rep_3x_attr,
+            "dmg_min": c4["dmg_min"],
+            "dmg_max": c4["dmg_max"],
+            "is_lethal": c4["is_lethal"],
+            "multiplier": 3.0,
+            "counter_mult": 1.0,
+            "badge": "3.0x 极限克制",
+        })
+
+    return {
+        "success": True,
+        "power": 80,
+        "atk_stat_name": atk_stat_name,
+        "likely_counter_attrs": likely_counter_attrs,
+        "has_3x_weakness": bool(rep_3x_attr),
+        "cases": cases,
+    }
