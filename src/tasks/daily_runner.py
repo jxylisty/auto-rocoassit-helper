@@ -78,37 +78,48 @@ class DailyRunner:
     def _run_task(self, task: dict):
         self.running = True
         steps = task.get("steps", [])
+        repeats = max(1, int(task.get("repeat", 1) or 1))
+        round_gap = float(task.get("round_gap", 1.2) or 1.2)
+        total = len(steps) * repeats
         self.state = {"running": True, "task": task.get("name", task_id_name(task)),
-                      "step": "", "step_index": 0, "total_steps": len(steps), "ok": 0, "fail": 0, "detail": ""}
-        self._log(f"[日常] 开始任务: {task.get('name')} ({len(steps)} 步)", "success")
+                      "step": "", "step_index": 0, "total_steps": total, "ok": 0, "fail": 0, "detail": ""}
+        self._log(f"[日常] 开始任务: {task.get('name')} ({len(steps)} 步 x {repeats} 轮)", "success")
+        done = 0
         try:
-            for i, step in enumerate(steps):
-                if self._stop_event.is_set():
-                    self._log("[日常] 已手动停止", "warning")
-                    return
-                name = step.get("name") or step.get("action", "?")
-                self.state["step"] = name
-                self.state["step_index"] = i + 1
-                try:
-                    self._do_step(step)
-                    self.state["ok"] += 1
-                    self._log(f"[日常] {i+1}/{len(steps)} {name} 完成", "info")
-                except StepSkipped:
-                    self.state["ok"] += 1
-                    self._log(f"[日常] {i+1}/{len(steps)} {name} 跳过(未命中,允许)", "warning")
-                except Exception as e:
-                    self.state["fail"] += 1
-                    self._log(f"[日常] {i+1}/{len(steps)} {name} 失败: {e}", "error")
-                    if str(e) == "__STOP__":
+            for rnd in range(repeats):
+                if repeats > 1:
+                    self._log(f"[日常] 第 {rnd + 1}/{repeats} 轮", "info")
+                for i, step in enumerate(steps):
+                    if self._stop_event.is_set():
+                        self._log("[日常] 已手动停止", "warning")
                         return
-                    if step.get("extra", {}).get("on_fail") != "skip":
-                        self._log("[日常] 步骤失败, 任务中止", "error")
+                    name = step.get("name") or step.get("action", "?")
+                    self.state["step"] = name
+                    self.state["step_index"] = done + 1
+                    try:
+                        self._do_step(step)
+                        self.state["ok"] += 1
+                        self._log(f"[日常] {done + 1}/{total} {name} 完成", "info")
+                    except StepSkipped:
+                        self.state["ok"] += 1
+                        self._log(f"[日常] {done + 1}/{total} {name} 跳过(未命中,允许)", "warning")
+                    except Exception as e:
+                        self.state["fail"] += 1
+                        self._log(f"[日常] {done + 1}/{total} {name} 失败: {e}", "error")
+                        if str(e) == "__STOP__":
+                            return
+                        if step.get("extra", {}).get("on_fail") != "skip":
+                            self._log("[日常] 步骤失败, 任务中止", "error")
+                            return
+                    done += 1
+                    self._pause()
+                if rnd < repeats - 1:
+                    if self._stop_event.wait(round_gap):
                         return
-                self._pause()
         finally:
             self.running = False
             self.state["running"] = False
-            self.state["detail"] = f"完成 {self.state['ok']}/{len(steps)}"
+            self.state["detail"] = f"完成 {self.state['ok']}/{total}"
             self._log(f"[日常] 任务结束: {task.get('name')} (成功 {self.state['ok']} / 失败 {self.state['fail']})",
                       "success" if self.state["fail"] == 0 else "warning")
 
@@ -143,10 +154,13 @@ class DailyRunner:
                 if self._stop_event.is_set():
                     raise RuntimeError("__STOP__")
                 info, frame = self._frame()
-                if self._match_template(frame, target):
+                hit = self._find_template(frame, target)
+                if hit:
                     if action == "wait_template":
                         return
-                    self._click_ratio(info, *self._template_center(frame, target))
+                    _, (mx, my), (th, tw) = hit
+                    fh, fw = frame.shape[:2]
+                    self._click_ratio(info, (mx + tw / 2) / fw, (my + th / 2) / fh)
                     return
                 if time.time() > deadline:
                     if extra.get("on_fail") == "skip":
@@ -187,35 +201,31 @@ class DailyRunner:
 
         raise RuntimeError("未知动作: " + str(action))
 
-    def _match_template(self, frame, tmpl_name: str) -> bool:
-        try:
-            import cv2
-            import numpy as np
-            tpath = self._resolve_template(tmpl_name)
-            if not tpath:
-                return False
-            import cv2
-            tmpl = cv2.imread(str(tpath), cv2.IMREAD_COLOR)
-            if tmpl is None:
-                return False
-            if frame.shape[0] < tmpl.shape[0] or frame.shape[1] < tmpl.shape[1]:
-                return False
-            res = cv2.matchTemplate(frame, tmpl, cv2.TM_CCOEFF_NORMED)
-            return float(res.max()) >= float(self._threshold())
-        except Exception:
-            return False
+    def _normalize_templates(self, target):
+        """target 可为单个模板名或模板名列表(3D 场景多角度模板, 任一命中即可)"""
+        names = [str(t) for t in target] if isinstance(target, (list, tuple)) else [str(target)]
+        paths = []
+        for n in names:
+            p = self._resolve_template(n)
+            if p:
+                paths.append(p)
+        return paths
 
-    def _template_center(self, frame, tmpl_name: str):
+    def _find_template(self, frame, target):
+        """多模板匹配: 返回 (score, (x,y), (th,tw)) 或 None"""
         import cv2
-        tpath = self._resolve_template(tmpl_name)
-        tmpl = cv2.imread(str(tpath), cv2.IMREAD_COLOR)
-        res = cv2.matchTemplate(frame, tmpl, cv2.TM_CCOEFF_NORMED)
-        _, _, _, max_loc = cv2.minMaxLoc(res)
-        h, w = frame.shape[:2]
-        th, tw = tmpl.shape[:2]
-        cx = (max_loc[0] + tw / 2) / w
-        cy = (max_loc[1] + th / 2) / h
-        return cx, cy
+        best = None
+        for p in self._normalize_templates(target):
+            tmpl = cv2.imread(str(p), cv2.IMREAD_COLOR)
+            if tmpl is None:
+                continue
+            if frame.shape[0] < tmpl.shape[0] or frame.shape[1] < tmpl.shape[1]:
+                continue
+            res = cv2.matchTemplate(frame, tmpl, cv2.TM_CCOEFF_NORMED)
+            _, maxv, _, maxloc = cv2.minMaxLoc(res)
+            if maxv >= self._threshold() and (best is None or maxv > best[0]):
+                best = (maxv, maxloc, tmpl.shape[:2])
+        return best
 
     def _resolve_template(self, name: str):
         from pathlib import Path as _P

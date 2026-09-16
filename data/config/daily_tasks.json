@@ -1,10 +1,13 @@
 [
  {
-  "id": "harvest_flowers",
-  "name": "家园·种花收菜",
+  "id": "auto_flower_farm",
+  "name": "自动刷花种",
+  "repeat": 3,
+  "round_gap": 1.5,
+  "notes": "repeat=循环轮数, round_gap=轮间隔秒; 坐标为1080p比例示例值, 跑一次对照微调; 想更稳: 在视觉调试台截'种子袋/成熟的花/确认按钮'模板图放到 data/config/roi_templates/, 把 click_ratio 步骤改成 template_click 并填模板文件名",
   "steps": [
    {
-    "name": "打开家园界面",
+    "name": "打开家园",
     "action": "key",
     "target": "h",
     "extra": {}
@@ -17,7 +20,7 @@
     }
    },
    {
-    "name": "点击成熟作物(第一块地)",
+    "name": "点击空地块",
     "action": "click_ratio",
     "target": [
      0.46,
@@ -26,18 +29,40 @@
     "extra": {}
    },
    {
-    "name": "收获动作落定",
+    "name": "点击种子袋",
+    "action": "click_ratio",
+    "target": [
+     0.5,
+     0.72
+    ],
+    "extra": {
+     "on_fail": "skip"
+    }
+   },
+   {
+    "name": "确认种植",
+    "action": "click_ratio",
+    "target": [
+     0.5,
+     0.8
+    ],
+    "extra": {
+     "on_fail": "skip"
+    }
+   },
+   {
+    "name": "种植落定",
     "action": "wait_seconds",
     "extra": {
      "seconds": 1.5
     }
    },
    {
-    "name": "点击下一块地",
+    "name": "点击成熟的花",
     "action": "click_ratio",
     "target": [
      0.52,
-     0.58
+     0.5
     ],
     "extra": {
      "on_fail": "skip"
@@ -53,54 +78,9 @@
   ]
  },
  {
-  "id": "collect_eggs",
-  "name": "牧场·收蛋",
-  "steps": [
-   {
-    "name": "打开牧场",
-    "action": "key",
-    "target": "r",
-    "extra": {}
-   },
-   {
-    "name": "等待牧场加载",
-    "action": "wait_seconds",
-    "extra": {
-     "seconds": 3
-    }
-   },
-   {
-    "name": "点击鸡窝1",
-    "action": "click_ratio",
-    "target": [
-     0.44,
-     0.5
-    ],
-    "extra": {}
-   },
-   {
-    "name": "点击鸡窝2",
-    "action": "click_ratio",
-    "target": [
-     0.56,
-     0.5
-    ],
-    "extra": {
-     "on_fail": "skip"
-    }
-   },
-   {
-    "name": "落定",
-    "action": "wait_seconds",
-    "extra": {
-     "seconds": 1.5
-    }
-   }
-  ]
- },
- {
   "id": "claim_rewards",
   "name": "邮件·领取奖励",
+  "notes": "邮箱是固定 UI, 比例坐标基本稳; 偏了就微调 target",
   "steps": [
    {
     "name": "打开邮箱",
