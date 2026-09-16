@@ -169,6 +169,12 @@ class AppBridge:
         # 丢球核心工具
         self.tool = AutoThrowBall(on_log=self._enqueue_log)
         self.tool._frame_provider = self._capture_frame
+        # 日常任务执行器(MAA 式): 复用截图管线与全停体系
+        try:
+            from src.tasks.daily_runner import DailyRunner
+            self.daily = DailyRunner(self._capture_frame, self._enqueue_log)
+        except Exception:
+            self.daily = None
         # 快捷键 F4/F9/F10 直接调 tool 内部方法, 绕过 GUI 入口的互斥逻辑,
         # 用钩子补上: 快捷键启动丢球组前自动停止挂机引擎/PVP识别
         self.tool.conflict_hook = lambda: self._stop_conflicting_modes("throw")
@@ -696,6 +702,22 @@ class AppBridge:
     def pokedex_data(self):
         return self._bridge.pokedex_data()
 
+    def daily_list(self):
+        return self._bridge.daily_list()
+
+    def daily_save(self, tasks):
+        return self._bridge.daily_save(tasks)
+
+    def daily_run(self, task_id):
+        return self._bridge.daily_run(task_id)
+
+    def daily_stop(self):
+        return self._bridge.daily_stop()
+
+    def daily_status(self):
+        return self._bridge.daily_status()
+
+
     def schedule_set(self, enabled, hh=19, mm=0, duration_min=120, mode="engine"):
         return self._bridge.schedule_set(enabled, hh, mm, duration_min, mode)
 
@@ -706,6 +728,38 @@ class AppBridge:
     # ========================================
     # 图鉴收集册 + 预约挂机 (V4.6)
     # ========================================
+    # ========================================
+    # 日常任务 (V4.7 · MAA 式)
+    # ========================================
+    def daily_list(self) -> dict:
+        return self.daily.list_tasks() if self.daily else {"success": False, "tasks": []}
+
+    def daily_save(self, tasks) -> dict:
+        return self.daily.save_tasks(tasks or []) if self.daily else {"success": False}
+
+    def daily_run(self, task_id) -> dict:
+        if not self.daily:
+            return {"success": False, "message": "日常执行器不可用"}
+        # 与引擎互斥: 启动日常前全停其它任务
+        try:
+            if self.engine.running:
+                self.engine.stop("启动日常任务")
+        except Exception:
+            pass
+        try:
+            self._pvp_running = False
+        except Exception:
+            pass
+        return self.daily.start_task(task_id)
+
+    def daily_stop(self) -> dict:
+        if self.daily:
+            self.daily.stop()
+        return {"success": True}
+
+    def daily_status(self) -> dict:
+        return self.daily.get_status() if self.daily else {"success": False}
+
     def pokedex_data(self) -> dict:
         """遭遇图鉴: 基于 PVP 战报库聚合(遭遇次数/胜负/首遇/最近), 头像由前端按名字映射"""
         try:
@@ -3070,6 +3124,21 @@ class Api:
 
     def pokedex_data(self):
         return self._bridge.pokedex_data()
+    def daily_list(self):
+        return self._bridge.daily_list()
+
+    def daily_save(self, tasks):
+        return self._bridge.daily_save(tasks)
+
+    def daily_run(self, task_id):
+        return self._bridge.daily_run(task_id)
+
+    def daily_stop(self):
+        return self._bridge.daily_stop()
+
+    def daily_status(self):
+        return self._bridge.daily_status()
+
 
     def schedule_set(self, enabled, hh=19, mm=0, duration_min=120, mode="engine"):
         return self._bridge.schedule_set(enabled, hh, mm, duration_min, mode)

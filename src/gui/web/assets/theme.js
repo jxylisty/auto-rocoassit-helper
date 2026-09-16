@@ -557,3 +557,95 @@
     setTimeout(pollShiny, 5000);
   });
 })();
+
+/* ================= V4.7 日常任务(MAA 式) ================= */
+(function () {
+  function api() { return (window.pywebview && pywebview.api) ? pywebview.api : null; }
+  function ready(fn) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+    else fn();
+  }
+
+  var tasks = [];
+  var selected = null;
+
+  window.dailyReload = function () {
+    var a = api();
+    var box = document.getElementById('dailyTaskList');
+    if (!a || !a.daily_list || !box) return;
+    a.daily_list().then(function (r) {
+      tasks = (r && r.tasks) || [];
+      if (!tasks.length) {
+        box.innerHTML = '<div class="bag-empty">没有任务定义 · data/config/daily_tasks.json 为空</div>';
+        return;
+      }
+      box.innerHTML = tasks.map(function (tk, i) {
+        return '<label class="daily-task' + (selected === tk.id ? ' selected' : '') + '">'
+          + '<input type="radio" name="dailyPick" ' + (selected === tk.id ? 'checked' : '')
+          + ' onchange="dailyPick(\'' + tk.id + '\')">'
+          + '<span><div class="dt-name">' + escapeDaily(tk.name) + '</div>'
+          + '<div class="dt-meta">' + (tk.steps || []).length + ' 步 · ' + describeDaily(tk) + '</div></span>'
+          + '<span class="dt-badge">' + tk.id + '</span></label>';
+      }).join('');
+    }).catch(function (e) {
+      box.innerHTML = '<div class="bag-empty">清单加载失败: ' + e + '</div>';
+    });
+  };
+
+  window.dailyPick = function (id) {
+    selected = id;
+    document.querySelectorAll('.daily-task').forEach(function (el) { el.classList.remove('selected'); });
+    var el = document.querySelector('.daily-task input[onchange*="' + id + '"]');
+    if (el) el.closest('.daily-task').classList.add('selected');
+  };
+
+  window.dailyRunSelected = function () {
+    if (!selected) { if (typeof showToast === 'function') showToast('先勾选一个任务', 'warning'); return; }
+    var a = api();
+    if (!a || !a.daily_run) return;
+    a.daily_run(selected).then(function (r) {
+      if (typeof showToast === 'function') {
+        showToast(r && r.success ? '日常任务已启动' : (r.message || '启动失败'), r && r.success ? 'success' : 'error');
+      }
+    }).catch(function (e) { if (typeof showToast === 'function') showToast('启动异常: ' + e, 'error'); });
+  };
+
+  window.dailyStop = function () {
+    var a = api();
+    if (a && a.daily_stop) a.daily_stop();
+  };
+
+  function describeDaily(tk) {
+    var acts = {};
+    (tk.steps || []).forEach(function (s) { acts[s.action] = 1; });
+    return Object.keys(acts).join(' / ') || '空任务';
+  }
+  function escapeDaily(s) {
+    return String(s || '').replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  /* 状态轮询(独立于主轮询, 5s 一次, 只在日常页可见时更新) */
+  function pollDaily() {
+    var a = api();
+    var page = document.getElementById('page-daily');
+    if (!a || !a.daily_status || !page || !page.classList.contains('active')) return;
+    a.daily_status().then(function (r) {
+      var st = r || {};
+      var set = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
+      set('dailyStateText', st.running ? '运行中' : '空闲');
+      set('dailyTask', st.task || '—');
+      set('dailyStep', (st.step_index || 0) + '/' + (st.total_steps || 0));
+      set('dailyOkFail', (st.ok || 0) + '/' + (st.fail || 0));
+      set('dailyDetail', st.step || st.detail || '空闲');
+      var pd = document.getElementById('dailyPd');
+      if (pd) pd.style.background = st.running ? '#4f7a4a' : '#b3a175';
+    }).catch(function () {});
+  }
+
+  ready(function () {
+    dailyReload();
+    setInterval(pollDaily, 5000);
+  });
+})();

@@ -99,8 +99,9 @@
             <div class="nav-sep"></div>
             <div class="nav-cap">管家</div>
             <button class="nav-item" data-page="tools" onclick="switchPage('tools')"><span class="nav-idx">04</span>工具箱</button>
-            <button class="nav-item" data-page="bag" onclick="switchPage('bag')"><span class="nav-idx">05</span>背包盘点</button>
-            <button class="nav-item" data-page="config" onclick="switchPage('config')"><span class="nav-idx">06</span>配置中心</button>
+            <button class="nav-item" data-page="daily" onclick="switchPage('daily')"><span class="nav-idx">05</span>日常任务</button>
+            <button class="nav-item" data-page="bag" onclick="switchPage('bag')"><span class="nav-idx">06</span>背包盘点</button>
+            <button class="nav-item" data-page="config" onclick="switchPage('config')"><span class="nav-idx">07</span>配置中心</button>
         </nav>
 
         <div class="sidebar-foot">
@@ -476,6 +477,41 @@
         </section>
 
         <!-- ===== 页面: 背包盘点 ===== -->
+        <section class="page" id="page-daily">
+            <div class="page-head">
+                <div class="chap-row">
+                    <span class="chap">CHAPTER 05</span>
+                    <h2 class="story">日常任务</h2>
+                </div>
+                <p class="page-desc">MAA 式任务清单 · 种花收菜收蛋领奖励 · 游戏需在前台 · 每步拟人执行可随时急停</p>
+                <div class="head-rule"><span class="orn"><svg><use href="#i-orn"/></svg></span></div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom: 16px; flex-wrap: wrap;">
+                <button class="btn btn-primary" onclick="dailyRunSelected()">启动选中任务</button>
+                <button class="btn btn-danger" onclick="dailyStop()">停止</button>
+                <span class="card-sub" id="dailyStateText">空闲</span>
+                <button class="btn" style="margin-left:auto; padding:4px 12px;" onclick="dailyReload()">刷新清单</button>
+            </div>
+
+            <div class="card card-pad" style="margin-bottom: 18px;">
+                <div class="card-title" style="margin-bottom: 10px;">任务清单 <span class="card-sub">· 勾选要跑的任务 · 支持自定义步骤</span></div>
+                <div id="dailyTaskList" style="display:flex; flex-direction:column; gap:8px;"></div>
+                <p class="card-sub" style="margin-top:10px">模板坐标默认按屏幕比例内置示例值; 想更稳就在「视觉调试台」给关键界面做模板图, 步骤里引用模板名。</p>
+            </div>
+
+            <div class="card card-pad">
+                <div class="card-title" style="margin-bottom: 10px;">运行状态</div>
+                <div class="stats session-strip" style="margin-bottom: 6px;">
+                    <span class="ss-item">当前任务 <b id="dailyTask">—</b></span>
+                    <span class="ss-sep"></span>
+                    <span class="ss-item">步骤 <b id="dailyStep">0/0</b></span>
+                    <span class="ss-sep"></span>
+                    <span class="ss-item">成功/失败 <b id="dailyOkFail">0/0</b></span>
+                    <span class="ss-live"><span class="pd" id="dailyPd" style="background:#b3a175"></span><span id="dailyDetail">空闲</span></span>
+                </div>
+            </div>
+        </section>
         <section class="page" id="page-bag">
             <div class="page-head bag-head">
                 <div>

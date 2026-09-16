@@ -1,0 +1,142 @@
+[
+ {
+  "id": "harvest_flowers",
+  "name": "家园·种花收菜",
+  "steps": [
+   {
+    "name": "打开家园界面",
+    "action": "key",
+    "target": "h",
+    "extra": {}
+   },
+   {
+    "name": "等待家园加载",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 3
+    }
+   },
+   {
+    "name": "点击成熟作物(第一块地)",
+    "action": "click_ratio",
+    "target": [
+     0.46,
+     0.55
+    ],
+    "extra": {}
+   },
+   {
+    "name": "收获动作落定",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1.5
+    }
+   },
+   {
+    "name": "点击下一块地",
+    "action": "click_ratio",
+    "target": [
+     0.52,
+     0.58
+    ],
+    "extra": {
+     "on_fail": "skip"
+    }
+   },
+   {
+    "name": "收获落定",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1.5
+    }
+   }
+  ]
+ },
+ {
+  "id": "collect_eggs",
+  "name": "牧场·收蛋",
+  "steps": [
+   {
+    "name": "打开牧场",
+    "action": "key",
+    "target": "r",
+    "extra": {}
+   },
+   {
+    "name": "等待牧场加载",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 3
+    }
+   },
+   {
+    "name": "点击鸡窝1",
+    "action": "click_ratio",
+    "target": [
+     0.44,
+     0.5
+    ],
+    "extra": {}
+   },
+   {
+    "name": "点击鸡窝2",
+    "action": "click_ratio",
+    "target": [
+     0.56,
+     0.5
+    ],
+    "extra": {
+     "on_fail": "skip"
+    }
+   },
+   {
+    "name": "落定",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1.5
+    }
+   }
+  ]
+ },
+ {
+  "id": "claim_rewards",
+  "name": "邮件·领取奖励",
+  "steps": [
+   {
+    "name": "打开邮箱",
+    "action": "key",
+    "target": "e",
+    "extra": {}
+   },
+   {
+    "name": "等待加载",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2
+    }
+   },
+   {
+    "name": "一键领取",
+    "action": "click_ratio",
+    "target": [
+     0.5,
+     0.62
+    ],
+    "extra": {}
+   },
+   {
+    "name": "领取落定",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2
+    }
+   },
+   {
+    "name": "关闭邮箱",
+    "action": "key",
+    "target": "e",
+    "extra": {}
+   }
+  ]
+ }
+]
