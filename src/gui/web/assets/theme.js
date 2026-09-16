@@ -413,3 +413,147 @@
     setInterval(pollHint, 600000);    // 之后每 10 分钟
   });
 })();
+
+/* ================= V4.6 异色警报 / 图鉴 / 预约 / 库存预警 ================= */
+(function () {
+  function api() { return (window.pywebview && pywebview.api) ? pywebview.api : null; }
+  function ready(fn) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+    else fn();
+  }
+
+  /* ---- 异色横幅: 轮询 engine_status.shiny_alert(不侵入 app.js 轮询) ---- */
+  var lastAlertTs = '';
+  function pollShiny() {
+    var a = api();
+    if (!a || !a.engine_status) return;
+    a.engine_status().then(function (st) {
+      var alert = st && st.shiny_alert;
+      var el = document.getElementById('shinyBanner');
+      if (!el) return;
+      if (alert && alert.ts && alert.ts !== lastAlertTs) {
+        lastAlertTs = alert.ts;
+        var nm = document.getElementById('sbName');
+        var mt = document.getElementById('sbMeta');
+        if (nm) nm.textContent = alert.name || '?';
+        if (mt) mt.textContent = '已全面停止所有任务 · ' + (alert.screenshot ? '存证: data/screenshots/' + alert.screenshot : '截图存证失败') + ' · 累计 ' + (alert.count || 0) + ' 只';
+        el.style.display = '';
+      }
+    }).catch(function () {});
+  }
+  window.shinyDismiss = function () {
+    var el = document.getElementById('shinyBanner');
+    if (el) el.style.display = 'none';
+  };
+
+  /* ---- 图鉴渲染 ---- */
+  window.pokedexRefresh = function () {
+    var a = api();
+    var grid = document.getElementById('pokedexGrid');
+    var sum = document.getElementById('pdxSummary');
+    if (!a || !a.pokedex_data || !grid) return;
+    if (sum) sum.textContent = '· 加载中';
+    a.pokedex_data().then(function (r) {
+      if (!r || !r.success) { if (sum) sum.textContent = '· 加载失败'; return; }
+      var pets = (r.pets || []).slice().sort(function (x, y) { return y.encounters - x.encounters; });
+      if (sum) sum.textContent = '· 已记录 ' + pets.length + ' 种';
+      if (!pets.length) {
+        grid.innerHTML = '<div class="bag-empty">还没有遭遇记录 · 去 PVP 对战几局吧</div>';
+        return;
+      }
+      grid.innerHTML = pets.map(function (p) {
+        var src = petImg(p.name);
+        var winrate = p.encounters ? Math.round(p.wins * 100 / p.encounters) : 0;
+        var img = src
+          ? '<img src="' + src + '" alt="" onerror="this.style.display=\'none\'">'
+          : '<img src="assets/img/pets/001_迪莫.webp" alt="" onerror="this.style.display=\'none\'">';
+        return '<div class="pdx-card">' + img
+          + '<div class="pdx-name">' + escapeHtml(p.name) + '</div>'
+          + '<div class="pdx-meta">遭遇 ' + p.encounters + ' · 胜率 ' + winrate + '%</div>'
+          + '<div class="pdx-meta">首遇 ' + (p.first_seen || '').slice(5, 10) + '</div></div>';
+      }).join('');
+    }).catch(function () { if (sum) sum.textContent = '· 加载异常'; });
+  };
+  function petImg(name) {
+    var map = window.PET_ASSET_MAP;
+    if (!map || !name) return '';
+    if (map[name]) return 'assets/img/pets/' + map[name];
+    var clean = String(name).replace(/[\(（].*?[\)）]/g, '').trim();
+    if (clean && map[clean]) return 'assets/img/pets/' + map[clean];
+    var m = String(name).match(/\d+/);
+    if (m) {
+      var pad = String(parseInt(m[0], 10)).padStart(3, '0');
+      for (var k in map) if (map[k].indexOf(pad + '_') === 0 || map[k].indexOf(String(parseInt(m[0], 10)) + '_') === 0) return 'assets/img/pets/' + map[k];
+    }
+    return '';
+  }
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  /* ---- 预约挂机面板 ---- */
+  window.schedSave = function () {
+    var a = api();
+    if (!a || !a.schedule_set) return;
+    var hh = parseInt((document.getElementById('schedHH') || {}).value || '19', 10);
+    var mm = parseInt((document.getElementById('schedMM') || {}).value || '0', 10);
+    var dur = parseInt((document.getElementById('schedDur') || {}).value || '120', 10);
+    var mode = (document.getElementById('schedMode') || {}).value || 'engine';
+    var en = !!(document.getElementById('schedEnabled') || {}).checked;
+    a.schedule_set(en, hh, mm, dur, mode).then(function (r) {
+      if (typeof showToast === 'function') {
+        showToast(r && r.success ? (en ? '预约已生效: 每天 ' + hh + ':' + String(mm).padStart(2, '0') : '预约已关闭') : (r.message || '设置失败'),
+                  r && r.success ? 'success' : 'error');
+      }
+    }).catch(function (e) { if (typeof showToast === 'function') showToast('预约异常: ' + e, 'error'); });
+  };
+  function schedLoad() {
+    var a = api();
+    if (!a || !a.schedule_get) return;
+    a.schedule_get().then(function (r) {
+      var sch = r && r.schedule;
+      if (!sch) return;
+      var el;
+      if ((el = document.getElementById('schedEnabled'))) el.checked = !!sch.enabled;
+      if ((el = document.getElementById('schedHH'))) el.value = sch.hh;
+      if ((el = document.getElementById('schedMM'))) el.value = sch.mm;
+      if ((el = document.getElementById('schedDur'))) el.value = sch.duration_min;
+      if ((el = document.getElementById('schedMode'))) el.value = sch.mode;
+    }).catch(function () {});
+  }
+
+  /* ---- 库存预警: ball_inventory 低于阈值弹横幅(复用 shiny 样式, 换文案) ---- */
+  var lowWarned = false;
+  function pollInventory() {
+    if (lowWarned) return;
+    var a = api();
+    if (!a || !a.get_state) return;
+    a.get_state().then(function (s) {
+      var slots = (s && s.ball_inventory && s.ball_inventory.slots) || [];
+      var total = 0;
+      slots.forEach(function (sl) { total += (sl.count || 0); });
+      if (slots.length && total > 0 && total < 50) {
+        lowWarned = true;
+        var el = document.getElementById('shinyBanner');
+        if (el && el.style.display === 'none') {
+          var nm = document.getElementById('sbName');
+          var mt = document.getElementById('sbMeta');
+          var tip = el.querySelector('.sb-tip');
+          if (nm) nm.textContent = '咕噜球库存不足';
+          if (mt) mt.textContent = '当前剩余约 ' + total + ' 颗 · 建议补充库存';
+          if (tip) tip.textContent = '可在背包盘点页查看各球种余量';
+          el.style.display = '';
+        }
+      }
+    }).catch(function () {});
+  }
+
+  ready(function () {
+    schedLoad();
+    setInterval(pollShiny, 3000);
+    setInterval(pollInventory, 60000);
+    setTimeout(pollShiny, 5000);
+  });
+})();

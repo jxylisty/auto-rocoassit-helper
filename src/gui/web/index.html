@@ -26,6 +26,16 @@
             </button>
         </div>
     </div>
+    <!-- 异色警报横幅(V4.6): 发现异色·已全停 -->
+    <div class="shiny-banner" id="shinyBanner" style="display:none">
+        <div class="sb-star">★</div>
+        <div class="sb-txt">
+            <b>发现异色精灵 <span id="sbName">?</span></b>
+            <span class="sb-meta" id="sbMeta">已全面停止所有任务 · 截图已存证</span>
+            <span class="sb-tip">机制: 异色仅在挂机引擎进战斗时出现 · 对它伤害超 100% 血量会被游戏强制回落到 10%</span>
+        </div>
+        <button class="sb-close" onclick="shinyDismiss()">知道了</button>
+    </div>
     <div class="bg-glow"></div>
 
 <!-- Toast 通知容器 -->
@@ -353,7 +363,25 @@
                 游戏不在前台时暂停操作。<b>模拟模式</b>下全程只记日志不碰键鼠,建议先用它看几场确认策略再关掉。
             </div>
         </div>
-    </section>
+
+            <!-- 预约挂机(V4.6): 游戏前台才触发, 不代启游戏 -->
+            <div class="card card-pad" id="schedCard" style="margin-top: 18px;">
+                <div class="card-title" style="margin-bottom: 10px;">预约挂机 <span class="card-sub">· 每日到点自动开跑</span></div>
+                <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                    <label class="chk"><input type="checkbox" id="schedEnabled" onchange="schedSave()">启用</label>
+                    <div class="ctl-field"><label>时间</label>
+                        <input type="number" id="schedHH" class="form-input" style="width:56px" min="0" max="23" value="19"> :
+                        <input type="number" id="schedMM" class="form-input" style="width:56px" min="0" max="59" value="0">
+                    </div>
+                    <div class="ctl-field"><label>时长(分)</label>
+                        <input type="number" id="schedDur" class="form-input" style="width:70px" min="5" max="720" step="5" value="120">
+                    </div>
+                    <div class="ctl-field"><label>模式</label>
+                        <select id="schedMode" class="form-select"><option value="engine">挂机引擎</option><option value="throw">丢球助手</option></select>
+                    </div>
+                    <span class="es-note">到点时游戏须在前台才会启动 · 不代启 WeGame · 状态见日志</span>
+                </div>
+            </div>    </section>
 
         <!-- ===== 页面: 视觉调试台 ===== -->
         <section class="page" id="page-vision">
@@ -469,6 +497,17 @@
                 <div class="ball-inv-grid" id="ballInvGrid"></div>
             </div>
             <div class="bag-grid" id="bagGrid"><div class="bag-empty">点上方按钮开始盘点</div></div>
+
+            <!-- 遭遇图鉴(V4.6): 绘本收集册 -->
+            <div class="card card-pad" style="margin-top: 18px;">
+                <div style="display:flex; align-items:center; gap:9px; margin-bottom:4px;">
+                    <div class="card-title" style="margin:0">遭遇图鉴</div>
+                    <span class="card-sub" id="pdxSummary">· 加载中</span>
+                    <button class="btn" style="margin-left:auto; padding:4px 12px;" onclick="pokedexRefresh()">刷新</button>
+                </div>
+                <p class="card-sub" style="margin-bottom:10px">记录每只遭遇过的精灵: 遭遇次数 / 我的胜率 / 首遇时间 · 异色遭遇显示鎏金边(待记录)</p>
+                <div class="pokedex-grid" id="pokedexGrid"></div>
+            </div>
         </section>
 
         <!-- ===== 页面: 配置中心 ===== -->

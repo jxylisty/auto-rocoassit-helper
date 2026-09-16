@@ -70,6 +70,8 @@ class BattleEngine:
         self._ball_count_last = None
         self._ball_count_reader = None
         self._shiny_this_battle = False
+        self._shiny_alert = None          # 异色警报: {name, hp, ts, screenshot} 或 None
+        self._stop_all_cb = None          # 由 bridge 注入: 异色时全面停止其它任务
         self.catches = 0            # 丢过球后战斗结束的场次数(视为捕获成功)
         self.skills_used = 0
 
@@ -125,6 +127,12 @@ class BattleEngine:
         self.patrol_stuck_limit = int(cfg_get("patrol.stuck_limit", 6))  # 连续N段画面无变化=卡住
 
     def start(self, overrides: Optional[dict] = None):
+        try:
+            _dm = (overrides or {}).pop("duration_minutes", None)
+            if _dm:
+                self.battle_timeout = max(300, int(_dm) * 60)
+        except Exception:
+            pass
         if self._running:
             return False
         self.load_strategy()
@@ -144,6 +152,8 @@ class BattleEngine:
         self._log(f"战斗引擎已启动 {mode}策略: 血量≤{self.catch_hp}%时 按{self.open_ball_key}开界面→"
                   f"按{self.ball_slot_key}丢球; 技能轮换 {'→'.join(self.skills)}", "success")
         return True
+        self._shiny_alert = None
+
 
     def stop(self, reason: str = "手动停止"):
         if not self._running:
@@ -174,6 +184,7 @@ class BattleEngine:
             "catch_hp": self.catch_hp,
             "enemy_name": self._enemy_name,
             "enemy_hp": self._enemy_hp,
+            "shiny_alert": self._shiny_alert,
         }
 
     # ========================================
@@ -196,7 +207,16 @@ class BattleEngine:
     def _shiny_check_async(self):
         """进战斗后延迟 1.5s(等提示文本出现)对整帧做一次 OCR 关键词扫描。
         游戏机制: 出异色时屏幕会出现「出现异色精灵」类文本提示。
-        纯后台线程, 每场只查一次, 不影响主循环节奏。"""
+
+        发现异色后的动作(决定权全部交还玩家):
+        1. 立即全面停止(引擎+丢球助手全部停, 等价 stop_all)
+        2. 自动截一张游戏画面存 data/screenshots/ 作识别存证
+        3. 置 _shiny_alert 状态 → 悬浮窗/主控台弹横幅提示玩家
+        不做任何换球/捕捉动作。
+
+        机制备注: 异色只在进入战斗(挂机引擎链路)时出现;
+        本场对异色精灵造成的伤害超过其血条 100% 时, 游戏会将血量强制回落到 10%。
+        """
         def _job():
             if self._stop_event.wait(1.5):
                 return
@@ -211,10 +231,41 @@ class BattleEngine:
                         return   # 本场已计过
                     self._shiny_this_battle = True
                     self.shiny_count += 1
-                    self._log(f"🌈🌈 [异色] 检测到异色精灵提示！(累计 {self.shiny_count} 只)"
-                              f"{', 引擎已自动停止, 请手动捕捉' if self.shiny_stop else ''}", "success")
-                    if self.shiny_stop:
-                        self.stop("出现异色精灵")
+
+                    # 存证截图(失败不影响全停)
+                    shot_name = ""
+                    try:
+                        from src.utils.image_io import imwrite_unicode
+                        import time as _t
+                        from pathlib import Path as _P
+                        shot_dir = _P(__file__).resolve().parents[2] / "data" / "screenshots"
+                        shot_dir.mkdir(parents=True, exist_ok=True)
+                        shot_path = shot_dir / ("shiny_" + _t.strftime("%Y%m%d_%H%M%S") + ".png")
+                        if imwrite_unicode(shot_path, frame):
+                            shot_name = shot_path.name
+                    except Exception:
+                        pass
+
+                    # 状态外发: 悬浮窗/主控台横幅
+                    self._shiny_alert = {
+                        "name": self._enemy_name or "?",
+                        "hp": self._enemy_hp,
+                        "ts": time.strftime("%H:%M:%S"),
+                        "screenshot": shot_name,
+                        "count": self.shiny_count,
+                    }
+
+                    self._log(f"★ [异色] 发现异色精灵({self._enemy_name or '?'})！已全面停止, 请手动捕捉。"
+                              f"机制提示: 打超100%血量会回落至10%。"
+                              f"{'存证: ' + shot_name if shot_name else ''}(累计 {self.shiny_count} 只)", "success")
+
+                    # 全面停止: 本引擎 + 通知 bridge 停其它所有任务
+                    self.stop("发现异色精灵·全停交还玩家")
+                    try:
+                        if self._stop_all_cb:
+                            self._stop_all_cb("发现异色精灵")
+                    except Exception:
+                        pass
             except Exception:
                 pass
         threading.Thread(target=_job, daemon=True, name="ShinyCheck").start()
