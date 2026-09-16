@@ -178,8 +178,6 @@ class AppBridge:
         # 快捷键 F4/F9/F10 直接调 tool 内部方法, 绕过 GUI 入口的互斥逻辑,
         # 用钩子补上: 快捷键启动丢球组前自动停止挂机引擎/PVP识别
         self.tool.conflict_hook = lambda: self._stop_conflicting_modes("throw")
-        # 异色全停回调: 引擎发现异色时联动停所有其它任务(丢球助手等)
-        self.engine._stop_all_cb = lambda reason: self.stop_all()
         self._load_throw_config()
 
         # 咕噜球监视(战斗前 1 号位, 蓄力窗口异步采样; ROI/模板缺失时自动禁用)
@@ -213,6 +211,9 @@ class AppBridge:
             frame_provider=self._live_capture_frame,
             on_log=self._enqueue_log,
             dry_run=False)
+
+        # 异色全停回调: 引擎发现异色时联动停所有其它任务(丢球助手等)
+        self.engine._stop_all_cb = lambda reason: self.stop_all()
 
         # PVP 悬浮窗
         self._pvp_float_window = None
