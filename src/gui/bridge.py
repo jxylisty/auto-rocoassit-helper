@@ -27,6 +27,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# 前端资源目录: 源码=src/gui/web; 冻结版由 app_entry 重定向到 sys._MEIPASS/web
+WEB_DIR = Path(__file__).resolve().parent / "web"
+
 from auto_throw_ball import AutoThrowBall  # noqa: E402
 
 # ========================================
@@ -1905,7 +1908,7 @@ class AppBridge:
                 return {"success": True}
             except Exception:
                 self._studio_window = None
-        web_dir = Path(__file__).resolve().parents[1] / "web"
+        web_dir = WEB_DIR
         url = (web_dir / "roi_studio.html").as_uri()
         try:
             self._studio_window = webview.create_window(
