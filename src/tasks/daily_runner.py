@@ -222,6 +222,18 @@ class DailyRunner:
             human_input.press(str(target))
             return
 
+        if action == "roi_click":
+            # 点击用户在工坊标注的 ROI 中心(模板 json 的 rois, 归一化坐标)
+            # target=ROI id 或 [模板名, ROI id]; extra.retry 等待出现重试次数
+            _roi_click_center(self, target, extra)
+            return
+
+        if action == "roi_ocr_pick":
+            # 孵蛋选球: OCR 球名条带, 按期望类型(普通/高级)点第一个命中的球格
+            # target=期望球名列表(任一命中即可), extra.template=模板文件名
+            _roi_ocr_pick(self, target, extra)
+            return
+
         if action in ("ocr_assert", "ocr_click_text"):
             from src.utils.ocr_engine import read_combined
             while True:
@@ -340,6 +352,110 @@ class DailyRunner:
 
 class StepSkipped(Exception):
     pass
+
+
+# ============================================
+# ROI 标注动作 (模板 json 的 rois, 归一化坐标)
+# ============================================
+
+def _load_roi_from_templates(roi_id: str, template_name: str = None):
+    """从 roi_templates 的 json 里找 ROI(id 或 label 匹配), 返回 (rx, ry, rw, rh)。
+    template_name 指定文件名(不含 .json); 不指定则全目录搜索第一个命中的。"""
+    import json
+    from pathlib import Path
+    tdir = PROJECT_ROOT / "data" / "config" / "roi_templates"
+    files = [tdir / f"{template_name}.json"] if template_name else sorted(tdir.glob("*.json"))
+    for f in files:
+        if not f.exists():
+            continue
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for r in data.get("rois", []):
+            rid = str(r.get("id", ""))
+            label = str(r.get("label", ""))
+            if rid == roi_id or label == roi_id:
+                return (float(r.get("rx", 0)), float(r.get("ry", 0)),
+                        float(r.get("rw", 0)), float(r.get("rh", 0)))
+    return None
+
+
+def _roi_click_center(runner, target, extra: dict):
+    """roi_click 动作: 点击标注 ROI 的中心 (Interception 硬件级)。
+    target: "ROI名" 或 ["模板文件名", "ROI名"]; extra.retry=未出现等待重试次数"""
+    import time as _t
+    from src.driver.mouse_controller import MouseController
+    template = None
+    roi_id = str(target)
+    if isinstance(target, (list, tuple)) and len(target) >= 2:
+        template, roi_id = str(target[0]), str(target[1])
+    retries = int(extra.get("retry", 0))
+    gap = float(extra.get("retry_gap", 1.0))
+    for attempt in range(max(1, retries + 1)):
+        roi = _load_roi_from_templates(roi_id, template)
+        if roi is None:
+            raise RuntimeError(f"缺少 ROI「{roi_id}」(模板 {template or '任意'}), 请在工坊标注后保存")
+        info, _ = runner._frame()
+        rx, ry, rw, rh = roi
+        x = info.rect[0] + int(info.width * (rx + rw / 2))
+        y = info.rect[1] + int(info.height * (ry + rh / 2))
+        mouse = MouseController()
+        mouse.move_to(x, y)
+        _t.sleep(0.15)
+        mouse.click('left', 0.06 + 0.05 * (_t.time() % 1))
+        if attempt < retries:
+            runner._stop_event.wait(gap)
+
+
+def _roi_ocr_pick(runner, target, extra: dict):
+    """roi_ocr_pick 动作(咕噜球契约孵蛋选球):
+    模板里 ROI id 以「球N」命名的格子 = 候选球; 对每格球名条带 OCR,
+    点第一个名字命中期望列表的球。target=期望球名列表或单个球名。"""
+    import time as _t
+    import json as _json
+    from pathlib import Path
+    from src.driver.mouse_controller import MouseController
+    from src.utils.ocr_engine import read_combined
+
+    template = str(extra.get("template") or "咕噜球契约孵蛋")
+    wants = [str(w) for w in target] if isinstance(target, (list, tuple)) else [str(target)]
+    tfile = PROJECT_ROOT / "data" / "config" / "roi_templates" / f"{template}.json"
+    if not tfile.exists():
+        raise RuntimeError(f"缺少模板 {template}.json")
+    data = _json.loads(tfile.read_text(encoding="utf-8"))
+    balls = sorted([r for r in data.get("rois", [])
+                    if str(r.get("id", "")).startswith("球")],
+                   key=lambda r: (float(r.get("ry", 0)), float(r.get("rx", 0))))
+    if not balls:
+        raise RuntimeError(f"模板 {template} 里没有「球N」格子 ROI")
+
+    info, frame = runner._frame()
+    fh, fw = frame.shape[:2]
+    mouse = MouseController()
+    picked = None
+    for r in balls:
+        rx, ry, rw, rh = (float(r.get("rx", 0)), float(r.get("ry", 0)),
+                          float(r.get("rw", 0)), float(r.get("rh", 0)))
+        # OCR 取格子下部 30% 球名条带
+        y0, y1 = int((ry + rh * 0.70) * fh), int((ry + rh) * fh)
+        x0, x1 = int(rx * fw), int((rx + rw) * fw)
+        crop = frame[max(0, y0):min(fh, y1), max(0, x0):min(fw, x1)]
+        if crop.size == 0:
+            continue
+        text, _ = read_combined(crop)
+        name = str(text or "").strip()
+        if name and any(w in name for w in wants):
+            picked = r
+            runner._log(f"OCR 命中期望球: '{name}' ({r.get('id')})", "info")
+            break
+    if picked is None:
+        raise RuntimeError(f"OCR 未找到期望球 {wants}, 请检查球名或标注")
+    x = info.rect[0] + int(info.width * (float(picked["rx"]) + float(picked["rw"]) / 2))
+    y = info.rect[1] + int(info.height * (float(picked["ry"]) + float(picked["rh"]) / 2))
+    mouse.move_to(x, y)
+    _t.sleep(0.15)
+    mouse.click('left', 0.06 + 0.05 * (_t.time() % 1))
 
 
 def task_id_name(task: dict):

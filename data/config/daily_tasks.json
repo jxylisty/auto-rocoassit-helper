@@ -146,5 +146,344 @@
     "extra": {}
    }
   ]
+ },
+ {
+  "id": "claim_wish_star",
+  "name": "许愿星·领取",
+  "notes": "Esc→点标注的「许愿星」领取位→Esc 收尾。模板: 许愿星领取.json",
+  "steps": [
+   {
+    "name": "呼出菜单",
+    "action": "key",
+    "target": "esc",
+    "extra": {}
+   },
+   {
+    "name": "等菜单动画",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1.5
+    }
+   },
+   {
+    "name": "点击许愿星",
+    "action": "roi_click",
+    "target": "许愿星",
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
+    "name": "领取落定",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2
+    }
+   },
+   {
+    "name": "关闭菜单",
+    "action": "key",
+    "target": "esc",
+    "extra": {}
+   },
+   {
+    "name": "收尾等待",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1
+    }
+   }
+  ]
+ },
+ {
+  "id": "claim_pass_rewards",
+  "name": "通行证·领取奖励",
+  "notes": "F1→全部领取→切换通行证奖励→再全部领取→双 Esc 收尾。模板: 领取通行证奖励.json",
+  "steps": [
+   {
+    "name": "打开通行证",
+    "action": "key",
+    "target": "f1",
+    "extra": {}
+   },
+   {
+    "name": "等界面加载",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2
+    }
+   },
+   {
+    "name": "点击全部领取",
+    "action": "roi_click",
+    "target": "领取按钮",
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
+    "name": "领取动画",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2.5
+    }
+   },
+   {
+    "name": "切换到奖励页",
+    "action": "roi_click",
+    "target": "切换至通行证奖励",
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
+    "name": "等切换",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1.5
+    }
+   },
+   {
+    "name": "再次全部领取",
+    "action": "roi_click",
+    "target": "领取按钮",
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
+    "name": "领取落定",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2.5
+    }
+   },
+   {
+    "name": "关闭一层",
+    "action": "key",
+    "target": "esc",
+    "extra": {}
+   },
+   {
+    "name": "间隔",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1
+    }
+   },
+   {
+    "name": "关闭通行证",
+    "action": "key",
+    "target": "esc",
+    "extra": {}
+   },
+   {
+    "name": "收尾等待",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1
+    }
+   }
+  ]
+ },
+ {
+  "id": "claim_mail",
+  "name": "邮箱·领取附件",
+  "notes": "Esc→邮箱按钮→邮件领取→双 Esc 收尾。模板: 邮件模板.json",
+  "steps": [
+   {
+    "name": "呼出菜单",
+    "action": "key",
+    "target": "esc",
+    "extra": {}
+   },
+   {
+    "name": "等菜单动画",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1.5
+    }
+   },
+   {
+    "name": "点击邮箱按钮",
+    "action": "roi_click",
+    "target": "邮箱按钮",
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
+    "name": "等邮箱加载",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2
+    }
+   },
+   {
+    "name": "点击邮件领取",
+    "action": "roi_click",
+    "target": "邮件领取",
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
+    "name": "领取落定",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2.5
+    }
+   },
+   {
+    "name": "关闭一层",
+    "action": "key",
+    "target": "esc",
+    "extra": {}
+   },
+   {
+    "name": "间隔",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1
+    }
+   },
+   {
+    "name": "关闭邮箱",
+    "action": "key",
+    "target": "esc",
+    "extra": {}
+   },
+   {
+    "name": "收尾等待",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1
+    }
+   }
+  ]
+ },
+ {
+  "id": "ball_contract_hatch",
+  "name": "咕噜球契约孵蛋",
+  "repeat": 3,
+  "round_gap": 2,
+  "notes": "P→孵蛋按钮→建立契约→OCR 选普通/高级球→建立契约→点空白继续; repeat=3 轮。模板: 咕噜球契约孵蛋.json",
+  "steps": [
+   {
+    "name": "打开孵蛋界面",
+    "action": "key",
+    "target": "p",
+    "extra": {}
+   },
+   {
+    "name": "等界面加载",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2
+    }
+   },
+   {
+    "name": "点击孵蛋按钮",
+    "action": "roi_click",
+    "target": [
+     "咕噜球契约孵蛋",
+     "孵蛋按钮"
+    ],
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
+    "name": "等面板展开",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1.5
+    }
+   },
+   {
+    "name": "点击建立契约(展开球面板)",
+    "action": "roi_click",
+    "target": [
+     "咕噜球契约孵蛋",
+     "建立契约"
+    ],
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
+    "name": "等球面板",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1.5
+    }
+   },
+   {
+    "name": "OCR 选普通/高级球",
+    "action": "roi_ocr_pick",
+    "target": [
+     "普通咕噜球",
+     "高级咕噜球",
+     "普通球",
+     "高级球"
+    ],
+    "extra": {
+     "template": "咕噜球契约孵蛋"
+    }
+   },
+   {
+    "name": "选中落定",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 1
+    }
+   },
+   {
+    "name": "点击建立契约(确认)",
+    "action": "roi_click",
+    "target": [
+     "咕噜球契约孵蛋",
+     "建立契约（选球后）"
+    ],
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
+    "name": "契约动画",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 3
+    }
+   },
+   {
+    "name": "点击空白继续",
+    "action": "roi_click",
+    "target": [
+     "咕噜球契约孵蛋",
+     "点击空白部分继续"
+    ],
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.0
+    }
+   },
+   {
+    "name": "轮收尾",
+    "action": "wait_seconds",
+    "extra": {
+     "seconds": 2
+    }
+   }
+  ]
  }
 ]
