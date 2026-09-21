@@ -11,127 +11,8 @@
     "action": "game_launch",
     "extra": {}
    }
-  ]
- },
- {
-  "id": "auto_flower_farm",
-  "name": "自动刷花种",
-  "repeat": 3,
-  "round_gap": 1.5,
-  "notes": "repeat=循环轮数, round_gap=轮间隔秒; 坐标为1080p比例示例值, 跑一次对照微调; 想更稳: 在视觉调试台截'种子袋/成熟的花/确认按钮'模板图放到 data/config/roi_templates/, 把 click_ratio 步骤改成 template_click 并填模板文件名",
-  "steps": [
-   {
-    "name": "打开家园",
-    "action": "key",
-    "target": "h",
-    "extra": {}
-   },
-   {
-    "name": "等待家园加载",
-    "action": "wait_seconds",
-    "extra": {
-     "seconds": 3
-    }
-   },
-   {
-    "name": "点击空地块",
-    "action": "click_ratio",
-    "target": [
-     0.46,
-     0.55
-    ],
-    "extra": {}
-   },
-   {
-    "name": "点击种子袋",
-    "action": "click_ratio",
-    "target": [
-     0.5,
-     0.72
-    ],
-    "extra": {
-     "on_fail": "skip"
-    }
-   },
-   {
-    "name": "确认种植",
-    "action": "click_ratio",
-    "target": [
-     0.5,
-     0.8
-    ],
-    "extra": {
-     "on_fail": "skip"
-    }
-   },
-   {
-    "name": "种植落定",
-    "action": "wait_seconds",
-    "extra": {
-     "seconds": 1.5
-    }
-   },
-   {
-    "name": "点击成熟的花",
-    "action": "click_ratio",
-    "target": [
-     0.52,
-     0.5
-    ],
-    "extra": {
-     "on_fail": "skip"
-    }
-   },
-   {
-    "name": "收获落定",
-    "action": "wait_seconds",
-    "extra": {
-     "seconds": 1.5
-    }
-   }
-  ]
- },
- {
-  "id": "claim_rewards",
-  "name": "邮件·领取奖励",
-  "notes": "邮箱是固定 UI, 比例坐标基本稳; 偏了就微调 target",
-  "steps": [
-   {
-    "name": "打开邮箱",
-    "action": "key",
-    "target": "e",
-    "extra": {}
-   },
-   {
-    "name": "等待加载",
-    "action": "wait_seconds",
-    "extra": {
-     "seconds": 2
-    }
-   },
-   {
-    "name": "一键领取",
-    "action": "click_ratio",
-    "target": [
-     0.5,
-     0.62
-    ],
-    "extra": {}
-   },
-   {
-    "name": "领取落定",
-    "action": "wait_seconds",
-    "extra": {
-     "seconds": 2
-    }
-   },
-   {
-    "name": "关闭邮箱",
-    "action": "key",
-    "target": "e",
-    "extra": {}
-   }
-  ]
+  ],
+  "enabled": false
  },
  {
   "id": "flower_challenge",
@@ -474,7 +355,7 @@
     ],
     "extra": {
      "retry": 1,
-     "retry_gap": 1.0
+     "retry_gap": 1
     }
    },
    {
