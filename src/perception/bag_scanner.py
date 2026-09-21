@@ -59,10 +59,55 @@ def load_bag_filter_roi() -> Optional[tuple]:
     return None
 
 
+def _force_foreground(hwnd: int, attempts: int = 3) -> bool:
+    """可靠地把游戏窗口拉到前台并拿到键盘焦点。
+    pywebview API 跑在后台线程, 直接 SetForegroundWindow 常被 Windows 拒绝
+    (后台进程无置前权) → 先 AttachThreadInput 借前台线程的输入状态再切, 重试多次。
+    返回是否真的成为前台窗口。"""
+    import time as _t
+    import win32gui
+    import win32process
+    import win32api
+    try:
+        cur_tid, _ = win32process.GetWindowThreadProcessId(
+            win32gui.GetForegroundWindow())
+        dst_tid, _ = win32process.GetWindowThreadProcessId(hwnd)
+    except Exception:
+        return False
+    for i in range(attempts):
+        try:
+            if win32gui.GetForegroundWindow() == hwnd:
+                return True
+            # Esc 关掉可能打开着的游戏菜单(半透明遮罩会挡点击), 再置前
+            if i > 0:
+                try:
+                    win32api.keybd_event(0x1B, 0, 0, 0)      # Esc down
+                    win32api.keybd_event(0x1B, 0, 2, 0)      # Esc up
+                    _t.sleep(0.4)
+                except Exception:
+                    pass
+            attached = False
+            try:
+                if cur_tid != dst_tid:
+                    attached = win32process.AttachThreadInput(cur_tid, dst_tid, True)
+                win32gui.SetForegroundWindow(hwnd)
+                win32gui.BringWindowToTop(hwnd)
+            finally:
+                if attached:
+                    try:
+                        win32process.AttachThreadInput(cur_tid, dst_tid, False)
+                    except Exception:
+                        pass
+            _t.sleep(0.5)
+        except Exception:
+            _t.sleep(0.4)
+    return win32gui.GetForegroundWindow() == hwnd
+
+
 def open_bag_click(button_roi: tuple = None, filter_roi: tuple = None) -> bool:
     """游戏获得焦点 → 按 Esc 呼出菜单 → 点击「背包按钮」 → 点击「咕噜球筛选」。
     坐标换算: 窗口rect + 归一化中心 → 屏幕坐标。
-    注意顺序: 必须先 SetForegroundWindow 给游戏焦点, 否则 Esc 会打到别的窗口。"""
+    注意顺序: 必须先给游戏键盘焦点, 否则 Esc 会打到别的窗口。"""
     import time as _t
     from src.driver import human_input
     from src.capture.window_capture import find_window
@@ -73,13 +118,9 @@ def open_bag_click(button_roi: tuple = None, filter_roi: tuple = None) -> bool:
     if not info or info.width < 50 or info.height < 50:
         return False
 
-    # 1. 游戏窗口置顶激活(关键: 没焦点 Esc 无效)
-    try:
-        if info.hwnd:
-            win32gui.SetForegroundWindow(info.hwnd)
-            _t.sleep(0.3)
-    except Exception:
-        pass
+    # 1. 游戏窗口置顶激活(关键: 没焦点 Esc 无效; 失败则整链不执行, 避免空扫)
+    if not _force_foreground(info.hwnd):
+        return False
 
     left, top, right, bottom = info.rect
     w, h = right - left, bottom - top
@@ -93,30 +134,69 @@ def open_bag_click(button_roi: tuple = None, filter_roi: tuple = None) -> bool:
     target_x = left + int((rx + rw / 2.0) * w)
     target_y = top + int((ry + rh / 2.0) * h)
 
-    human_input.press("esc")          # 呼出菜单
-    _t.sleep(0.6)                     # 等菜单动画
-    interception.move_to(target_x, target_y)
-    _t.sleep(0.08)
-    interception.mouse_down(button="left")
-    _t.sleep(0.09)
-    interception.mouse_up(button="left")
-    _t.sleep(1.0)                     # 等背包界面完全打开(渲染网格)
+    def _click(x: int, y: int):
+        """内核级单击(拟人节奏)"""
+        interception.move_to(x, y)
+        _t.sleep(0.08)
+        interception.mouse_down(button="left")
+        _t.sleep(0.09)
+        interception.mouse_up(button="left")
 
-    # 2. 自动点击「咕噜球筛选」Tab (若配置)
+    # 2. Esc 呼出菜单 → 点背包按钮 (带一次重试: 菜单动画慢时首次点击常落空)
+    for attempt in range(2):
+        human_input.press("esc")      # 呼出菜单
+        _t.sleep(0.8 if attempt == 0 else 1.2)   # 等菜单动画(重试时给更久)
+        _click(target_x, target_y)
+        _t.sleep(1.4)                 # 等背包界面打开(渲染网格)
+        # 打开确认: 截一帧看「背包按钮 ROI」区域是否已被背包界面替换
+        try:
+            from src.capture.window_capture import find_window as _fw
+            info2 = _fw(class_name="UnrealWindow") or _fw()
+            if info2:
+                from src.capture.fast_capture import FastCapture
+                fc = FastCapture()
+                frame = fc.capture(rect=info2.rect)
+                if frame is not None and frame.size and _bag_ui_visible(frame, info2):
+                    break
+        except Exception:
+            pass
+        if attempt == 0:
+            _t.sleep(0.5)  # 未确认打开, 稍候重试整条链
+
+    # 3. 自动点击「咕噜球筛选」Tab (若配置)
     if filter_roi is None:
         filter_roi = load_bag_filter_roi()
     if filter_roi:
         fx, fy, fw, fh = filter_roi
         filter_x = left + int((fx + fw / 2.0) * w)
         filter_y = top + int((fy + fh / 2.0) * h)
-        interception.move_to(filter_x, filter_y)
-        _t.sleep(0.08)
-        interception.mouse_down(button="left")
-        _t.sleep(0.09)
-        interception.mouse_up(button="left")
+        _click(filter_x, filter_y)
         _t.sleep(0.5)                 # 等待筛选切换/网格刷新
 
     return True
+
+
+def _bag_ui_visible(frame, info) -> bool:
+    """判断背包界面是否已打开(打开确认信号):
+    「背包按钮」屏幕位置的颜色与菜单态差异大 → 菜单已关闭/被界面覆盖。
+    简化判据: Esc 菜单是半透明遮罩, 打开菜单时该点亮度明显低于主界面亮色按钮;
+    背包界面打开后按钮区域被背包面板覆盖。任一状态均视为"菜单已推进"。"""
+    try:
+        import numpy as np
+        roi = load_bag_button_roi()
+        if not roi:
+            return True   # 无法判定时不阻塞主链
+        rx, ry, rw, rh = roi
+        h, w = frame.shape[:2]
+        patch = frame[int(ry * h):int((ry + rh) * h),
+                      int(rx * w):int((rx + rw) * w)]
+        if patch.size == 0:
+            return True
+        mean = float(np.mean(patch))
+        # 菜单开着时该按钮在半透明暗遮罩下, 均值低; 菜单关闭(点击成功)后该点恢复亮色
+        return mean > 90
+    except Exception:
+        return True
 
 
 def load_bag_layout() -> Optional[dict]:

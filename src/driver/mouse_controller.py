@@ -10,8 +10,13 @@ class MouseController:
     """鼠标控制器"""
 
     def __init__(self):
-        # auto_capture_devices() 已在旧版移除，驱动自动加载无需调用
-        pass
+        # 设备号自动捕获(鼠标位) — 与 KeyboardController 配对, 只在首次执行
+        try:
+            if not getattr(interception, "_devices_captured", False):
+                interception.auto_capture_devices(keyboard=True, mouse=True)
+                interception._devices_captured = True
+        except Exception:
+            pass
 
     def click(self, button: str = 'left', delay: float = 0.1):
         """点击鼠标"""

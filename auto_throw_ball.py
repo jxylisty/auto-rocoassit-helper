@@ -59,12 +59,12 @@ class AutoThrowBall:
         # 日志回调（GUI 注入），为 None 时仅 print
         self.on_log = on_log
 
-        # 自动捕获设备
+        # 自动捕获设备(需要用户在 10 秒内动一下键盘/鼠标以识别设备号; 失败用默认位继续)
         try:
             interception.auto_capture_devices()
             self._log("Interception 设备初始化完成", "success")
         except Exception as e:
-            self._log(f"Interception 初始化失败: {e}", "error")
+            self._log(f"Interception 初始化失败(用默认设备号继续): {e}", "warning")
 
         # 可调延迟参数（秒），GUI 可运行中修改
         self.normal_min = 0.5          # 普通模式蓄力下限

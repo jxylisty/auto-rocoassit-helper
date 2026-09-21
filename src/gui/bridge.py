@@ -2577,26 +2577,29 @@ class AppBridge:
             return {"success": False, "message": str(e)}
 
     def bag_open(self) -> dict:
-        """Esc → 点击背包按钮(内核级, 4秒防抖)"""
+        """置前游戏 → Esc → 点击背包按钮(内核级, 4秒防抖)。
+        置前失败返回明确错误(由 _force_foreground 判定), 不静默吞掉。"""
         try:
-            from src.perception.bag_scanner import load_bag_button_roi, open_bag_click, BAG_OPEN_DEBOUNCE
+            from src.perception.bag_scanner import open_bag_click, BAG_OPEN_DEBOUNCE
             now = time.time()
             if now - getattr(self, "_bag_open_last", 0.0) < BAG_OPEN_DEBOUNCE:
                 return {"success": False, "message": "背包打开过于频繁(防抖), 请稍候"}
-            roi = load_bag_button_roi()
-            if roi is None:
-                return {"success": False, "message": "未找到「背包按钮」ROI(背包.json)"}
             self._bag_open_last = now
-            ok = open_bag_click(roi)
-            return {"success": ok, "message": "已打开背包" if ok else "未找到游戏窗口"}
+            ok = open_bag_click()
+            if not ok:
+                return {"success": False,
+                        "message": "打开背包失败: 无法把游戏切到前台(Esc/点击需要游戏焦点), 请手动点一下游戏窗口后重试"}
+            return {"success": True, "message": "已打开背包"}
         except Exception as e:
             return {"success": False, "message": str(e)}
 
     def bag_open_and_scan(self) -> dict:
-        """打开背包 → 盘点 → 返回结果(含与上次快照的减法)"""
+        """置前游戏 → 打开背包(含重试+打开确认) → 盘点 → 返回结果。
+        打开失败时直接报错返回, 不在错误界面上空扫(根治'识别出一堆乱球')"""
         opened = self.bag_open()
         if not opened.get("success"):
-            return opened
+            return {"success": False,
+                    "message": opened.get("message") or "无法置前游戏窗口, 请手动点一下游戏画面后再试"}
         res = self.bag_scan()
         if res.get("success"):
             res["bag_opened"] = True

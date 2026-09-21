@@ -10,8 +10,14 @@ class KeyboardController:
     """键盘控制器"""
 
     def __init__(self):
-        # auto_capture_devices() 已在旧版移除，驱动自动加载无需调用
-        pass
+        # 设备号自动捕获: interception 需要知道键盘占用哪个设备号(1-10),
+        # 不捕获时按键可能发到无效设备位而"静默无效"(Esc/按键游戏无反应)
+        try:
+            if not getattr(interception, "_devices_captured", False):
+                interception.auto_capture_devices(keyboard=True, mouse=False)
+                interception._devices_captured = True
+        except Exception:
+            pass  # 已捕获过或失败(用默认设备号), 不阻塞初始化
 
     def press(self, key: str):
         """按下并释放按键"""
