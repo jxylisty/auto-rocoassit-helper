@@ -165,6 +165,7 @@ def _run_frozen(smoke: bool) -> None:
 
         bridge = AppBridge()
         api = Api(bridge)
+        bridge.set_api(api)  # ROI 工坊运行时创建独立窗需共用同一 Api 单例
         if driver_note:
             bridge._enqueue_log(f"驱动状态: {driver_note}", "warning" if "需重启" in driver_note or "不可用" in driver_note else "info")
 
