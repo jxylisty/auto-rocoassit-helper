@@ -7,37 +7,78 @@ from typing import Dict, List, Optional, Any
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
-with open(DATA_DIR / "pet_detail.json", "r", encoding="utf-8") as f:
-    _PET_DETAIL: Dict[str, List[Dict]] = json.load(f)
-with open(DATA_DIR / "pet_index.json", "r", encoding="utf-8") as f:
-    _PET_INDEX: Dict[str, Dict] = json.load(f)
-with open(DATA_DIR / "pet_skills.json", "r", encoding="utf-8") as f:
-    _PET_SKILLS: Dict[str, Dict] = json.load(f)
-with open(DATA_DIR / "pet_race_speed.json", "r", encoding="utf-8") as f:
-    _PET_RACE_SPEED: Dict[str, int] = json.load(f)
-with open(DATA_DIR / "leader_forms.json", "r", encoding="utf-8") as f:
-    _LEADER_FORMS: List[int] = json.load(f)
+from src.pvp import seadata
 
-LEADER_FORM_SET = set(_LEADER_FORMS)
 
-# page_title → {seq, form}  每个形态独立索引
+def _load_all() -> None:
+    """加载核心数据 (授权后可读的密封数据)。未授权时静默空载, 注册重载后自动解锁。"""
+    global _PET_DETAIL, _PET_INDEX, _PET_SKILLS, _PET_RACE_SPEED, _LEADER_FORMS
+    global _LEADER_FORM_SET, _TITLE_TO_FORM, _NAME_TO_TITLE, _FINAL_ALLOWED
+    try:
+        _PET_DETAIL = seadata.load("pet_detail")
+        _PET_INDEX = seadata.load("pet_index")
+        _PET_SKILLS = seadata.load("pet_skills")
+        _PET_RACE_SPEED = seadata.load("pet_race_speed")
+        _LEADER_FORMS = seadata.load("leader_forms")
+    except Exception:
+        # 密钥未就绪 (未授权/首次运行): 空载启动, 授权后 seadata 触发重载
+        _PET_DETAIL, _PET_INDEX, _PET_SKILLS = {}, {}, {}
+        _PET_RACE_SPEED, _LEADER_FORMS = {}, []
+        return
+    _rebuild_indexes()
+
+
+def _rebuild_indexes() -> None:
+    """由原始数据重建全部派生索引 (与数据加载解耦, 重载时只跑这里)"""
+    global _LEADER_FORM_SET, _TITLE_TO_FORM, _NAME_TO_TITLE, _FINAL_ALLOWED
+    _LEADER_FORM_SET = set(_LEADER_FORMS)
+
+    # page_title → {seq, form}  每个形态独立索引
+    ttf: Dict[str, Dict] = {}
+    for seq_str, forms in _PET_DETAIL.items():
+        seq = int(seq_str)
+        for form in forms:
+            title = form.get("page_title", "")
+            if title:
+                ttf[title] = {"seq": seq, "form": form}
+    _TITLE_TO_FORM = ttf
+
+    # 名字 → 形态映射 (pet_index 的 name 字段)
+    ntt: Dict[str, str] = {}
+    for key, entry in _PET_INDEX.items():
+        seq = entry.get("seq", 0)
+        name = entry.get("name", "")
+        page_title = entry.get("page_title", name)
+        if name and seq:
+            ntt[name] = page_title
+    _NAME_TO_TITLE = ntt
+
+    # PVP 选宠过滤: 高级形态(uiTag=最终形态) + 变体高级形态
+    fa: Dict[str, Dict] = {}
+    for _key, _entry in _PET_INDEX.items():
+        if _entry.get("uiTag") != "最终形态":
+            continue
+        _seq = int(_entry.get("seq", 0))
+        for _form in _PET_DETAIL.get(str(_seq), []):
+            _t = _form.get("page_title", "")
+            if _t:
+                fa[_t] = {"seq": _seq, "form": _form}
+    _FINAL_ALLOWED = fa
+
+
+# 模块加载: 空载初始化 + 尝试立即加载 (开发环境/已授权时直接可用) + 注册重载
+_PET_DETAIL: Dict[str, List[Dict]] = {}
+_PET_INDEX: Dict[str, Dict] = {}
+_PET_SKILLS: Dict[str, Dict] = {}
+_PET_RACE_SPEED: Dict[str, int] = {}
+_LEADER_FORMS: List[int] = []
+_LEADER_FORM_SET: set = set()
 _TITLE_TO_FORM: Dict[str, Dict] = {}
-
-for seq_str, forms in _PET_DETAIL.items():
-    seq = int(seq_str)
-    for form in forms:
-        title = form.get("page_title", "")
-        if title:
-            _TITLE_TO_FORM[title] = {"seq": seq, "form": form}
-
-# 名字 → 形态映射 (pet_index 的 name 字段)
 _NAME_TO_TITLE: Dict[str, str] = {}
-for key, entry in _PET_INDEX.items():
-    seq = entry.get("seq", 0)
-    name = entry.get("name", "")
-    page_title = entry.get("page_title", name)
-    if name and seq:
-        _NAME_TO_TITLE[name] = page_title
+_FINAL_ALLOWED: Dict[str, Dict] = {}
+
+_load_all()
+seadata.register_reload(_load_all)
 
 
 def _build_pet_dict(seq: int, form: Dict) -> Dict:
@@ -51,23 +92,8 @@ def _build_pet_dict(seq: int, form: Dict) -> Dict:
         "img": form.get("img", ""),
         "speed_race": _PET_RACE_SPEED.get(str(seq), 0),
         "skills": _PET_SKILLS.get(str(seq), {}).get("skills", []),
-        "is_leader": seq in LEADER_FORM_SET,
+        "is_leader": seq in _LEADER_FORM_SET,
     }
-
-
-# ---- PVP 选宠过滤: 高级形态(uiTag=最终形态) + 变体高级形态(该形态下的全部变体) ----
-# 参考 luokewangguo: team-editor 只提供最终形态 + 其变体(武斗酷猫/烈火战神/首领形态等),
-# I阶/II阶/其他(未最终进化)不进入 PVP 伤害计算选宠池
-_FINAL_ALLOWED: Dict[str, Dict] = {}   # title -> {seq, form}
-
-for _key, _entry in _PET_INDEX.items():
-    if _entry.get("uiTag") != "最终形态":
-        continue
-    _seq = int(_entry.get("seq", 0))
-    for _form in _PET_DETAIL.get(str(_seq), []):
-        _t = _form.get("page_title", "")
-        if _t:
-            _FINAL_ALLOWED[_t] = {"seq": _seq, "form": _form}
 
 
 def pvp_allowed_titles() -> Dict[str, Dict]:
@@ -164,7 +190,7 @@ def get_pet_trait(pet_seq: int, title: str = None) -> str:
 
 
 def is_leader_form(pet_seq: int) -> bool:
-    return pet_seq in LEADER_FORM_SET
+    return pet_seq in _LEADER_FORM_SET
 
 
 def search_pets(query: str, limit: int = 20, pvp_filter: bool = False) -> List[Dict]:

@@ -357,6 +357,10 @@ function renderSkillTable(filter) {
         const pctDisp = Math.round(pct);
         const barColor = pct >= 100 ? '#ef4444' : pct >= 50 ? '#f59e0b' : '#22c55e';
         const barWidth = Math.min(100, (s.maxDamage / maxDmg) * 100);
+        // 动态威力技能: 威力列展示查档依据
+        const powerText = s.dynamic
+            ? `${s.power} <span style="font-size:10px;color:#38bdf8;" title="${s.dynamic.statLabel}差 ${s.dynamic.diff} → 档${s.dynamic.tierIndex + 1}">(${s.dynamic.statLabel}${s.dynamic.diff >= 0 ? '+' : ''}${s.dynamic.diff})</span>`
+            : s.power;
 
         return `
         <div class="pvp-skill-row ${cls}">
@@ -365,7 +369,7 @@ function renderSkillTable(filter) {
                 <span class="pvp-skill-name">${s.name}</span>
             </div>
             <span class="pvp-skill-type">${s.type === '物攻' ? '物攻' : '魔攻'}</span>
-            <span class="pvp-skill-power">${s.power}</span>
+            <span class="pvp-skill-power">${powerText}</span>
             <span class="pvp-skill-cost">${s.consume}</span>
             <span class="pvp-skill-mult">${mulText}</span>
             <span class="pvp-skill-dmg">${s.minDamage} ~ ${s.maxDamage}</span>
@@ -443,8 +447,12 @@ async function updateFloatIfVisible(calcResult) {
         dmg_min: s.minDamage || 0,
         dmg_max: s.maxDamage || 0,
         mult: s.attrMultiplier || 1.0,
-        is_kill: (s.maxDamage || 0) >= defHp
+        is_kill: (s.maxDamage || 0) >= defHp,
+        dynamic: s.dynamic || null
     }));
+
+    // 星陨速查表: 从后端结果透传; 手动预览路径后端若已返回则直接用
+    const starfallTable = data.starfall_table || null;
 
     try {
         await pywebview.api.pvp_float_update({
@@ -463,7 +471,9 @@ async function updateFloatIfVisible(calcResult) {
             },
             speed_diff: mySpeed - enemySpeed,
             calc_skills: calcSkills,
-            resonance_impact: data.resonance_impact || null
+            resonance_impact: data.resonance_impact || null,
+            enemy_est_hp: defHp,
+            starfall_table: starfallTable
         });
     } catch (e) { /* 悬浮窗未就绪，静默 */ }
 }

@@ -2,6 +2,10 @@
 """
 打包完整本体(挂机+丢球+PVP+数据采集)为独立可执行程序
 
+⚠️ 2026-09 起对外分发请改用加固版构建链: tools/build_hardened.py
+   (一键完成数据加密 + Cython 编译 + 打包 + 产物检查)。本脚本产物不含
+   加密数据与全新 auth_core, 仅用于本地快速验证, 请勿直接分发。
+
 用法:
     python tools/build_main_app.py            # 构建到 dist/洛克王国助手/
 产物:
@@ -12,11 +16,13 @@
 说明:
     - 首次运行会自动把 data/ 复制到 exe 旁边作为可写用户数据
     - Interception 驱动首次运行自动安装(需重启一次生效)
+    - LKW_OBFUSCATE=1 时先用 PyArmor 混淆源码再打包(防破解, 见 tools/obfuscate_src.py)
     - PaddleOCR 不打包(体积 +1GB),PVP 实时识别中文降级,其余功能完整
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -63,7 +69,15 @@ def main() -> None:
     shutil.copy2(INTERCEPTION_INSTALLER, staging / "interception" / "install-interception.exe")
     print("资源 staging 完成")
 
-    # ---- 2. PyInstaller ----
+    # ---- 2. 可选: PyArmor 混淆(LKW_OBFUSCATE=1) ----
+    obfuscate = os.environ.get("LKW_OBFUSCATE") == "1"
+    src_for_pack = PROJECT_ROOT          # 默认: 原始源码树
+    if obfuscate:
+        subprocess.run([sys.executable, str(PROJECT_ROOT / "tools/obfuscate_src.py")],
+                       check=True, cwd=str(PROJECT_ROOT))
+        src_for_pack = PROJECT_ROOT / "build" / "_obf_out"
+
+    # ---- 3. PyInstaller ----
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", NAME,
@@ -77,8 +91,19 @@ def main() -> None:
         "--add-data", f"{staging / 'src' / 'pvp' / 'data'};src/pvp/data",
         "--add-data", f"{staging / 'interception'};interception",
         "--add-data", f"{PROJECT_ROOT / 'src/gui/web'};web",
+        *(["--add-data", f"{src_for_pack / 'pyarmor_runtime_000000'};pyarmor_runtime_000000",
+           "--add-data", f"{src_for_pack / 'src'};src"]
+          if obfuscate else []),
         "--hidden-import", "keyboard",
         "--hidden-import", "webview",
+        *([f"--hidden-import={h}" for h in (
+            # pywin32 等子模块: 混淆代码里的 import 对静态分析不可见
+            "win32ui", "win32gui", "win32con", "win32api", "pywintypes",
+            "pythoncom", "yaml",
+        )] if obfuscate else []),
+        # bridge 从项目根导入 auto_throw_ball(超试用上限只能原文件);
+        # 放 _internal 根, 与 bridge 的 sys.path 定位(PROJECT_ROOT=上两级)一致
+        *(["--add-data", f"{PROJECT_ROOT / 'auto_throw_ball.py'};."] if obfuscate else []),
         "--collect-all", "webview",
         "--collect-all", "rapidocr_onnxruntime",  # 含 .onnx 模型文件,缺了 OCR 会挂
         "--collect-all", "onnxruntime",
@@ -95,8 +120,9 @@ def main() -> None:
         "--exclude-module", "bokeh", "--exclude-module", "pygame",
         "--exclude-module", "matplotlib", "--exclude-module", "pandas",
         "--exclude-module", "sklearn", "--exclude-module", "scipy",
-        "--paths", str(PROJECT_ROOT),
-        str(PROJECT_ROOT / "tools/app_entry.py"),
+        "--paths", str(src_for_pack),
+        str(src_for_pack / "app_entry.py" if obfuscate
+            else PROJECT_ROOT / "tools/app_entry.py"),
     ]
     print("执行 PyInstaller...")
     subprocess.run(cmd, check=True, cwd=str(PROJECT_ROOT))

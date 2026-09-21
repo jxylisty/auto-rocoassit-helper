@@ -32,6 +32,8 @@ fsm:
   battle_timeout: 300
   wait_timeout: 60
 gui:
-  width: 1320
-  height: 860
+  # 上限(逻辑像素): 主窗口默认吃满工作区的 96%x94%, 比这里小才生效。
+  # 调大以留出余量, 避免高分屏上被卡窄(想强制小窗可往下调)
+  width: 2400
+  height: 1600
   theme: dark

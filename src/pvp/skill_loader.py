@@ -8,32 +8,47 @@ from typing import Dict, List, Optional, Any
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
-with open(DATA_DIR / "skills.json", "r", encoding="utf-8") as f:
-    _SKILLS: Dict[str, Dict] = json.load(f)
+from src.pvp import seadata
 
-# 自动合并官方标签数据 (7大行为标签)
-_TAGS_FILE = DATA_DIR / "skills_with_tags.json"
-if _TAGS_FILE.exists():
+_SKILLS: Dict[str, Dict] = {}
+
+
+def _merge_tags(tags_data: Dict) -> None:
+    """合并官方标签数据 (7大行为标签) 到技能表"""
+    for k, v in tags_data.items():
+        if k in _SKILLS:
+            _SKILLS[k]["tags"] = v.get("tags", [])
+            if not _SKILLS[k].get("describe") and v.get("description"):
+                _SKILLS[k]["describe"] = v.get("description")
+        else:
+            _SKILLS[k] = {
+                "name": k,
+                "type": v.get("damage_type", "变化"),
+                "attr": v.get("element", "普通"),
+                "power": v.get("power", "0"),
+                "consume": v.get("cost", "0"),
+                "describe": v.get("description", ""),
+                "tags": v.get("tags", [])
+            }
+
+
+def _load_all() -> None:
+    """加载技能数据。未授权时静默空载, 注册重载后自动解锁。"""
     try:
-        with open(_TAGS_FILE, "r", encoding="utf-8") as f:
-            _TAGS_DATA = json.load(f)
-            for k, v in _TAGS_DATA.items():
-                if k in _SKILLS:
-                    _SKILLS[k]["tags"] = v.get("tags", [])
-                    if not _SKILLS[k].get("describe") and v.get("description"):
-                        _SKILLS[k]["describe"] = v.get("description")
-                else:
-                    _SKILLS[k] = {
-                        "name": k,
-                        "type": v.get("damage_type", "变化"),
-                        "attr": v.get("element", "普通"),
-                        "power": v.get("power", "0"),
-                        "consume": v.get("cost", "0"),
-                        "describe": v.get("description", ""),
-                        "tags": v.get("tags", [])
-                    }
+        global _SKILLS
+        _SKILLS = seadata.load("skills")
+    except Exception:
+        _SKILLS = {}
+        return
+    try:
+        _merge_tags(seadata.load_optional("skills_with_tags", {}) or {})
     except Exception:
         pass
+
+
+# 模块加载: 空载初始化 + 尝试立即加载 + 注册重载
+_load_all()
+seadata.register_reload(_load_all)
 
 
 def get_skill(name: str) -> Optional[Dict[str, Any]]:

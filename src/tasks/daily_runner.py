@@ -12,6 +12,8 @@
     - wait_seconds   : 等待 N 秒 (extra={seconds})
     - ocr_assert     : OCR 全屏文字须包含关键词 (target=关键词), 失败可重试
     - ocr_click_text : OCR 找到关键词位置 → 拟人点击其中心 (target=关键词)
+    - flower_challenge: 花种挑战全自动(日常获得), 配置见 data/config/flower_challenge.json
+    - game_launch      : 无 UAC 打开 WeGame → OCR 模拟点击「启动」→ 等游戏窗口出现
 - 步骤失败默认中止任务(可 extra.on_fail="skip" 跳过)
 - 全程使用 human_input 拟人节奏 + MouseController 点击
 - 可被 stop_event 打断; 与引擎互斥由 bridge 层保证
@@ -29,12 +31,15 @@ TEMPLATE_DIR = PROJECT_ROOT / "data" / "config" / "roi_templates"
 
 
 class DailyRunner:
-    def __init__(self, frame_provider: Callable, log_cb: Optional[Callable] = None):
+    def __init__(self, frame_provider: Callable, log_cb: Optional[Callable] = None,
+                 launch_cb: Optional[Callable] = None):
         self._frame_provider = frame_provider
         self._log_cb = log_cb or (lambda msg, level="info": None)
+        self._launch_cb = launch_cb  # 启动游戏回调(bridge.game_launch, 计划任务+模拟点击)
         self._stop_event = threading.Event()
         self._thread = None
         self.running = False
+        self._queue_running = False  # 流水线执行中(防单任务插队)
         self.state = {"running": False, "task": "", "step": "", "step_index": 0,
                       "total_steps": 0, "ok": 0, "fail": 0, "detail": ""}
 
@@ -48,7 +53,7 @@ class DailyRunner:
         return {"success": True}
 
     def start_task(self, task_id: str) -> dict:
-        if self.running:
+        if self.running or self._queue_running:
             return {"success": False, "message": "已有日常任务在运行"}
         tasks = self._load_tasks()
         task = next((t for t in tasks if t.get("id") == task_id), None)
@@ -58,6 +63,44 @@ class DailyRunner:
         self._thread = threading.Thread(target=self._run_task, args=(task,), daemon=True, name="daily-runner")
         self._thread.start()
         return {"success": True}
+
+    def start_queue(self, task_ids) -> dict:
+        """MAA 式流水线: 按传入顺序串行执行多个任务(一键执行勾选项)"""
+        ids = [str(i) for i in (task_ids or []) if str(i).strip()]
+        if not ids:
+            return {"success": False, "message": "队列为空"}
+        if self.running or self._queue_running:
+            return {"success": False, "message": "已有日常任务在运行"}
+        tasks = self._load_tasks()
+        queue = []
+        for tid in ids:
+            t = next((x for x in tasks if x.get("id") == tid), None)
+            if t:
+                queue.append(t)
+        if not queue:
+            return {"success": False, "message": "勾选的任务均不存在"}
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run_queue, args=(queue,),
+                                        daemon=True, name="daily-queue")
+        self._thread.start()
+        return {"success": True, "total": len(queue)}
+
+    def _run_queue(self, queue: list):
+        """串行执行任务队列; 单个任务失败只中止该任务, 继续下一个; 手动停止全停"""
+        self._queue_running = True
+        total = len(queue)
+        try:
+            for idx, task in enumerate(queue, 1):
+                if self._stop_event.is_set():
+                    break
+                self._log(f"[日常] 流水线 {idx}/{total}: {task.get('name')}", "info")
+                self._run_task(task, queue_index=idx, queue_total=total)
+                if idx < total and self._stop_event.wait(1.5):
+                    break
+        finally:
+            self._queue_running = False
+            self.state["running"] = False
+            self.state["detail"] = self.state.get("detail") or "流水线结束"
 
     def stop(self):
         self._stop_event.set()
@@ -75,14 +118,15 @@ class DailyRunner:
     def _log(self, msg, level="info"):
         self._log_cb(msg, level)
 
-    def _run_task(self, task: dict):
+    def _run_task(self, task: dict, queue_index: int = 0, queue_total: int = 0):
         self.running = True
         steps = task.get("steps", [])
         repeats = max(1, int(task.get("repeat", 1) or 1))
         round_gap = float(task.get("round_gap", 1.2) or 1.2)
         total = len(steps) * repeats
         self.state = {"running": True, "task": task.get("name", task_id_name(task)),
-                      "step": "", "step_index": 0, "total_steps": total, "ok": 0, "fail": 0, "detail": ""}
+                      "step": "", "step_index": 0, "total_steps": total, "ok": 0, "fail": 0, "detail": "",
+                      "queue_index": queue_index, "queue_total": queue_total}
         self._log(f"[日常] 开始任务: {task.get('name')} ({len(steps)} 步 x {repeats} 轮)", "success")
         done = 0
         try:
@@ -199,6 +243,41 @@ class DailyRunner:
                     raise RuntimeError(f"OCR 未命中: {target}")
                 self._stop_event.wait(interval)
 
+        if action == "game_launch":
+            if not self._launch_cb:
+                raise RuntimeError("启动回调未注入(bridge 未接 game_launch)")
+            result = self._launch_cb() or {}
+            if not result.get("success"):
+                raise RuntimeError(result.get("message", "WeGame 拉起失败"))
+            # 等游戏窗口/进程出现(最长 300s), 出现即任务完成
+            from src.capture.window_capture import find_window
+            deadline = time.time() + float((result.get("wait_window")) or 300)
+            while time.time() < deadline:
+                if self._stop_event.is_set():
+                    raise RuntimeError("__STOP__")
+                try:
+                    if find_window(class_name="UnrealWindow"):
+                        self._log("游戏窗口已出现, 启动完成", "success")
+                        return
+                    r2 = subprocess.run(["tasklist"], capture_output=True)
+                    if "洛克王国" in r2.stdout.decode("gbk", errors="replace"):
+                        self._log("游戏进程已出现(加载中)", "success")
+                        return
+                except Exception:
+                    pass
+                self._stop_event.wait(2)
+            raise RuntimeError("等待游戏窗口超时(WeGame 内自动点击可能未命中, 请手动启动)")
+
+        if action == "flower_challenge":
+            from src.tasks.flower_challenge import FlowerChallenge
+            fc = FlowerChallenge(self._frame_provider, self._log_cb, self._stop_event)
+            result = fc.run()
+            if result.get("stopped"):
+                raise RuntimeError("__STOP__")  # 手动停止: 走运行器的正常停止路径, 不计失败
+            if not result.get("success"):
+                raise RuntimeError(result.get("message", "花种挑战失败"))
+            return
+
         raise RuntimeError("未知动作: " + str(action))
 
     def _normalize_templates(self, target):
@@ -251,8 +330,8 @@ class DailyRunner:
         """按屏幕比例坐标拟人点击(基于窗口信息换算)"""
         import time as _t
         from src.driver.mouse_controller import MouseController
-        x = info.x + int(info.width * float(rx))
-        y = info.y + int(info.height * float(ry))
+        x = info.rect[0] + int(info.width * float(rx))
+        y = info.rect[1] + int(info.height * float(ry))
         mouse = MouseController()
         mouse.move_to(x, y)
         _t.sleep(0.15)

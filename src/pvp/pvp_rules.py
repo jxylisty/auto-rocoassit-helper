@@ -9,7 +9,7 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 
 
 def load_pvp_rules() -> Dict[str, Any]:
-    """加载 PVP 规则常量"""
+    """加载 PVP 规则常量 (公开游戏常识, 保持明文直读)"""
     with open(DATA_DIR / "pvp_rules.json", "r", encoding="utf-8") as f:
         return json.load(f)
 

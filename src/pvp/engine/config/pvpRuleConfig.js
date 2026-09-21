@@ -1,0 +1,33 @@
+export const PVP_RULES = {
+  level: 60,
+  star: 5,
+  ivRule: {
+    highIvCount: 3,
+    highIvValue: 10,
+    lowIvValue: 0,
+    actualIvFormula: 'inputIv * (star + 1)'
+  },
+  nature: {
+    up: 1.2,
+    down: 0.9,
+    neutral: 1.0
+  },
+  damage: {
+    sameTypeBonus: 1.25,
+    singleStrong: 2,
+    singleResist: 0.5,
+    doubleStrong: 3,
+    doubleResist: 1 / 4,
+    strongAndResist: 1
+  },
+  defaultScenario: {
+    powerBuff: 1.0,
+    weatherMod: 1.0,
+    defenseReduction: 0.0,
+    atkLevel: 0,
+    defLevel: 0,
+    hits: 1
+  }
+}
+
+export default PVP_RULES

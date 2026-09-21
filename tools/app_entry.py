@@ -142,6 +142,9 @@ def _run_frozen(smoke: bool) -> None:
         _bridge.CONFIG_DIR = exe_root / "data" / "config"
         _bridge.SCREENSHOT_DIR = exe_root / "data" / "screenshots"
 
+        import src.gui.auth as _auth
+        _auth.AUTH_FILE = exe_root / "data" / "config" / "auth.json"
+
         # ---- 3. Interception 驱动 ----
         driver_note = "--smoke 测试跳过驱动检查"
         if not smoke:
@@ -165,19 +168,42 @@ def _run_frozen(smoke: bool) -> None:
         if driver_note:
             bridge._enqueue_log(f"驱动状态: {driver_note}", "warning" if "需重启" in driver_note or "不可用" in driver_note else "info")
 
+        # 窗口尺寸自适应（与 main.py 一致: 物理像素计算 + 定尺后显示）
+        from src.gui.window_sizing import (prewarm_c_extensions,
+                                          compute_main_window_size,
+                                          apply_window_size_physical)
+        prewarm_c_extensions()   # 必须早于后面任何线程启动(防启动竞态闪退)
+        phys_w, phys_h, _wa = compute_main_window_size()
+
         web_dir = base / "web"
+
         window = webview.create_window(
             title='洛克王国 · PVP 助手控制台',
             url=(web_dir / "index.html").as_uri(),
             js_api=api,
-            width=1320, height=860,
-            min_size=(960, 620),
+            width=1280, height=860,
+            min_size=(880, 560),
             resizable=True,
-            text_select=True)
+            text_select=True,
+            frameless=True,
+            hidden=True,     # 定尺后再显示, 防闪大窗
+            easy_drag=False)
+
+        apply_window_size_physical(window, phys_w, phys_h, _wa)
+
+        # 悬浮控制台: 与源码版一致(实测冻结版 WebView2 也能创建第二个窗口,
+        # 之前误以为不支持而降级成 None, 会导致 set_pvp_float_window(None) 崩溃)
         widget = webview.create_window(
-            title='状态', url=(web_dir / "float_console.html").as_uri(), js_api=api,
-            width=340, height=335, resizable=False, frameless=True,
-            easy_drag=True, on_top=True, hidden=True)
+            title='状态',
+            url=(web_dir / "float_console.html").as_uri(),
+            js_api=api,
+            width=340,
+            height=335,
+            resizable=False,
+            frameless=True,
+            easy_drag=False,
+            on_top=True,
+            hidden=True)
 
         bridge.set_window(window)
         bridge.set_widget_window(widget)
@@ -186,9 +212,9 @@ def _run_frozen(smoke: bool) -> None:
         bridge.enable_hotkeys()
 
         if smoke:
-            # 自测: 6 秒后自动关闭
+            # 自测: 10 秒后自动关闭(给预热+建窗+定尺留足时间)
             import threading as _th
-            _th.Timer(6.0, lambda: window.destroy()).start()
+            _th.Timer(10.0, lambda: window.destroy()).start()
         webview.start()
 
 

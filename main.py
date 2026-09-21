@@ -26,27 +26,46 @@ def get_html_path() -> Path:
 
 def start_gui():
     """启动大前端控制台 + 悬浮状态窗"""
+    from src.gui.window_sizing import (prewarm_c_extensions,
+                                       compute_main_window_size,
+                                       apply_window_size_physical)
+
+    # 预热 C 扩展: 必须在桥接层启动后台线程之前(消除启动随机闪退竞态)
+    prewarm_c_extensions(verbose=True)
+
     from src.gui.bridge import AppBridge, Api
     from src.utils.settings import get as cfg
 
     bridge = AppBridge()
     api = Api(bridge)
+    bridge.set_api(api)  # 独立窗(ROI 工坊)运行时创建时共用同一 Api 单例
 
     web_dir = get_html_path().parent
+
+    # 窗口尺寸自适应: 吃满工作区(大气、内容看得全), 兼容任意分辨率与显示缩放。
+    # hidden 建窗 → 显示前按物理像素定尺 → show, 避免先闪一个大/小窗口
+    # (创建期 width/height 的 DPI 换算倍率不可控, 见 window_sizing 模块注释)
+    _cap_w = int(cfg('gui.width', 0) or 0)
+    _cap_h = int(cfg('gui.height', 0) or 0)
+    phys_w, phys_h, _wa = compute_main_window_size(_cap_w, _cap_h)
 
     window = webview.create_window(
         title='洛克王国 · PVP 助手控制台',
         url=get_html_path().as_uri(),
         js_api=api,
-        width=cfg('gui.width', 1320),
-        height=cfg('gui.height', 860),
-        min_size=(1080, 720),
+        width=1280,
+        height=860,
+        min_size=(880, 560),  # 下限: 小屏笔记本按比例缩窗后不被顶溢
         resizable=True,
         text_select=True,
-        frameless=True  # 自绘标题栏: 置顶/最小化/关闭在界面内
+        frameless=True,  # 自绘标题栏: 置顶/最小化/关闭在界面内
+        hidden=True,     # 显示前由 apply_window_size_physical 定尺(防闪大窗)
+        # easy_drag 默认 True 时 pywebview 会全局劫持 mousedown 拖动整窗,
+        # 视觉调试台拖框选 ROI 会被窗口位移吞掉(框不了),必须关掉,
+        # 标题栏拖拽由 .pywebview-drag-region(tbDragZone)接管
+        easy_drag=False
     )
-
-    # 悬浮控制台: 置顶无边框小窗(挂机+PVP 双标签),初始隐藏,F2/界面按钮唤出
+    # 悬浮控制台：置顶无边框小窗 (挂机+PVP 双标签),初始隐藏,F2/界面按钮唤出
     widget = webview.create_window(
         title='状态',
         url=(web_dir / "float_console.html").as_uri(),
@@ -62,15 +81,21 @@ def start_gui():
 
     bridge.set_window(window)
     bridge.set_widget_window(widget)
-    bridge.set_pvp_float_window(widget)  # 合并悬浮窗: PVP 推演推送同窗
+    bridge.set_pvp_float_window(widget)  # 合并悬浮窗：PVP 推演推送同窗
 
     window.events.closed += bridge.shutdown
+
+    # 显示后按物理像素精确定尺+居中(创建期的 width/height 会被 pywebview 按
+    # 进程 DPI 感知时机做不确定的缩放, 这里覆盖成确定值)
+    apply_window_size_physical(window, phys_w, phys_h, _wa)
 
     # 全局快捷键 F4/F9/F10 丢球 / F2 悬浮窗 / F8 截图 / F11 急停
     bridge.enable_hotkeys()
 
     # 自动更新: 后台静默检查 GitHub main 分支新版本
     bridge.start_update_watcher()
+    # 卡密登录态: 后台静默校验(用户版; 开发者版直接放行)
+    bridge.start_auth_verify()
 
     webview.start()
 

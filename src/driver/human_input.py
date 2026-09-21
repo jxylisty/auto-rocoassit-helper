@@ -37,6 +37,16 @@ def plan_delay(lo: float, hi: float) -> float:
     return value
 
 
+def plan_delay_exp(mean: float = 0.8) -> float:
+    """指数分布操作间隔(防统计检测): 无记忆性, 多数短间隔 + 自然长尾。
+
+    真人反应/操作节奏更接近泊松过程(指数间隔), 对称高斯反而显得机械。
+    截断在 [0.15s, 8×mean] 防极端值。
+    """
+    mean = max(0.2, float(mean))
+    return min(mean * 8.0, max(0.15, random.expovariate(1.0 / mean)))
+
+
 def plan_mouse_move(dx: float, dy: float = 0.0) -> list[tuple[float, float, float]]:
     """规划一段拟人鼠标移动,返回 [(step_dx, step_dy, sleep_s), ...]
 
@@ -116,6 +126,16 @@ def move_relative(dx: float, dy: float = 0.0) -> None:
 def wait(lo: float, hi: float, stop_event=None) -> None:
     """拟人间隔等待(可被停止事件打断)"""
     duration = plan_delay(lo, hi)
+    if stop_event is not None:
+        stop_event.wait(duration)
+    else:
+        import time
+        time.sleep(duration)
+
+
+def wait_exp(mean: float = 0.8, stop_event=None) -> None:
+    """指数分布间隔等待(可被停止事件打断)"""
+    duration = plan_delay_exp(mean)
     if stop_event is not None:
         stop_event.wait(duration)
     else:

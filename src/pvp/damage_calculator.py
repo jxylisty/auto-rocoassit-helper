@@ -504,6 +504,127 @@ def calculate_damage_full(
 
 
 # ============================================================
+# 星陨印记引爆（S4）— 与 engine/utils/pvpDamageEngine.js 同口径
+# 附加威力 = 层数² + 24×层数 − 24（180sans/roco-cal 同步 S4 实现，
+# 与 NGA 2026-04 实测拟合互证）；用非幻系技能攻击持有者时引爆全部层数，
+# 按幻系独立结算克制、不吃本系加成，攻防取触发技能同类口径，
+# 单次攻击动作结算一次，不随连击数放大。
+# ============================================================
+
+def starfall_power_for_stacks(stacks: Union[int, float] = 0) -> int:
+    """星陨印记层数 → 引爆附加威力（n² + 24n − 24, n≥1）"""
+    n = int(max(0, math.floor(to_number(stacks, 0))))
+    if n <= 0:
+        return 0
+    return n * n + 24 * n - 24
+
+
+def calculate_starfall_damage(
+    attacker_panel: dict = None,
+    defender_panel: dict = None,
+    skill_type: str = "",
+    skill_attr: str = "",
+    stacks: Union[int, float] = 0,
+    defender_attrs: list = None,
+    power_buff: float = 1.0,
+    defense_reduction: float = 0.0,
+    level: int = LEVEL,
+) -> dict:
+    """星陨印记引爆附加伤害（对齐 JS 版 calculateStarfallDamage）"""
+    if attacker_panel is None: attacker_panel = {}
+    if defender_panel is None: defender_panel = {}
+    if defender_attrs is None: defender_attrs = []
+
+    n = int(max(0, math.floor(to_number(stacks, 0))))
+    if n <= 0:
+        return {"stacks": 0, "power": 0, "damage": 0, "attrMultiplier": 1, "triggered": False, "blocked": False, "reason": ""}
+    if normalize_attr(skill_attr) == "幻":
+        return {"stacks": n, "power": 0, "damage": 0, "attrMultiplier": 1, "triggered": False, "blocked": True, "reason": "幻系技能不触发星陨引爆"}
+
+    power = starfall_power_for_stacks(n)
+    is_physical = str(skill_type).strip() == "物攻"
+    atk_used = to_number(attacker_panel.get("attack" if is_physical else "mattack", 1), 1)
+    def_used = max(1.0, to_number(defender_panel.get("defense" if is_physical else "mdefense", 1), 1))
+    attr_multiplier = get_attr_multiplier("幻", normalize_attr_list(defender_attrs))
+    level_const = damage_constant(level)
+    reduction_multiplier = 1 - clamp(to_number(defense_reduction, 0), 0, 1)
+    damage = max(
+        1.0,
+        (atk_used / def_used) * level_const * power * to_number(power_buff, 1) * attr_multiplier * reduction_multiplier,
+    )
+    return {
+        "stacks": n, "power": power, "damage": round(damage, 1),
+        "attrMultiplier": attr_multiplier, "triggered": True, "blocked": False,
+        "reason": "", "isPhysical": is_physical,
+    }
+
+
+# ============================================================
+# 动态威力技能 · 分档查表（鸣沙陷阱/闪击等，S4 现行分档）
+# 规则来源: src/pvp/engine/data/skill/dynamicPowerRules.js
+# （BWIKI nrc 站 2026-09-09 / GitHub 180sans/roco-cal 2026-09-16 拟合）
+# kind = statDiffTier: 实际威力 = base + bonus(diff), diff = 自身面板 − 敌方面板
+# ============================================================
+
+# 分档表与 dynamicPowerRules.js 完全一致（鸣沙陷阱=物防差 / 闪击=速度差, 11 档 60→200）
+DYNAMIC_POWER_STAT_DIFF_TIERS = [
+    {"min": None, "max": 0, "bonus": 0},
+    {"min": 1, "max": 30, "bonus": 20},
+    {"min": 31, "max": 60, "bonus": 40},
+    {"min": 61, "max": 90, "bonus": 60},
+    {"min": 91, "max": 120, "bonus": 80},
+    {"min": 121, "max": 150, "bonus": 90},
+    {"min": 151, "max": 180, "bonus": 100},
+    {"min": 181, "max": 210, "bonus": 110},
+    {"min": 211, "max": 240, "bonus": 120},
+    {"min": 241, "max": 270, "bonus": 130},
+    {"min": 271, "max": None, "bonus": 140},
+]
+
+DYNAMIC_POWER_RULES = {
+    "鸣沙陷阱": {"kind": "statDiffTier", "stat": "defense", "statLabel": "物防差", "base": 60, "tiers": DYNAMIC_POWER_STAT_DIFF_TIERS},
+    "闪击": {"kind": "statDiffTier", "stat": "speed", "statLabel": "速度差", "base": 60, "tiers": DYNAMIC_POWER_STAT_DIFF_TIERS},
+}
+
+
+def get_dynamic_power_rule(skill_name: str = "") -> Optional[dict]:
+    """技能名 → 动态威力分档规则（无规则返回 None）"""
+    name = str(skill_name or "").strip()
+    return DYNAMIC_POWER_RULES.get(name)
+
+
+def resolve_stat_diff_tier_power(rule: dict = None, diff: float = 0) -> Optional[dict]:
+    """按面板差查档 → {bonus, power, tierIndex, diff}（无命中/非分档规则返回 None）"""
+    if not rule or rule.get("kind") != "statDiffTier":
+        return None
+    value = to_number(diff, 0)
+    for i, tier in enumerate(rule.get("tiers", [])):
+        lo = -math.inf if tier.get("min") is None else float(tier["min"])
+        hi = math.inf if tier.get("max") is None else float(tier["max"])
+        if lo <= value <= hi:
+            bonus = to_number(tier.get("bonus", 0), 0)
+            return {"bonus": bonus, "power": to_number(rule.get("base", 0), 0) + bonus, "tierIndex": i, "diff": value}
+    return None
+
+
+def resolve_dynamic_skill_power(skill_name: str = "", diff: float = 0) -> Optional[dict]:
+    """一步到位: 技能名+面板差 → {stat, statLabel, power, tierIndex} 或 None"""
+    rule = get_dynamic_power_rule(skill_name)
+    if not rule:
+        return None
+    resolved = resolve_stat_diff_tier_power(rule, diff)
+    if not resolved:
+        return None
+    return {
+        "stat": rule.get("stat"),
+        "statLabel": rule.get("statLabel", ""),
+        "power": resolved["power"],
+        "tierIndex": resolved["tierIndex"],
+        "diff": resolved["diff"],
+    }
+
+
+# ============================================================
 # 便捷计算：精灵 vs 精灵，技能 vs 技能
 # ============================================================
 

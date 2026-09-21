@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>ROI 标注工坊</title>
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="assets/roi_studio.css">
+</head>
+<body>
+<div class="studio-wrap">
+
+    <!-- 顶部工具条 -->
+    <div class="studio-toolbar">
+        <button class="btn btn-primary" id="btnCap" onclick="studioCapture()">📷 重新截图（置前）</button>
+        <label class="chk" title="截图前把游戏窗口置前并等 1 秒渲染稳定"><input type="checkbox" id="capFront" checked> 置前</label>
+        <span class="calib-sep">|</span>
+        <label class="chk"><input type="checkbox" id="roiToggle" checked onchange="renderOverlay()"> ROI 框</label>
+        <input id="newRoiId" class="form-input newroi-input" placeholder="新 ROI ID（如 enemy_hp）"
+               onkeydown="if(event.key==='Enter')studioRoiAdd()">
+        <button class="btn" id="btnRoiAdd" onclick="studioRoiAdd()">＋ 拖框添加</button>
+        <span class="calib-sep">|</span>
+        <span class="shot-zoom-label">缩放:</span>
+        <button class="btn" onclick="studioZoom(-0.25)">−</button>
+        <span id="zoomVal">100%</span>
+        <button class="btn" onclick="studioZoom(0.25)">＋</button>
+        <button class="btn" onclick="studioZoom(0, true)">适应</button>
+        <button class="btn" onclick="studioZoom(1, true)">1:1</button>
+        <span class="studio-status" id="studioStatus">初始化…</span>
+        <span class="studio-spacer"></span>
+        <input id="tmplName" class="form-input tmpl-input" placeholder="模板名称">
+        <button class="btn" id="btnSave" onclick="studioSave()">💾 保存模板+同步</button>
+    </div>
+
+    <!-- 主区: 大画布 + ROI 管理 -->
+    <div class="studio-body">
+        <div class="shot-panel studio-canvas" id="studioCanvas">
+            <div class="shot-empty" id="shotEmpty">点「重新截图」获取游戏画面<br><small>（或在主窗视觉调试台截图后打开本窗口）</small></div>
+            <div class="shot-view" id="shotView" style="display:none">
+                <img id="shotImg" alt="游戏截图" draggable="false">
+                <svg class="roi-svg" id="roiSvg"></svg>
+            </div>
+        </div>
+
+        <div class="roi-manager studio-manager">
+            <div class="rm-header">ROI 管理 <span class="rm-count" id="rmCount">0</span></div>
+            <div class="rm-list" id="rmList"></div>
+            <div class="studio-tmpl-bar">
+                <span class="calib-tip">模板:</span>
+                <select id="tmplSelect" class="form-select studio-tmpl-select" onchange="studioTmplLoad()">
+                    <option value="">-- 加载模板 --</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="studio-toast" id="toast"></div>
+<script src="assets/roi_studio.js"></script>
+</body>
+</html>

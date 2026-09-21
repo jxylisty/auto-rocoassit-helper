@@ -24,6 +24,15 @@
         --wax-soft: rgba(168, 64, 47, 0.12);
         --teal: #3d6b5c;
         --num-font: Consolas, 'Cascadia Mono', monospace;
+        --text: #3f3428;          /* 主文字 */
+        --bg: rgba(252, 247, 234, 0.97);    /* 卡片背景 */
+        --border: #dccfa8;         /* 边框 */
+        --radius: 12px;            /* 圆角 */
+        --dim: #8a7a5e;            /* 暗色文字 */
+        --accent: #8a6420;         /* 强调色 */
+        --ok: #4f7a4a;             /* 成功/正常 */
+        --warn: #b07d1e;           /* 警告 */
+        --err: #a8402f;            /* 错误 */
     }
 html, body {
     background: transparent;
@@ -243,6 +252,41 @@ body {
     font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 3px;
     background: #ef4444; color: #fff; margin-top: 1px;
 }
+/* 动态威力档位标签(鸣沙陷阱/闪击) */
+.skill-dyn-tag {
+    font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+    background: rgba(56, 189, 248, 0.18); color: #38bdf8;
+}
+/* 星陨印记引爆速查 */
+.starfall-box {
+    margin-top: 8px; padding: 8px 10px; border-radius: 10px;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(59, 130, 246, 0.06));
+    border: 1px solid rgba(139, 92, 246, 0.3);
+}
+.starfall-head {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+}
+.starfall-title {
+    font-size: 12px; font-weight: 700; color: #c4b5fd; display: flex; align-items: center; gap: 5px;
+}
+.starfall-select {
+    font-size: 11px; padding: 2px 6px; border-radius: 6px;
+    background: rgba(139, 92, 246, 0.15); color: #ddd6fe;
+    border: 1px solid rgba(139, 92, 246, 0.4); outline: none; cursor: pointer;
+    font-family: var(--num-font); font-weight: 700;
+}
+.starfall-select option { background: #1e1b2e; color: #ddd6fe; }
+.starfall-row {
+    display: flex; align-items: center; gap: 8px;
+}
+.starfall-dmg {
+    font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; color: #a78bfa;
+    flex: 1;
+}
+.starfall-dmg.lethal { color: #f87171; }
+.starfall-sub {
+    font-size: 9.5px; color: var(--dim); font-variant-numeric: tabular-nums;
+}
 
 /* ================= 愿力冲击暗手推演模块 ================= */
 .resonance-box {
@@ -379,6 +423,14 @@ body {
     .empty-state { color: var(--ink-3); }
     .energy-crystals { color: var(--teal); }
     .energy-row { color: var(--ink-2); }
+    .skill-dyn-tag { background: var(--gold-soft); color: var(--teal); }
+    .starfall-box { background: rgba(139, 92, 246, 0.07); border: 1px solid rgba(139, 92, 246, 0.3); }
+    .starfall-title { color: #6d5aa8; }
+    .starfall-select { background: #f3eaff; color: #5b4a94; border: 1px solid rgba(139, 92, 246, 0.4); }
+    .starfall-select option { background: #f6efdc; color: #5b4a94; }
+    .starfall-dmg { color: #7c5cd6; }
+    .starfall-dmg.lethal { color: var(--wax); }
+    .starfall-sub { color: var(--ink-3); }
 </style>
 </head>
 <body>
@@ -405,6 +457,14 @@ body {
 <script>
 let folded = false;
 const PVP_W = 360, H_EXPANDED = 540, H_FOLDED = 42;
+
+// 星陨印记: 用户手选层数(1~10), 默认按当前致死层数自动跟随; 手动选择后固定
+// updatePVPData 每 500ms 全量重绘 innerHTML, 下拉框状态必须存在 JS 变量里, 不能依赖 DOM
+let starfallMode = 'auto';          // 'auto' | 'manual'
+let starfallManualStacks = 0;
+let _lastStarfallTable = null;      // 缓存最近一次推送的速查表, 供下拉重渲染
+let _lastEnemyHp = 0;               // 缓存敌方估算 HP, 供本地重绘致死判定
+let _lastPayload = null;            // 缓存最近一次完整推送, 供下拉变更后本地重绘
 
 // 属性映射
 const ATTR_MAP = {
@@ -489,6 +549,14 @@ function syncPvpSize() {
     }
 })();
 
+// 星陨层数下拉: 选择后进入手动模式(不再自动跟随致死层数)
+function onStarfallSelect(value) {
+    starfallMode = 'manual';
+    starfallManualStacks = parseInt(value, 10) || 1;
+    // 用缓存数据本地重绘(不等待下一次 500ms 推送), 反馈立即生效
+    if (_lastPayload) updatePVPData(_lastPayload);
+}
+
 function updatePVPData(data) {
     // 内容高度随数据变化,渲染后自动校准窗口尺寸
     requestAnimationFrame(() => setTimeout(syncPvpSize, 50));
@@ -496,16 +564,23 @@ function updatePVPData(data) {
     const speedBadge = document.getElementById('speedBadge');
     const bodyEl = document.getElementById('pvpBody');
 
+    // 下拉框若正被用户操作(展开/聚焦), 跳过本轮重绘, 防止选择被打断
+    const sfSelect = document.getElementById('starfallStacksSelect');
+    if (sfSelect && (document.activeElement === sfSelect || sfSelect._open)) {
+        setTimeout(() => updatePVPData(data), 400);
+        return;
+    }
+
     if (!data || !data.in_battle) {
         statusDot.className = 'dot off';
         speedBadge.textContent = '--';
         speedBadge.className = 'speed-badge';
         return; // 保留上一次的推演内容不清空
-        return;
     }
 
     statusDot.className = 'dot';
     const p = data.player || {}, e = data.enemy || {};
+    _lastPayload = data;
 
     // 速度判定
     const sd = data.speed_diff;
@@ -551,6 +626,10 @@ function updatePVPData(data) {
             const multText = s.mult && s.mult > 1 ? `×${s.mult.toFixed(1)} 克制` : (s.mult && s.mult < 1 ? `×${s.mult.toFixed(1)} 抵抗` : '');
             const iconUrl = getSkillIcon(s.name);
             const typeBadge = s.type || '技能';
+            // 动态威力技能: 展示查档依据(物防差+31 → 档3)
+            const dynTag = s.dynamic
+                ? `<span class="skill-dyn-tag">${s.dynamic.statLabel}${s.dynamic.diff >= 0 ? '+' : ''}${s.dynamic.diff} · 档${s.dynamic.tierIndex + 1}</span>`
+                : '';
 
             return `
             <div class="skill-card ${isKill ? 'kill' : ''}">
@@ -559,6 +638,7 @@ function updatePVPData(data) {
                     <div class="skill-name-row">
                         <span class="skill-name">${s.name}</span>
                         <span class="skill-type-tag">${typeBadge}</span>
+                        ${dynTag}
                     </div>
                 </div>
                 <div class="skill-dmg-box">
@@ -568,6 +648,48 @@ function updatePVPData(data) {
                 </div>
             </div>`;
         }).join('');
+    }
+
+    // 星陨印记引爆速查(层数²+24×层数−24)
+    if (data.starfall_table && data.starfall_table.length) {
+        _lastStarfallTable = data.starfall_table;
+    }
+    // 敌方估算 HP: 优先用后端直接给的, 否则按面板 HP × 血条百分比估
+    const enemyHpFromPanel = (e.hp && e.hp_max) ? Math.round(e.hp) : 0;
+    _lastEnemyHp = data.enemy_est_hp || enemyHpFromPanel
+        || (data.enemy_panel_hp ? Math.round(data.enemy_panel_hp * (e.hp_pct !== undefined ? e.hp_pct : 1.0)) : 0);
+    let starfallHtml = '';
+    if (_lastStarfallTable && _lastStarfallTable.length) {
+        const sfTable = _lastStarfallTable;
+        // auto 模式: 跟随"最小致死层数"; 手动模式: 用用户选的层数
+        const enemyHp = _lastEnemyHp;
+        const autoStacks = (enemyHp > 0 && (sfTable.find(t => t.damage >= enemyHp) || sfTable[sfTable.length - 1]).stacks) || 1;
+        const sel = starfallMode === 'manual'
+            ? Math.min(starfallManualStacks, sfTable.length)
+            : autoStacks;
+        const row = sfTable.find(t => t.stacks === sel) || sfTable[0];
+        const isLethal = enemyHp > 0 && row.damage >= enemyHp;
+        const optionsHtml = sfTable.map(t =>
+            `<option value="${t.stacks}" ${t.stacks === sel ? 'selected' : ''}>${t.stacks} 层 · 威力${t.power}</option>`
+        ).join('');
+        const subText = enemyHp > 0
+            ? (starfallMode === 'auto' ? `当前致死至少 ${autoStacks} 层 (敌HP ${enemyHp})` : `敌HP ${enemyHp}`)
+            : `威力 = 层数² + 24×层数 − 24`;
+
+        starfallHtml = `
+        <div class="starfall-box">
+            <div class="starfall-head">
+                <span class="starfall-title">✨ 星陨印记引爆</span>
+                <select class="starfall-select" id="starfallStacksSelect"
+                        onchange="onStarfallSelect(this.value)" title="选择当前敌方身上的星陨层数">
+                    ${optionsHtml}
+                </select>
+            </div>
+            <div class="starfall-row">
+                <span class="starfall-dmg ${isLethal ? 'lethal' : ''}" id="starfallDmg">${row.damage}</span>
+                <span class="starfall-sub">${subText}</span>
+            </div>
+        </div>`;
     }
 
     // 愿力冲击暗手伤害推演
@@ -686,6 +808,9 @@ function updatePVPData(data) {
             </div>
         </div>
 
+        <!-- 星陨印记引爆速查 -->
+        ${starfallHtml}
+
         <!-- 愿力冲击暗手推演 -->
         ${resonanceHtml}
 
@@ -698,6 +823,13 @@ function updatePVPData(data) {
         <!-- 敌方常规威胁雷达 -->
         ${threatsHtml}
     `;
+
+    // 下拉展开期标记(mousedown→change 之间), 配合 updatePVPData 开头的跳过逻辑防打断
+    const newSelect = document.getElementById('starfallStacksSelect');
+    if (newSelect) {
+        newSelect.addEventListener('mousedown', () => { newSelect._open = true; });
+        newSelect.addEventListener('blur', () => { newSelect._open = false; });
+    }
 }
 </script>
 </body>

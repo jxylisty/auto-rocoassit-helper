@@ -1,5 +1,19 @@
 [
  {
+  "id": "launch_game",
+  "name": "启动游戏(WeGame)",
+  "repeat": 1,
+  "round_gap": 2,
+  "notes": "一键启动: 计划任务无 UAC 拉起 WeGame → OCR 定位「启动」按钮模拟点击 → 等游戏窗口出现。首次使用需点一次 UAC 注册计划任务, 之后全程无弹窗",
+  "steps": [
+   {
+    "name": "拉起WeGame并启动洛克王国",
+    "action": "game_launch",
+    "extra": {}
+   }
+  ]
+ },
+ {
   "id": "auto_flower_farm",
   "name": "自动刷花种",
   "repeat": 3,
@@ -115,6 +129,20 @@
     "name": "关闭邮箱",
     "action": "key",
     "target": "e",
+    "extra": {}
+   }
+  ]
+ },
+ {
+  "id": "flower_challenge",
+  "name": "花种挑战(日常获得)",
+  "repeat": 1,
+  "round_gap": 2,
+  "notes": "全自动: F3→花种框→OCR判定命定数→选目标→传送→W撞怪→切精灵→F→技能序列战斗→免费球→再次挑战循环。参数(目标花种/场数/技能序列)在日常页花种卡片配置",
+  "steps": [
+   {
+    "name": "花种挑战全自动",
+    "action": "flower_challenge",
     "extra": {}
    }
   ]

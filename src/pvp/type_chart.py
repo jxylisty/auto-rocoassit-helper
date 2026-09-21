@@ -10,13 +10,16 @@ from typing import Dict, List, Optional
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
-# 加载原始克制表
+import json as _json
+
+# 克制表/属性表属公开游戏常识, 保持明文直读 (不参与资产密封);
+# 核心竞技数据 (技能/精灵/图鉴) 的保护见 seadata.py + seal_assets.py
 with open(DATA_DIR / "type_chart.json", "r", encoding="utf-8") as f:
-    _CHART: Dict[str, Dict[str, List[str]]] = json.load(f)
+    _CHART: Dict[str, Dict[str, List[str]]] = _json.load(f)
 
 # 加载属性类型信息
 with open(DATA_DIR / "pet_types.json", "r", encoding="utf-8") as f:
-    PET_TYPES: List[Dict] = json.load(f)
+    PET_TYPES: List[Dict] = _json.load(f)
 
 # 属性名列表
 ALL_ATTRS: List[str] = [t["key"] for t in PET_TYPES]

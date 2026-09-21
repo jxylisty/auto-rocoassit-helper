@@ -309,35 +309,53 @@ class AutoThrowBall:
         res = self._battle_detector.detect(frame)
         return bool(res.get("in_battle"))
 
-    def _announce_battle(self, frame):
-        """入战广播: 读一次敌方名字血量 + 日志 + 回调"""
-        self.current_state = "fleeing"
-        self.state_detail = "遭遇战斗！正在自动逃跑…"
-        enemy_name = "遭遇精灵"
-        enemy_hp = 100
-        try:
+    def _get_battle_readers(self):
+        """名字/血量 OCR 读取器懒加载缓存(避免每场战斗重复 load_roi_config+建对象)"""
+        if getattr(self, "_battle_readers", None) is None:
             from src.perception.ocr_reader import OcrNameReader, OcrNumberReader
             from src.perception.vision_pipeline import load_roi_config
             rois = load_roi_config()
-            name_reader = OcrNameReader(rois["enemy_name"])
-            r_name = name_reader.read(frame)
-            if r_name and r_name.value:
-                enemy_name = r_name.value
-            hp_reader = OcrNumberReader(rois["enemy_hp"], percent=True)
-            r_hp = hp_reader.read(frame)
-            if r_hp and r_hp.value is not None:
-                enemy_hp = r_hp.value
-        except Exception:
-            pass
-        self.enemy_name = enemy_name
-        self.enemy_hp = enemy_hp
-        hp_str = f"{enemy_hp}%" if enemy_hp is not None else "?"
-        self._log(f"⚔️ [遭遇战斗] 检测到进入对战画面！(敌方: {enemy_name}, 血量: {hp_str})", "warning")
-        if self.on_battle_detected:
+            self._battle_readers = (
+                OcrNameReader(rois["enemy_name"]),
+                OcrNumberReader(rois["enemy_hp"], percent=True))
+        return self._battle_readers
+
+    def _announce_battle(self, frame):
+        """入战广播(异步化): 名字/血量 OCR 纯粹用于日志, 与逃跑流程并行执行,
+        不再阻塞逃跑 0.6~1.6s。逃跑优先, 播报随后补上(帧是入战时抓好的)"""
+        self.current_state = "fleeing"
+        self.state_detail = "遭遇战斗！正在自动逃跑…"
+        self._announce_seq = getattr(self, "_announce_seq", 0) + 1
+        seq = self._announce_seq
+        if self.enemy_name is None:
+            self.enemy_name = "遭遇精灵"
+            self.enemy_hp = 100
+
+        def _job():
+            enemy_name, enemy_hp = "遭遇精灵", 100
             try:
-                self.on_battle_detected({"enemy_name": enemy_name, "enemy_hp": enemy_hp})
+                name_reader, hp_reader = self._get_battle_readers()
+                r_name = name_reader.read(frame)
+                if r_name and r_name.value:
+                    enemy_name = r_name.value
+                r_hp = hp_reader.read(frame)
+                if r_hp and r_hp.value is not None:
+                    enemy_hp = r_hp.value
             except Exception:
                 pass
+            if seq != getattr(self, "_announce_seq", seq):
+                return  # 已有更新的战斗播报, 丢弃过期结果
+            self.enemy_name = enemy_name
+            self.enemy_hp = enemy_hp
+            hp_str = f"{enemy_hp}%" if enemy_hp is not None else "?"
+            self._log(f"⚔️ [遭遇战斗] 检测到进入对战画面！(敌方: {enemy_name}, 血量: {hp_str})", "warning")
+            if self.on_battle_detected:
+                try:
+                    self.on_battle_detected({"enemy_name": enemy_name, "enemy_hp": enemy_hp})
+                except Exception:
+                    pass
+
+        threading.Thread(target=_job, daemon=True, name="BattleAnnounce").start()
 
     def _battle_watch_loop(self):
         """独立战斗监视线程: 每 0.35s 采样判定, 丢球循环只读 in_battle 标志,
@@ -368,7 +386,7 @@ class AutoThrowBall:
                 except Exception as e:
                     self._log(f"逃跑流程异常: {e}", "error")
                 self.in_battle = False
-                time.sleep(0.5)   # 逃跑后缓冲, 避免确认框残影误判
+                time.sleep(0.25)   # 逃跑后缓冲(逃逸轮询已确认角标消失, 只防残影)
             else:
                 self.in_battle = False
                 time.sleep(0.35)
@@ -475,8 +493,24 @@ class AutoThrowBall:
         except Exception as e:
             self._log(f"⚠️ [自动逃跑] 驱动点击异常: {e}", "warning")
 
-        # 5. 等待退出战斗过渡动画完成
-        time.sleep(0.8)
+        # 5. 等待退出战斗过渡动画完成:
+        #    保底 0.5s 覆盖确认框关闭(点「是」失败时角标仍可见, 不会误判脱战),
+        #    然后轮询角标消失即回到大世界(通常 ~0.3s), 比固定睡 0.8s 快
+        time.sleep(0.5)
+        poll_deadline = time.time() + 1.2
+        escaped = False
+        while time.time() < poll_deadline:
+            frame = self._grab_game_frame()
+            try:
+                if not self._detect_battle_frame(frame):
+                    escaped = True
+                    break
+            except Exception:
+                escaped = True
+                break
+            time.sleep(0.12)
+        if not escaped:
+            self._log("⚠️ [自动逃跑] 点击「是」后战斗角标仍未消失, 请留意是否未成功脱战", "warning")
         self.battles_escaped += 1
         self.current_state = "fled"
         self.state_detail = f"已成功脱离战斗 (累计逃跑 {self.battles_escaped} 次)"

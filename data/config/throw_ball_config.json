@@ -1,6 +1,6 @@
 {
-  "normal_min": 1.3,
-  "normal_max": 1.9,
+  "normal_min": 0.25,
+  "normal_max": 0.5,
   "bomber_charge_min": 0.3,
   "bomber_charge_max": 0.5,
   "bomber_hover_min": 2.0,

@@ -579,33 +579,129 @@
         box.innerHTML = '<div class="bag-empty">没有任务定义 · data/config/daily_tasks.json 为空</div>';
         return;
       }
-      box.innerHTML = tasks.map(function (tk, i) {
-        return '<label class="daily-task' + (selected === tk.id ? ' selected' : '') + '">'
-          + '<input type="radio" name="dailyPick" ' + (selected === tk.id ? 'checked' : '')
-          + ' onchange="dailyPick(\'' + tk.id + '\')">'
+      box.innerHTML = tasks.map(function (tk) {
+        var on = (tk.enabled !== false);  // 无字段默认参与流水线
+        return '<div class="daily-task' + (selected === tk.id ? ' selected' : '') + '" data-id="' + escapeDaily(tk.id) + '"'
+          + ' onclick="dailyPick(\'' + tk.id + '\')">'
+          + '<input type="checkbox" class="dt-check"' + (on ? ' checked' : '')
+          + ' title="勾选=参与一键流水线"'
+          + ' onclick="event.stopPropagation();dailyToggle(\'' + tk.id + '\')">'
           + '<span><div class="dt-name">' + escapeDaily(tk.name) + '</div>'
           + '<div class="dt-meta">' + (tk.steps || []).length + ' 步 · ' + describeDaily(tk) + '</div></span>'
-          + '<span class="dt-badge">' + tk.id + '</span></label>';
+          + '<span class="dt-badge">' + escapeDaily(tk.id) + '</span></div>';
       }).join('');
+      // 未选中(或选中项已消失)时自动选第一个并展示设置
+      if (!selected || !tasks.some(function (t) { return t.id === selected; })) {
+        dailyPick(tasks[0].id);
+      }
     }).catch(function (e) {
       box.innerHTML = '<div class="bag-empty">清单加载失败: ' + e + '</div>';
     });
   };
 
+  window.dailyToggle = function (id) {
+    var tk = tasks.find(function (t) { return t.id === id; });
+    if (!tk) return;
+    tk.enabled = (tk.enabled === false) ? true : false;
+    var a = api();
+    if (a && a.daily_save) {
+      a.daily_save(tasks).then(function () {}).catch(function () {});
+    }
+    if (typeof showToast === 'function') {
+      showToast('「' + tk.name + '」' + (tk.enabled ? '已加入流水线' : '已跳过'),
+        tk.enabled ? 'success' : 'info');
+    }
+  };
+
   window.dailyPick = function (id) {
     selected = id;
     document.querySelectorAll('.daily-task').forEach(function (el) { el.classList.remove('selected'); });
-    var el = document.querySelector('.daily-task input[onchange*="' + id + '"]');
-    if (el) el.closest('.daily-task').classList.add('selected');
+    var el = document.querySelector('.daily-task[data-id="' + id + '"]');
+    if (el) el.classList.add('selected');
+    dailyShowSettings(id);
+  };
+
+  /* MAA 式: 右侧设置面板, 按任务类型渲染 */
+  window.dailyShowSettings = function (id) {
+    var tk = tasks.find(function (t) { return t.id === id; });
+    var title = document.getElementById('ddTitle');
+    var flower = document.getElementById('ddFlower');
+    var generic = document.getElementById('ddGeneric');
+    var empty = document.getElementById('ddEmpty');
+    if (!tk || !title) return;
+    title.textContent = tk.name + ' · 设置';
+    var runOne = document.getElementById('ddRunOne');
+    if (runOne) runOne.style.display = '';
+    var isFlower = (id === 'flower_challenge');
+    flower.style.display = isFlower ? '' : 'none';
+    generic.style.display = isFlower ? 'none' : '';
+    empty.style.display = 'none';
+    if (isFlower) { if (typeof flowerCfgLoad === 'function') flowerCfgLoad(); return; }
+    document.getElementById('ddNotes').textContent = tk.notes || '(无说明)';
+    document.getElementById('ddRepeat').value = tk.repeat || 1;
+    document.getElementById('ddRoundGap').value = (tk.round_gap === undefined ? 1.2 : tk.round_gap);
+    document.getElementById('ddSteps').innerHTML = (tk.steps || []).map(function (s, i) {
+      var tgt = (s.target === undefined || s.target === null) ? '' : ' → ' + JSON.stringify(s.target);
+      var ex = (s.extra && Object.keys(s.extra).length) ? ' · ' + JSON.stringify(s.extra) : '';
+      return '<div class="dd-step"><b>' + (i + 1) + '. ' + escapeDaily(s.name || s.action || '?') + '</b> '
+        + '<code>' + escapeDaily(s.action || '') + '</code>' + escapeDaily(tgt + ex) + '</div>';
+    }).join('') || '<div class="dd-step">(无步骤)</div>';
+  };
+
+  /* 通用任务: 保存 repeat / round_gap 到 daily_tasks.json */
+  window.ddSaveGeneric = function () {
+    var a = api();
+    var tk = tasks.find(function (t) { return t.id === selected; });
+    if (!a || !a.daily_save || !tk) return;
+    tk.repeat = Math.max(1, parseInt(document.getElementById('ddRepeat').value, 10) || 1);
+    tk.round_gap = Math.max(0, parseFloat(document.getElementById('ddRoundGap').value) || 1.2);
+    a.daily_save(tasks).then(function (r) {
+      if (typeof showToast === 'function') {
+        showToast(r && r.success ? '已保存: ' + tk.name : (r.message || '保存失败'),
+          r && r.success ? 'success' : 'error');
+      }
+    }).catch(function (e) { if (typeof showToast === 'function') showToast('保存异常: ' + e, 'error'); });
+  };
+
+  /* 通过 WeGame 拉起洛克王国(后端轮询游戏窗口出现) */
+  window.gameLaunch = function () {
+    var a = api();
+    if (!a || !a.game_launch) return;
+    a.game_launch().then(function (r) {
+      if (typeof showToast === 'function') {
+        showToast(r && r.success ? '正在通过 WeGame 拉起游戏…' : (r.message || '启动失败'),
+          r && r.success ? 'success' : 'error');
+      }
+    }).catch(function (e) { if (typeof showToast === 'function') showToast('启动异常: ' + e, 'error'); });
   };
 
   window.dailyRunSelected = function () {
-    if (!selected) { if (typeof showToast === 'function') showToast('先勾选一个任务', 'warning'); return; }
     var a = api();
-    if (!a || !a.daily_run) return;
+    if (!a) return;
+    // MAA 式: 按清单顺序收集勾选的任务, 走流水线
+    var ids = tasks.filter(function (t) { return t.enabled !== false; })
+                   .map(function (t) { return t.id; });
+    if (!ids.length) {
+      if (typeof showToast === 'function') showToast('先勾选要执行的任务', 'warning');
+      return;
+    }
+    if (!a.daily_run_queue) {  // 兜底: 旧后端只跑第一个勾选项
+      return a.daily_run(ids[0]);
+    }
+    a.daily_run_queue(ids).then(function (r) {
+      if (typeof showToast === 'function') {
+        showToast(r && r.success ? '流水线已启动: ' + ids.length + ' 个任务' : (r.message || '启动失败'), r && r.success ? 'success' : 'error');
+      }
+    }).catch(function (e) { if (typeof showToast === 'function') showToast('启动异常: ' + e, 'error'); });
+  };
+
+  /* 仅执行当前选中的单个任务(不走流水线) */
+  window.dailyRunOnly = function () {
+    var a = api();
+    if (!a || !selected || !a.daily_run) return;
     a.daily_run(selected).then(function (r) {
       if (typeof showToast === 'function') {
-        showToast(r && r.success ? '日常任务已启动' : (r.message || '启动失败'), r && r.success ? 'success' : 'error');
+        showToast(r && r.success ? '已启动: ' + selected : (r.message || '启动失败'), r && r.success ? 'success' : 'error');
       }
     }).catch(function (e) { if (typeof showToast === 'function') showToast('启动异常: ' + e, 'error'); });
   };
@@ -635,7 +731,8 @@
       var st = r || {};
       var set = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
       set('dailyStateText', st.running ? '运行中' : '空闲');
-      set('dailyTask', st.task || '—');
+      var qtag = (st.queue_total > 1) ? ' [' + (st.queue_index || 0) + '/' + st.queue_total + ']' : '';
+      set('dailyTask', (st.task || '—') + qtag);
       set('dailyStep', (st.step_index || 0) + '/' + (st.total_steps || 0));
       set('dailyOkFail', (st.ok || 0) + '/' + (st.fail || 0));
       set('dailyDetail', st.step || st.detail || '空闲');
@@ -644,8 +741,62 @@
     }).catch(function () {});
   }
 
+  /* ================= 花种挑战参数配置 ================= */
+  function fcGet(id) { var el = document.getElementById(id); return el ? el.value : null; }
+
+  window.flowerCfgLoad = function () {
+    var a = api();
+    if (!a || !a.flower_config_load) return;
+    a.flower_config_load().then(function (r) {
+      if (!r || !r.success || !r.data) return;
+      var d = r.data;
+      if (fcGet('fcTarget') !== null) document.getElementById('fcTarget').value = String(d.target_flower || 1);
+      if (fcGet('fcCount') !== null) document.getElementById('fcCount').value = d.battle_count || 5;
+      if (fcGet('fcSwitch') !== null) document.getElementById('fcSwitch').value = String(d.switch_pet_key || '1');
+      if (fcGet('fcSkills') !== null) document.getElementById('fcSkills').value = d.skill_sequence || '';
+    }).catch(function () {});
+  };
+
+  window.flowerCfgSave = function () {
+    var a = api();
+    if (!a || !a.flower_config_save) return Promise.resolve({ success: false });
+    var count = parseInt(fcGet('fcCount') || '5', 10) || 5;
+    var target = parseInt(fcGet('fcTarget') || '1', 10) || 1;
+    return a.flower_config_save({
+      target_flower: target,
+      battle_count: count,
+      switch_pet_key: fcGet('fcSwitch') || '1',
+      skill_sequence: (fcGet('fcSkills') || '').trim()
+    }).then(function (r) {
+      if (typeof showToast === 'function') {
+        showToast(r && r.success ? '花种参数已保存' : (r.message || '保存失败'),
+          r && r.success ? 'success' : 'error');
+      }
+      return r;
+    }).catch(function (e) {
+      if (typeof showToast === 'function') showToast('保存异常: ' + e, 'error');
+      return { success: false };
+    });
+  };
+
+  window.flowerRun = function () {
+    var a = api();
+    if (!a || !a.daily_run) return;
+    // 先等参数落盘再启动, 避免任务读到旧配置的竞态
+    flowerCfgSave().then(function (saved) {
+      if (saved && saved.success === false && saved.message) return;
+      return a.daily_run('flower_challenge').then(function (r) {
+        if (typeof showToast === 'function') {
+          showToast(r && r.success ? '花种挑战已启动' : (r.message || '启动失败'),
+            r && r.success ? 'success' : 'error');
+        }
+      });
+    }).catch(function (e) { if (typeof showToast === 'function') showToast('启动异常: ' + e, 'error'); });
+  };
+
   ready(function () {
     dailyReload();
+    flowerCfgLoad();
     setInterval(pollDaily, 5000);
   });
 })();

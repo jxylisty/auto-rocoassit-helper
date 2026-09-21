@@ -10,7 +10,8 @@ class MouseController:
     """鼠标控制器"""
 
     def __init__(self):
-        interception.auto_capture_devices()
+        # auto_capture_devices() 已在旧版移除，驱动自动加载无需调用
+        pass
 
     def click(self, button: str = 'left', delay: float = 0.1):
         """点击鼠标"""

@@ -94,3 +94,14 @@ env/
 dist/
 build/
 src/gui/web_backup_*/
+
+# ========================================
+# 加固密钥库 (绝不入库!泄露=全部可破解)
+# ========================================
+build/_hardened/
+keys.json
+*_pkcs8*hex*
+
+# 本机凭据与运行日志(绝不入库)
+data/config/auth.json
+data/logs/

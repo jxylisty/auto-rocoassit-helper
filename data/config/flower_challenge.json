@@ -1,0 +1,22 @@
+{
+  "target_flower": 1,
+  "battle_count": 5,
+  "switch_pet_key": "1",
+  "skill_sequence": "31,112,222",
+  "ball_key": "1",
+  "map_load_wait": 1.5,
+  "capture_wait": 5.0,
+  "walk_seconds": 1.5,
+  "challenge_timeout": 60.0,
+  "exp_mean": 0.8,
+  "flower_count_override": 0,
+  "click_after_capture": [
+    0.5,
+    0.35
+  ],
+  "teleport_rows": [
+    1,
+    2
+  ],
+  "confirm_teleport": false
+}

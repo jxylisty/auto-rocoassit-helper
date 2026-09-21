@@ -1,0 +1,7 @@
+{
+  "name": "lkwgai-pvp-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PVP 伤害计算引擎(JS 权威版) — 自 HBuilderProjects/luokewangguo 搬入, 仅相对引用子树内依赖"
+}

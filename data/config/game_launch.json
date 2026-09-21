@@ -1,0 +1,10 @@
+{
+  "appid": "2002304",
+  "task_name": "LKW_WeGameLaunch",
+  "use_scheduled_task": true,
+  "notes": "实测: wegame.exe 为 requireAdministrator 且 -startgame 参数已失效, 无法全自动拉起游戏。当前方案=计划任务提权(注册一次后无 UAC)打开 WeGame, 游戏需在其界面内手动点启动。删除计划任务: schtasks /delete /tn LKW_WeGameLaunch /f。command/url/wegame_path/wait_window 可覆盖默认策略",
+  "auto_click": true,
+  "wegame_wait": 45,
+  "task_focus_name": "LKW_WeGameFocus",
+  "wait_window": 300
+}

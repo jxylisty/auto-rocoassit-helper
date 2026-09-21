@@ -10,7 +10,8 @@ class KeyboardController:
     """键盘控制器"""
 
     def __init__(self):
-        interception.auto_capture_devices()
+        # auto_capture_devices() 已在旧版移除，驱动自动加载无需调用
+        pass
 
     def press(self, key: str):
         """按下并释放按键"""

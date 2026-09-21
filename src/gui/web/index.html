@@ -84,10 +84,12 @@
     <!-- ============ 侧边栏 ============ -->
     <aside class="sidebar">
         <div class="logo">
-            <img class="logo-medal" src="assets/img/balls/100740_国王球.png" alt="洛克王国助手" onerror="this.style.display='none'">
+            <div class="auth-avatar" id="authAvatarBox" onclick="authClick()" title="">
+                <img class="logo-medal" id="authAvatar" src="assets/img/balls/100740_国王球.png" alt="" onerror="this.style.visibility='hidden'">
+            </div>
             <div>
                 <div class="logo-title">洛克王国助手</div>
-                <div class="logo-sub">PVP CONSOLE v2.0</div>
+                <div class="logo-sub" id="authState">PVP CONSOLE v2.0</div>
             </div>
         </div>
 
@@ -393,10 +395,17 @@
 
             <div class="vision-toolbar">
                 <button class="btn btn-primary" id="btnLive" onclick="toggleLive()">实时识别</button>
+                <select id="liveQuality" class="form-select liveq-select" onchange="liveQualityChange()" title="实时预览画质（识别管线不变）">
+                    <option value="fast">流畅960</option>
+                    <option value="hd" selected>高清1440</option>
+                    <option value="full">超清原尺寸</option>
+                </select>
                 <button class="btn" id="btnVCap" onclick="visionCapture()">单次截图</button>
+                <label class="chk" title="截图前把游戏窗口置前并等 1 秒渲染稳定, 完成后助手窗口自动回前台"><input type="checkbox" id="capFront" checked> 置前</label>
                 <button class="btn" id="btnVAna" onclick="visionAnalyze()">截图并识别</button>
                 <label class="chk"><input type="checkbox" id="roiToggle" onchange="renderRoiOverlay()" checked> ROI 框</label>
                 <button class="btn" id="btnRoiAdd" onclick="roiAddNew()">新建</button>
+                <button class="btn" id="btnStudio" onclick="openRoiStudio()" title="在独立大窗口中框选 ROI, 画面更大更清晰">🖼 大窗编辑</button>
                 <button class="btn" id="btnOcr" onclick="visionOcrPreview()" style="color:#a78bfa">OCR</button>
                 <span class="vision-status" id="visionStatus">未截图</span>
             </div>
@@ -484,31 +493,71 @@
                     <h2 class="story">日常任务</h2>
                 </div>
                 <p class="page-desc">MAA 式任务清单 · 种花收菜收蛋领奖励 · 游戏需在前台 · 每步拟人执行可随时急停</p>
-                <div class="head-rule"><span class="orn"><svg><use href="#i-orn"/></svg></span></div>
             </div>
 
-            <div style="display:flex; align-items:center; gap:12px; margin-bottom: 16px; flex-wrap: wrap;">
-                <button class="btn btn-primary" onclick="dailyRunSelected()">启动选中任务</button>
-                <button class="btn btn-danger" onclick="dailyStop()">停止</button>
+            <div class="daily-toolbar">
+                <button class="btn btn-primary" onclick="dailyRunSelected()">▶ 一键执行</button>
+                <button class="btn btn-danger" onclick="dailyStop()">■ 停止</button>
+                <span id="dailyPd" style="width:8px;height:8px;border-radius:50%;display:inline-block;background:#b3a175;flex:none"></span>
                 <span class="card-sub" id="dailyStateText">空闲</span>
-                <button class="btn" style="margin-left:auto; padding:4px 12px;" onclick="dailyReload()">刷新清单</button>
+                <span class="daily-status-inline">任务 <b id="dailyTask">—</b> · 步骤 <b id="dailyStep">0/0</b> · 成/败 <b id="dailyOkFail">0/0</b> · <span id="dailyDetail">空闲</span></span>
+                <button class="btn" style="margin-left:auto" onclick="gameLaunch()" title="无 UAC 打开 WeGame(首次已注册计划任务), 打开后自动点击启动洛克王国">🚀 启动游戏</button>
+                <button class="btn" onclick="dailyReload()">刷新清单</button>
             </div>
 
-            <div class="card card-pad" style="margin-bottom: 18px;">
-                <div class="card-title" style="margin-bottom: 10px;">任务清单 <span class="card-sub">· 勾选要跑的任务 · 支持自定义步骤</span></div>
-                <div id="dailyTaskList" style="display:flex; flex-direction:column; gap:8px;"></div>
-                <p class="card-sub" style="margin-top:10px">模板坐标默认按屏幕比例内置示例值; 想更稳就在「视觉调试台」给关键界面做模板图, 步骤里引用模板名。</p>
-            </div>
+            <!-- MAA 式: 左任务列表 / 右设置面板 -->
+            <div class="daily-maa">
+                <div class="daily-side card card-pad">
+                    <div class="card-title" style="margin-bottom: 10px;">任务清单 <span class="card-sub">· 点击选中</span></div>
+                    <div id="dailyTaskList"></div>
+                    <p class="card-sub" style="margin-top:10px">想更稳就在「视觉调试台」给关键界面做模板图, 步骤里引用模板名。</p>
+                </div>
 
-            <div class="card card-pad">
-                <div class="card-title" style="margin-bottom: 10px;">运行状态</div>
-                <div class="stats session-strip" style="margin-bottom: 6px;">
-                    <span class="ss-item">当前任务 <b id="dailyTask">—</b></span>
-                    <span class="ss-sep"></span>
-                    <span class="ss-item">步骤 <b id="dailyStep">0/0</b></span>
-                    <span class="ss-sep"></span>
-                    <span class="ss-item">成功/失败 <b id="dailyOkFail">0/0</b></span>
-                    <span class="ss-live"><span class="pd" id="dailyPd" style="background:#b3a175"></span><span id="dailyDetail">空闲</span></span>
+                <div class="daily-detail card card-pad">
+                    <div class="dd-head">
+                        <div class="card-title" id="ddTitle">点击左侧任务查看设置</div>
+                        <button class="btn" id="ddRunOne" style="display:none;padding:3px 12px;" onclick="dailyRunOnly()">▶ 仅执行此任务</button>
+                    </div>
+
+                    <!-- 花种挑战专属设置 -->
+                    <div id="ddFlower" style="display:none">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;">目标花种
+                                <select id="fcTarget" class="form-select liveq-select">
+                                    <option value="1">第 1 个</option><option value="2">第 2 个</option>
+                                    <option value="3">第 3 个</option><option value="4">第 4 个</option>
+                                </select></label>
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;">战斗场数
+                                <input id="fcCount" type="number" min="1" max="99" class="form-input" style="width:64px;"></label>
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;">切精灵键
+                                <select id="fcSwitch" class="form-select liveq-select">
+                                    <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                                    <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                                </select></label>
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;">技能序列
+                                <input id="fcSkills" class="form-input" style="width:150px;" placeholder="如 31,112,222"></label>
+                            <button class="btn" onclick="flowerCfgSave()">保存参数</button>
+                            <button class="btn btn-primary" onclick="flowerRun()">保存并启动</button>
+                        </div>
+                        <p class="card-sub" style="margin-top:8px">技能序列: 逗号分段=每场轮换的连招, 段内每个字符=依次按的技能键(数字 1~4)。
+                            自动判断 3/4 个命定花种(第4行过期时间比对), 目标超过命定数会中止并提示。
+                            ROI 见视觉调试台「花种模板」· 全程 Interception 硬件级 + 指数分布延迟。</p>
+                    </div>
+
+                    <!-- 通用任务设置 -->
+                    <div id="ddGeneric" style="display:none">
+                        <p class="card-sub" id="ddNotes" style="margin-bottom:10px"></p>
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;">循环轮数
+                                <input id="ddRepeat" type="number" min="1" max="99" class="form-input" style="width:64px;"></label>
+                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;">轮间隔(秒)
+                                <input id="ddRoundGap" type="number" step="0.1" min="0" class="form-input" style="width:70px;"></label>
+                            <button class="btn" onclick="ddSaveGeneric()">保存修改</button>
+                        </div>
+                        <div class="dd-steps" id="ddSteps"></div>
+                    </div>
+
+                    <p class="card-sub" id="ddEmpty">在左侧点击任意任务, 这里会显示它的设置</p>
                 </div>
             </div>
         </section>
@@ -828,7 +877,7 @@
                 <div>
                     <button class="log-clear" onclick="copyLogs()">复制日志</button>
                     <button class="log-clear" onclick="clearLog()">清空</button>
-                    <button class="log-clear" onclick="toggleLogDrawer()">收起 ▾</button>
+                    <button class="log-clear" onclick="toggleLogDrawer()">收起 »</button>
                 </div>
             </div>
             <div class="log-body" id="logContent"></div>
@@ -850,5 +899,10 @@
 <script src="assets/pvp.js"></script>
 <script src="assets/history.js"></script>
     <div class="win-resize-grip" id="winResizeGrip" title="拖拽调整窗口大小"></div>
+
+<!-- ===== 悬浮覆盖层(打包版降级: 无独立悬浮窗时代替) ===== -->
+<div class="float-overlay" id="floatOverlay" style="display:none">
+    <iframe class="float-iframe" id="floatIframe" src="float_console.html"></iframe>
+</div>
 </body>
 </html>

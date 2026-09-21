@@ -250,10 +250,22 @@ function fallbackCopy(text, done) {
 function toggleLogDrawer() {
     const d = $('logDrawer');
     d.classList.toggle('open');
-    if (d.classList.contains('open')) {
+    const open = d.classList.contains('open');
+    document.body.classList.toggle('log-open', open);
+    // 头部按钮与任务栏按钮文案互换(展开时头部提供收起)
+    const headBtn = d.querySelector('.log-head .log-clear:last-child');
+    if (headBtn) headBtn.textContent = open ? '收起 »' : '展开 «';
+    if (open) {
         $('logContent').scrollTop = $('logContent').scrollHeight;
     }
 }
+
+// 日志侧栏默认展开(可随时收起, 状态由 body.log-open 驱动)
+document.addEventListener('DOMContentLoaded', () => {
+    if ($('logDrawer') && !$('logDrawer').classList.contains('open')) {
+        toggleLogDrawer();
+    }
+});
 
 // ========================================
 // 快捷键面板
@@ -391,6 +403,114 @@ async function applyAppMode() {
     } catch (e) { /* 后端未就绪,默认按开发者版显示 */ }
 }
 
+// ========================================
+// 账户登录区(侧边栏) · 卡密激活
+// ========================================
+
+let authState = { authorized: false, dev_mode: false };
+
+function randomPetAvatar() {
+    try {
+        const vals = Object.values(window.PET_ASSET_MAP || {});
+        if (vals.length) return 'assets/img/pets/' + vals[Math.floor(Math.random() * vals.length)];
+    } catch (e) { /* fallthrough */ }
+    return 'assets/img/balls/100740_国王球.png';
+}
+
+function fmtExpire(ms) {
+    if (!ms) return '';
+    const d = new Date(ms);
+    const left = Math.max(0, Math.floor((ms - Date.now()) / 86400000));
+    return `${d.getMonth() + 1}/${d.getDate()} · 剩${left}天`;
+}
+
+// 付费功能锁判据(后端守卫是硬闸, 这里只是 UI 引导)
+window.isAuthed = function () {
+    return !!(authState.authorized || authState.dev_mode);
+};
+
+function applyAuthLock() {
+    // 未登录: 付费页(daily/pvp)内容盖锁幕引导激活; 登录后移除
+    document.querySelectorAll('#page-daily, #page-pvp').forEach(page => {
+        const need = !window.isAuthed();
+        let veil = page.querySelector('.auth-veil');
+        if (need && !veil) {
+            veil = document.createElement('div');
+            veil.className = 'auth-veil';
+            veil.innerHTML = '<div class="av-box">'
+                + '<div class="av-icon">🔒</div>'
+                + '<div class="av-title">该功能需要激活</div>'
+                + '<div class="av-desc">点击左侧「未登录 · 点击激活」输入卡密<br>丢球助手/挂机引擎免费使用, 无需激活</div>'
+                + '<button class="btn btn-primary" onclick="authClick()">立即激活</button></div>';
+            page.appendChild(veil);
+        } else if (!need && veil) {
+            veil.remove();
+        }
+    });
+}
+
+function renderAuth(st) {
+    authState = st || authState;
+    const box = $('authAvatarBox'), img = $('authAvatar'), sub = $('authState');
+    if (!box || !sub) return;
+    if (authState.authorized) {
+        box.className = 'auth-avatar authed';
+        box.title = (authState.nickname || '') + (authState.dev_mode ? ' · 开发者模式' : '') + ' — 点击退出';
+        if (!img.dataset.pet) {
+            img.src = randomPetAvatar();       // 登录/刷新时随机换一只精灵头像
+            img.dataset.pet = '1';
+        }
+        img.style.visibility = 'visible';
+        sub.innerHTML = authState.dev_mode
+            ? '<span class="auth-name">开发者模式</span> · <span class="auth-exp">已授权</span>'
+            : `<span class="auth-name">${(authState.nickname || '训练家')}</span><br>`
+              + `<span class="auth-exp">到期 ${fmtExpire(authState.expires_at)}</span>`;
+    } else {
+        box.className = 'auth-avatar unauthed';
+        img.dataset.pet = '';
+        box.title = '点击激活';
+        sub.innerHTML = '<span class="auth-exp">未登录 · 点击激活</span>';
+    }
+    applyAuthLock();
+}
+
+// 头像点击: 未登录 → 激活弹窗; 已登录 → 确认退出
+async function authClick() {
+    if (authState.authorized) {
+        if (authState.dev_mode) { showToast('开发者模式无需退出', 'info'); return; }
+        const ok = await showModalConfirm({
+            title: '退出登录', desc: '退出后将无法使用自动化功能, 需重新激活卡密。',
+            danger: true, confirmText: '退出'
+        });
+        if (ok) { try { await pywebview.api.auth_logout(); } catch (e) {} }
+        return;
+    }
+    const code = await showModalPrompt({
+        title: '激活卡密',
+        desc: '请输入卡密(格式 LK-XXXX-XXXX-XXXX), 激活后绑定本机:',
+        placeholder: 'LK-XXXX-XXXX-XXXX', confirmText: '激活'
+    });
+    if (!code) return;
+    showToast('激活中…', 'info');
+    try {
+        const r = await pywebview.api.auth_activate(code);
+        showToast(r && r.ok ? '激活成功, 欢迎训练家!' : (r.message || '激活失败'),
+                  r && r.ok ? 'success' : 'error');
+    } catch (e) { showToast('激活异常: ' + e, 'error'); }
+}
+
+// 后端推送登录态(激活/退出/启动校验后)
+window.onAuthUpdate = function (st) { renderAuth(st); };
+
+// 启动拉一次登录态
+(async function initAuth() {
+    const wait = setInterval(async () => {
+        if (!(window.pywebview && pywebview.api && pywebview.api.auth_status)) return;
+        clearInterval(wait);
+        try { renderAuth(await pywebview.api.auth_status()); } catch (e) {}
+    }, 200);
+})();
+
 function applyEngineStatus(s) {
     engineOn = !!s.running;
     const btn = $('btnEngineStart');
@@ -424,6 +544,10 @@ const MERGED_PAGE_MAP = {
 };
 
 function switchPage(name) {
+    // 进入日常任务页时自动重载清单(配置改了不用手动刷新)
+    if (name === 'daily' && typeof dailyReload === 'function') {
+        setTimeout(dailyReload, 30);
+    }
     const merged = MERGED_PAGE_MAP[name];
     if (merged) {
         activateNavPage(merged[0]);
@@ -666,6 +790,21 @@ async function toggleWidget() {
             btn.textContent = widgetVisible ? '📱 已开' : '📱 悬浮窗';
         }
     } catch (e) { addLog('悬浮窗: ' + e, 'error'); }
+}
+
+// 打包版降级: 无独立悬浮窗时走主窗口内浮动覆盖层
+let _floatOn = false;
+function toggleFloatOverlay() {
+    _floatOn = !_floatOn;
+    const el = document.getElementById('floatOverlay');
+    if (el) el.style.display = _floatOn ? '' : 'none';
+    const btn = typeof $ === 'function' && $('btnWidget');
+    if (btn) {
+        btn.classList.toggle('pinned', _floatOn);
+        btn.textContent = _floatOn ? '📱 已开' : '📱 悬浮窗';
+    }
+    // 同步 widgetVisible
+    if (typeof widgetVisible !== 'undefined') widgetVisible = _floatOn;
 }
 
 let onTop = false;
@@ -1021,8 +1160,9 @@ function renderRoiManager() {
         const active = (roiSelected === id);
         return `<div class="rm-item${active ? ' active' : ''}" onclick="roiSelect('${id}')">
             <span class="rm-swatch" style="background:${color}" onclick="event.stopPropagation();roiColorPrompt('${id}')" title="点击修改颜色"></span>
-            <input class="rm-name" value="${label}" onfocus="this.select()"
-                onchange="roiRename('${id}',this.value)" onclick="event.stopPropagation()">
+            <input class="rm-name" value="${label}" onfocus="this.select()" title="输入后按回车确认改名, 按 Esc 取消"
+                onchange="roiRename('${id}',this.value)" onclick="event.stopPropagation()"
+                onkeydown="if(event.key==='Enter'){this.blur()}else if(event.key==='Escape'){this.value=this.defaultValue;this.blur()}">
             <span class="rm-vis" onclick="event.stopPropagation();roiToggleVis('${id}')" title="显隐">${hidden ? '👁' : '👁'}</span>
             <span class="rm-del" onclick="event.stopPropagation();roiDelete('${id}')" title="删除">✕</span>
         </div>`;
@@ -1301,9 +1441,10 @@ window.addEventListener('resize', () => { if ($('shotImg').src) fitShotToPanel()
 
 async function visionCapture() {
     const btn = $('btnVCap'); btn.disabled = true;
-    setVisionStatus('截图中…');
+    const front = $('capFront') ? $('capFront').checked : true;
+    setVisionStatus(front ? '游戏置前中, 1 秒后截图…' : '截图中…');
     try {
-        const r = await pywebview.api.vision_capture();
+        const r = await pywebview.api.vision_capture(front, 'main');
         if (r.success) {
             // 加载 ROI 配置（失败也保证 currentRoi 不为 null）
             if (!currentRoi || !Object.keys(currentRoi).length) {
@@ -1361,9 +1502,10 @@ function renderResults(result) {
 
 async function visionAnalyze() {
     const btn = $('btnVAna'); btn.disabled = true;
-    setVisionStatus('截图 + 识别中…');
+    const front = $('capFront') ? $('capFront').checked : true;
+    setVisionStatus(front ? '游戏置前中, 1 秒后截图 + 识别…' : '截图 + 识别中…');
     try {
-        const r = await pywebview.api.vision_analyze();
+        const r = await pywebview.api.vision_analyze(front, 'main');
         if (r.success) {
             showShot(r.image, r.width, r.height, r.title);
             currentRoi = r.roi || {};
@@ -1405,10 +1547,37 @@ function renderOcrResults(ocrResults) {
 
 async function visionSave() {
     try {
-        const r = await pywebview.api.vision_save_shot();
+        const front = $('capFront') ? $('capFront').checked : true;
+        const r = await pywebview.api.vision_save_shot(front);
         if (r.success) setVisionStatus(`已保存 ${r.path}`);
     } catch (e) { addLog('保存截图异常: ' + e.message, 'error'); }
 }
+
+// 实时预览画质切换(fast=960 / hd=1440 / full=原尺寸)
+async function liveQualityChange() {
+    try { await pywebview.api.vision_live_quality($('liveQuality').value); }
+    catch (e) { addLog('画质切换异常: ' + e.message, 'error'); }
+}
+
+// 打开 ROI 标注工坊独立大窗
+async function openRoiStudio() {
+    try {
+        const r = await pywebview.api.roi_studio_open();
+        if (!r.success) showToast(r.message || '打开失败', 'error');
+    } catch (e) { showToast('打开工坊异常: ' + e.message, 'error'); }
+}
+
+// 工坊/工作台保存 ROI 模板后, 由后端推送同步 currentRoi
+window.onRoiStudioSaved = function (payload) {
+    if (!payload || !payload.roi) return;
+    currentRoi = payload.roi;
+    Object.keys(currentRoi).forEach(id => {
+        if (!ROI_COLORS[id]) { ROI_COLORS[id] = '#6366f1'; ROI_LABELS[id] = id; }
+    });
+    renderRoiManager();
+    renderRoiOverlay();
+    addLog(`ROI 已同步${payload.name ? ' (模板: ' + payload.name + ')' : ''}`, 'info');
+};
 
 // ========================================
 // 工具箱
