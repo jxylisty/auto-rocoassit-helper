@@ -84,6 +84,21 @@ html, body { height: 100%; overflow: hidden; }
 .rm-color::-webkit-color-swatch-wrapper { padding: 0; }
 .rm-color::-webkit-color-swatch { border: 1px solid rgba(255,255,255,.25); border-radius: 4px; }
 
+/* 改名输入框: 绘本主题的 input[type=text] 白底覆盖会把 rm-item 深底上的
+   深色字衬得看不清 → 显式固定高对比配色(白底墨字), 不依赖继承 */
+.rm-item .rm-name {
+    background: #fffdf6 !important;
+    border: 1px solid var(--border-light) !important;
+    color: #3f3428 !important;
+    border-radius: 4px;
+    padding: 1px 4px;
+}
+.rm-item .rm-name:focus {
+    background: #ffffff !important;
+    border-color: #8a6420 !important;
+    box-shadow: 0 0 0 2px rgba(138, 100, 32, 0.18);
+}
+
 /* ---- Toast(跟随绘本浅色主题, 与主窗 toast 同观感) ---- */
 .studio-toast {
     position: fixed;

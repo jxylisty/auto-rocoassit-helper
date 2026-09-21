@@ -1902,19 +1902,26 @@ class AppBridge:
     def roi_studio_open(self) -> dict:
         """打开 ROI 标注工坊独立窗 (运行时创建, 共用 Api 单例)"""
         import webview
+        # 子窗口被用户点 X 关闭后, pywebview 会把 Window 从内部注册表移除,
+        # 残留引用调 show() 静默无效 → 用 closed 事件标志判断存活
         if getattr(self, "_studio_window", None):
-            try:
-                self._studio_window.show()
-                return {"success": True}
-            except Exception:
+            if getattr(self._studio_window, "_lkw_closed", False):
                 self._studio_window = None
+            else:
+                try:
+                    self._studio_window.show()
+                    return {"success": True}
+                except Exception:
+                    self._studio_window = None
         web_dir = WEB_DIR
         url = (web_dir / "roi_studio.html").as_uri()
         try:
-            self._studio_window = webview.create_window(
+            win = webview.create_window(
                 title='ROI 标注工坊', url=url, js_api=self._api,
                 width=1280, height=820, min_size=(960, 640),
                 resizable=True, on_top=False)
+            win.events.closed += lambda: setattr(win, "_lkw_closed", True)
+            self._studio_window = win
         except Exception as e:
             return {"success": False, "message": f"创建工坊窗口失败: {e}"}
         self._enqueue_log("ROI 标注工坊已打开", "info")
@@ -1951,7 +1958,8 @@ class AppBridge:
             return res
         synced = False
         try:
-            # 运行时同步: 把 ROI 映射为 roi_config.json (视觉管线直接消费)
+            # 运行时同步: 模板(rx/ry/rw/rh 归一化) → roi_config.json
+            # 视觉管线消费格式: {"left","top","width","height"}
             from src.pvp.roi_template import load_template
             data = load_template(name)
             rois_map = {}
@@ -1959,8 +1967,8 @@ class AppBridge:
                 rid = r.get("id", "")
                 if not rid:
                     continue
-                rois_map[rid] = {"x": r.get("x", 0), "y": r.get("y", 0),
-                                 "w": r.get("w", 0), "h": r.get("h", 0)}
+                rois_map[rid] = {"left": float(r.get("rx", 0)), "top": float(r.get("ry", 0)),
+                                 "width": float(r.get("rw", 0)), "height": float(r.get("rh", 0))}
             if rois_map:
                 cfg_path = Path(__file__).resolve().parents[2] / "data" / "config" / "roi_config.json"
                 cfg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1977,18 +1985,12 @@ class AppBridge:
                 synced = True
         except Exception as e:
             self._enqueue_log(f"roi_config 运行时同步失败: {e}", "warning")
-        # 推送主窗更新 currentRoi
+        # 推送主窗更新 currentRoi (前端格式同为 left/top/width/height)
         try:
             if self._window:
-                from src.pvp.roi_template import load_template
-                data = load_template(name) or {}
                 self._window.evaluate_js(
                     "window.onRoiStudioSaved && window.onRoiStudioSaved("
-                    + json.dumps({"name": name, "roi": {
-                        r.get("id", ""): {"x": r.get("x", 0), "y": r.get("y", 0),
-                                          "w": r.get("w", 0), "h": r.get("h", 0)}
-                        for r in data.get("rois", []) if r.get("id")
-                    }}, ensure_ascii=False) + ")")
+                    + json.dumps({"name": name, "roi": rois_map}, ensure_ascii=False) + ")")
         except Exception:
             pass
         self._enqueue_log(f"ROI 模板已保存: {name} (同步={synced})", "success")

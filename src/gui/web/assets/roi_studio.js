@@ -439,7 +439,17 @@ function renderManager() {
 
 async function studioTmplLoad() {
     const name = $('tmplSelect').value;
-    if (!name) return;
+    if (!name) {
+        // 切回「-- 加载模板 --」= 新建空白画布: 清空当前 ROI 与模板名。
+        // 否则上一模板的 ROI 会被自动保存混带进新模板(交叉污染)
+        roi = {}; roiMeta = {}; tmplName = '';
+        $('tmplName').value = '';
+        roiSel = null;
+        renderManager();
+        renderOverlay();
+        setStatus('已清空画布 — 新建模板模式');
+        return;
+    }
     try {
         const r = await pywebview.api.roi_template_load(name);
         if (!r.success) { toast(r.message || '加载失败', 'error'); return; }
