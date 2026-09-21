@@ -26,7 +26,8 @@
     "action": "flower_challenge",
     "extra": {}
    }
-  ]
+  ],
+  "enabled": true
  },
  {
   "id": "claim_wish_star",
@@ -75,7 +76,8 @@
      "seconds": 1
     }
    }
-  ]
+  ],
+  "enabled": false
  },
  {
   "id": "claim_pass_rewards",
@@ -169,7 +171,8 @@
      "seconds": 1
     }
    }
-  ]
+  ],
+  "enabled": false
  },
  {
   "id": "claim_mail",
@@ -247,7 +250,8 @@
      "seconds": 1
     }
    }
-  ]
+  ],
+  "enabled": false
  },
  {
   "id": "ball_contract_hatch",
@@ -365,6 +369,7 @@
      "seconds": 2
     }
    }
-  ]
+  ],
+  "enabled": false
  }
 ]

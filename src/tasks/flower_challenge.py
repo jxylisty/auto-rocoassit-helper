@@ -120,6 +120,12 @@ class FlowerChallenge:
             raise RuntimeError("__STOP__")
 
     def _frame(self):
+        # 点击类动作依赖屏幕坐标 → 每次截图前确保游戏在前台且持有焦点
+        # (否则 Interception 点击/按键会落到别的窗口)
+        try:
+            self._ensure_front()
+        except Exception:
+            pass
         info, frame = self._frame_provider()
         if frame is None or frame.size == 0:
             raise RuntimeError("截图失败(游戏未前台?)")
@@ -153,8 +159,8 @@ class FlowerChallenge:
         from src.driver.mouse_controller import MouseController
         info, _ = self._frame()
         roi = self._roi(roi_name)
-        x = info.x + int(info.width * (roi.left + roi.width / 2))
-        y = info.y + int(info.height * (roi.top + roi.height / 2))
+        x = info.rect[0] + int(info.width * (roi.left + roi.width / 2))
+        y = info.rect[1] + int(info.height * (roi.top + roi.height / 2))
         mouse = MouseController()
         mouse.move_to(x, y)
         time.sleep(0.12 + 0.10 * (time.time() % 1))
@@ -280,8 +286,8 @@ class FlowerChallenge:
                   f"→ 行{target}@{top:.3f}")
         info, _ = self._frame()
         from src.driver.mouse_controller import MouseController
-        x = info.x + int(info.width * (r1.left + r1.width / 2))
-        y = info.y + int(info.height * (top + r1.height / 2))
+        x = info.rect[0] + int(info.width * (r1.left + r1.width / 2))
+        y = info.rect[1] + int(info.height * (top + r1.height / 2))
         mouse = MouseController()
         mouse.move_to(x, y)
         time.sleep(0.12 + 0.10 * (time.time() % 1))
@@ -400,8 +406,8 @@ class FlowerChallenge:
         info, _ = self._frame()
         from src.driver.mouse_controller import MouseController
         mouse = MouseController()
-        mouse.move_to(info.x + int(info.width * float(click_pos[0])),
-                      info.y + int(info.height * float(click_pos[1])))
+        mouse.move_to(info.rect[0] + int(info.width * float(click_pos[0])),
+                      info.rect[1] + int(info.height * float(click_pos[1])))
         time.sleep(0.15)
         mouse.click('left', 0.07)
         self._exp()

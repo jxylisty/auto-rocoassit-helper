@@ -174,7 +174,20 @@ class DailyRunner:
             raise RuntimeError("__STOP__")
 
     # ---------- 步骤实现 ----------
+    def _ensure_game_front(self):
+        """游戏窗口置前+焦点(点击/按键动作的前置条件)"""
+        try:
+            from src.capture.window_capture import WindowCapture, find_window
+            info = find_window(class_name="UnrealWindow") or find_window()
+            if info is not None:
+                WindowCapture(info.hwnd).bring_to_front()
+                self._stop_event.wait(0.4)
+        except Exception:
+            pass
+
     def _frame(self):
+        # roi_click/click_ratio/key 等动作依赖屏幕坐标与焦点 → 截图前统一置前
+        self._ensure_game_front()
         info, frame = self._frame_provider()
         if frame is None or frame.size == 0:
             raise RuntimeError("截图失败(游戏未前台?)")
