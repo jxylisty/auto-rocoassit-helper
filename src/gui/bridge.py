@@ -949,11 +949,12 @@ class AppBridge:
             return {"success": False, "message": str(e)}
 
     def enable_hotkeys(self):
-        """注册全局快捷键"""
+        """注册全局快捷键 + 启动本机 API 桥(AI 陪玩 MCP 数据源)"""
         try:
             self.tool.register_hotkeys()
         except Exception as e:
             self._enqueue_log(f"快捷键注册失败: {e}", "error")
+        self.local_api_start()
         try:
             import keyboard
             keyboard.add_hotkey('f2', self._hotkey_widget)
@@ -1364,6 +1365,7 @@ class AppBridge:
     def close(self):
         """窗口关闭时自动持久化所有配置并清理资源"""
         self._stop_event.set()
+        self.local_api_stop()
         try:
             self.updater.stop()
         except Exception:
@@ -2345,6 +2347,107 @@ class AppBridge:
     # PVP 实时识别引擎
     # ========================================
 
+    def _enrich_result(self, data: dict, result) -> None:
+        """识别结果附加伤害推演字段(calc_skills/enemy_threats/速度/愿力)。
+        _pvp_loop 与本地 API /snapshot 共用; 精灵数据未就绪/名字未识别时写 calc_error。"""
+        try:
+            from src.pvp.pet_loader import get_pet_by_name
+            from src.pvp.skill_loader import get_skill
+            from src.pvp.damage_calculator import (
+                calculate_all_panels, calculate_damage_full,
+                calculate_world_speed_range, calculate_resonance_impact_damages)
+
+            self_pet = get_pet_by_name(result.player_name)
+            enemy_pet = get_pet_by_name(result.enemy_name)
+            if not (self_pet and enemy_pet):
+                data["calc_error"] = "精灵数据未就绪或名字未识别"
+                return
+
+            # 自动流派推导: 物攻高用物攻, 魔攻高用魔攻
+            race = self_pet.get("race", {})
+            prefer = "mattack" if race.get("mattack", 0) > race.get("attack", 0) else "attack"
+            self_panel = calculate_all_panels(self_pet.get("race", {}))
+            enemy_panel = calculate_all_panels(enemy_pet.get("race", {}))
+            speed_diff = self_panel["speed"] - enemy_panel["speed"]
+
+            # 我方技能伤害(OCR 出的 4 个技能逐个推演)
+            calc_skills = []
+            for sk_name in result.skills:
+                sk = get_skill(sk_name) or {}
+                sk_type = sk.get("type", "物攻")
+                sk_attr = sk.get("attr", "普")
+                sk_power = float(sk.get("power", 0)) if sk.get("power") else 0
+                if sk_power > 0 and sk_type in ("物攻", "魔攻"):
+                    dmg = calculate_damage_full(
+                        attacker_panel=self_panel, defender_panel=enemy_panel,
+                        skill_power=sk_power, skill_type=sk_type, skill_attr=sk_attr,
+                        attacker_attrs=self_pet.get("types", []),
+                        defender_attrs=enemy_pet.get("types", []),
+                    )
+                    enemy_est_hp = int(enemy_panel["hp"] * result.enemy_hp_pct)
+                    dmg_min = dmg["damage"]
+                    dmg_max = round(dmg["damage"] * 1.15)
+                    is_kill = enemy_est_hp > 0 and dmg_min >= enemy_est_hp
+                    calc_skills.append({
+                        "name": sk_name, "power": int(sk_power),
+                        "type": sk_type, "attr": sk_attr,
+                        "dmg_min": dmg_min, "dmg_max": dmg_max,
+                        "mult": dmg["attrMultiplier"],
+                        "is_kill": is_kill,
+                    })
+                else:
+                    calc_skills.append({"name": sk_name, "power": 0, "type": "变化",
+                                        "dmg_min": 0, "dmg_max": 0, "mult": 1, "is_kill": False})
+
+            # 敌方威胁(敌方技能库威力最高的 4 个)
+            enemy_skills_raw = enemy_pet.get("skills", [])[:10]
+            enemy_skills = [s["name"] if isinstance(s, dict) else s for s in enemy_skills_raw]
+            enemy_threats = []
+            for esk_name in enemy_skills:
+                esk = get_skill(esk_name) or {}
+                esk_power = float(esk.get("power", 0)) if esk.get("power") else 0
+                esk_type = esk.get("type", "")
+                if esk_power > 0 and esk_type in ("物攻", "魔攻"):
+                    edmg = calculate_damage_full(
+                        attacker_panel=enemy_panel, defender_panel=self_panel,
+                        skill_power=esk_power, skill_type=esk_type,
+                        skill_attr=esk.get("attr", "普"),
+                        attacker_attrs=enemy_pet.get("types", []),
+                        defender_attrs=self_pet.get("types", []),
+                    )
+                    is_lethal = result.player_hp_val > 0 and edmg["damage"] >= result.player_hp_val
+                    enemy_threats.append({
+                        "name": esk_name, "power": int(esk_power),
+                        "dmg_min": edmg["damage"],
+                        "dmg_max": round(edmg["damage"] * 1.15),
+                        "is_lethal": is_lethal,
+                        "tags": esk.get("tags", []),
+                    })
+                if len(enemy_threats) >= 4:
+                    break
+
+            # 敌方《洛克王国：世界》真实速度极值区间(对齐点击头像显示的区间)
+            enemy_race_speed = float(enemy_pet.get("race", {}).get("speed", 0))
+            enemy_speed_range = calculate_world_speed_range(enemy_race_speed)
+
+            # 愿力冲击暗手伤害推演
+            resonance_data = calculate_resonance_impact_damages(
+                enemy_panel=enemy_panel,
+                self_panel=self_panel,
+                enemy_types=enemy_pet.get("types", []),
+                self_types=self_pet.get("types", []),
+                self_current_hp=result.player_hp_val,
+            )
+
+            data["speed_diff"] = int(speed_diff)
+            data["enemy_speed_range"] = enemy_speed_range
+            data["calc_skills"] = calc_skills
+            data["enemy_threats"] = enemy_threats
+            data["resonance_impact"] = resonance_data
+            data["calc_done"] = True
+        except Exception as e:
+            data["calc_error"] = str(e)
+
     def _pvp_loop(self):
         """后台线程: 截图 → 识别 → 伤害计算 → 推送悬浮窗"""
         import time as _time
@@ -2385,98 +2488,9 @@ class AppBridge:
                 player = data.get("player", {})
                 enemy = data.get("enemy", {})
 
-                # 3. 伤害计算 —— 如果识别到精灵名
+                # 3. 伤害推演(计算块抽为 _enrich_result, 本地 API /snapshot 共用)
                 if result.in_battle:
-                    try:
-                        self_pet = get_pet_by_name(result.player_name)
-                        enemy_pet = get_pet_by_name(result.enemy_name)
-
-                        if self_pet and enemy_pet:
-                            # 自动流派推导: 物攻高用物攻, 魔攻高用魔攻
-                            race = self_pet.get("race", {})
-                            prefer = "mattack" if race.get("mattack", 0) > race.get("attack", 0) else "attack"
-                            self_panel = calculate_all_panels(self_pet.get("race", {}))
-                            enemy_panel = calculate_all_panels(enemy_pet.get("race", {}))
-                            speed_diff = self_panel["speed"] - enemy_panel["speed"]
-
-                            # 我方技能伤害
-                            calc_skills = []
-                            for sk_name in result.skills:
-                                sk = get_skill(sk_name) or {}
-                                sk_type = sk.get("type", "物攻")
-                                sk_attr = sk.get("attr", "普")
-                                sk_power = float(sk.get("power", 0)) if sk.get("power") else 0
-                                if sk_power > 0 and sk_type in ("物攻", "魔攻"):
-                                    dmg = calculate_damage_full(
-                                        attacker_panel=self_panel, defender_panel=enemy_panel,
-                                        skill_power=sk_power, skill_type=sk_type, skill_attr=sk_attr,
-                                        attacker_attrs=self_pet.get("types", []),
-                                        defender_attrs=enemy_pet.get("types", []),
-                                    )
-                                    enemy_est_hp = int(enemy_panel["hp"] * result.enemy_hp_pct)
-                                    dmg_min = dmg["damage"]
-                                    dmg_max = round(dmg["damage"] * 1.15)
-                                    is_kill = enemy_est_hp > 0 and dmg_min >= enemy_est_hp
-                                    calc_skills.append({
-                                        "name": sk_name, "power": int(sk_power),
-                                        "type": sk_type, "attr": sk_attr,
-                                        "dmg_min": dmg_min, "dmg_max": dmg_max,
-                                        "mult": dmg["attrMultiplier"],
-                                        "is_kill": is_kill,
-                                    })
-                                else:
-                                    calc_skills.append({"name": sk_name, "power": 0, "type": "变化", "dmg_min": 0, "dmg_max": 0, "mult": 1, "is_kill": False})
-
-                            # 敌方威胁 (取威力最高的 2 个技能)
-                            enemy_skills_raw = enemy_pet.get("skills", [])[:10]
-                            enemy_skills = [s["name"] if isinstance(s, dict) else s for s in enemy_skills_raw]
-                            enemy_threats = []
-                            for esk_name in enemy_skills:
-                                esk = get_skill(esk_name) or {}
-                                esk_power = float(esk.get("power", 0)) if esk.get("power") else 0
-                                esk_type = esk.get("type", "")
-                                if esk_power > 0 and esk_type in ("物攻", "魔攻"):
-                                    edmg = calculate_damage_full(
-                                        attacker_panel=enemy_panel, defender_panel=self_panel,
-                                        skill_power=esk_power, skill_type=esk_type,
-                                        skill_attr=esk.get("attr", "普"),
-                                        attacker_attrs=enemy_pet.get("types", []),
-                                        defender_attrs=self_pet.get("types", []),
-                                    )
-                                    is_lethal = result.player_hp_val > 0 and edmg["damage"] >= result.player_hp_val
-                                    enemy_threats.append({
-                                        "name": esk_name, "power": int(esk_power),
-                                        "dmg_min": edmg["damage"],
-                                        "dmg_max": round(edmg["damage"] * 1.15),
-                                        "is_lethal": is_lethal,
-                                        "tags": esk.get("tags", []),
-                                    })
-                                if len(enemy_threats) >= 4:
-                                    break
-
-                            # 敌方《洛克王国：世界》真实速度极值区间（对齐点击头像显示的区间）
-                            from src.pvp.damage_calculator import calculate_world_speed_range
-                            enemy_race_speed = float(enemy_pet.get("race", {}).get("speed", 0))
-                            enemy_speed_range = calculate_world_speed_range(enemy_race_speed)
-
-                            # 愿力冲击暗手伤害推演
-                            from src.pvp.damage_calculator import calculate_resonance_impact_damages
-                            resonance_data = calculate_resonance_impact_damages(
-                                enemy_panel=enemy_panel,
-                                self_panel=self_panel,
-                                enemy_types=enemy_pet.get("types", []),
-                                self_types=self_pet.get("types", []),
-                                self_current_hp=result.player_hp_val
-                            )
-
-                            data["speed_diff"] = int(speed_diff)
-                            data["enemy_speed_range"] = enemy_speed_range
-                            data["calc_skills"] = calc_skills
-                            data["enemy_threats"] = enemy_threats
-                            data["resonance_impact"] = resonance_data
-                            data["calc_done"] = True
-                    except Exception as e:
-                        data["calc_error"] = str(e)
+                    self._enrich_result(data, result)
 
                 # 4. 推送悬浮窗
                 if self._pvp_float_window and self._pvp_float_visible and self._pvp_float_loaded:
@@ -2543,6 +2557,69 @@ class AppBridge:
 
     def pvp_engine_status(self) -> dict:
         return {"running": self._pvp_running, "float_visible": self._pvp_float_visible}
+
+    # ========================================
+    # 本地 API 桥 (AI 陪玩 MCP 数据源)
+    # ========================================
+
+    def local_pvp_snapshot(self) -> dict:
+        """实时对局快照: 最新识别缓存 + 伤害推演字段(MCP /snapshot 数据源)。
+        引擎未运行/无识别缓存时返回 in_battle=False 的空壳(不报错, AI 可轮询等待)。"""
+        data = {"in_battle": False, "pvp_engine_running": bool(self._pvp_running)}
+        pipeline = getattr(self, "_pipeline", None)
+        result = getattr(pipeline, "_cached_result", None) if pipeline else None
+        if result is None:
+            return data
+        try:
+            from src.pvp.pvp_pipeline import get_pipeline
+            data = get_pipeline().to_dict(result)
+        except Exception:
+            return data
+        if getattr(result, "in_battle", False):
+            self._enrich_result(data, result)
+        return data
+
+    def push_ai_comment(self, text: str, mood: str = "normal") -> bool:
+        """AI 陪玩评论 → 悬浮窗弹幕条 (evaluate_js)"""
+        import html as _html
+        text = _html.escape(str(text)[:120])
+        mood = str(mood)[:16]
+        js = f"pushAiComment({json.dumps(text, ensure_ascii=False)}, {json.dumps(mood, ensure_ascii=False)})"
+        widget = getattr(self, "_pvp_float_window", None)
+        if not widget:
+            return False
+        try:
+            widget.evaluate_js(js)
+            return True
+        except Exception:
+            return False
+
+    def local_api_start(self):
+        """启动本机 HTTP 桥 + AI 陪玩线程(端口占用/配置缺失均静默降级)"""
+        if getattr(self, "_local_api", None):
+            return
+        try:
+            from src.gui.local_api import LocalApiServer
+            self._local_api = LocalApiServer(self)
+            self._local_api.start()
+        except Exception:
+            self._local_api = None
+        try:
+            from src.gui.ai_companion import AiCompanion
+            self._ai_companion = AiCompanion(self)
+            self._ai_companion.start()
+        except Exception:
+            self._ai_companion = None
+
+    def local_api_stop(self):
+        server = getattr(self, "_local_api", None)
+        if server:
+            server.stop()
+            self._local_api = None
+        companion = getattr(self, "_ai_companion", None)
+        if companion:
+            companion.stop()
+            self._ai_companion = None
 
     @staticmethod
     def _parse_engine_params(params: dict) -> dict:

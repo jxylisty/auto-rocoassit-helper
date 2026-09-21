@@ -68,11 +68,27 @@ def main() -> None:
     # 会让第二个 script 块整体抛异常报废(标签/推送全挂)
     js = js.replace("const PVP_W = 360, H_EXPANDED = 540, H_FOLDED = 42;", "")
     js = js[js.index("const ATTR_MAP"):]                    # 从属性映射开始
-    js = js[:js.index("// 初始尺寸校准")]                    # 截到 waitInit 之前
+    # 截到 updatePVPData 块结尾 —— updatePVPData/onStarfallSelect 必须保留
+    # (合并版悬浮窗全靠 updatePVPData 渲染 500ms 推送; 曾按"// 初始尺寸校准"
+    # 锚点截断导致 updatePVPData 被截丢, 悬浮窗 PVP tab 永远停在"等待进入对战")
+    # updatePVPData 是 js 中最后一个函数, 尾部特征: 星陨下拉监听器收尾两行
+    tail_anchor = ("newSelect.addEventListener('blur', () => { newSelect._open = false; });\n"
+                   "    }\n}")
+    i = js.find(tail_anchor)
+    if i != -1:
+        js = js[:i + len(tail_anchor)]
+    # 只剔除壳层三件套(toggleFold/syncPvpSize/waitInit): 合并版尺寸校准由外壳 syncSize 接管
     a = js.find("async function toggleFold")
-    if a != -1:
-        b = js.find("function updatePVPData", a)
+    b = js.find("// ===== AI 陪玩弹幕条")
+    if a != -1 and b != -1 and b > a:
         js = js[:a] + js[b:]
+    for must in ("function updatePVPData", "function pushAiComment"):
+        if must not in js:
+            raise SystemExit(f"build_float_console: 剔除壳层后缺失 {must!r}")
+    # 必要函数自检: 缺了说明 overlay 结构又变了, 立刻报错而不是产出残废文件
+    for must in ("function updatePVPData", "function onStarfallSelect"):
+        if must not in js:
+            raise SystemExit(f"build_float_console: 产物缺失关键函数 {must!r}, overlay 源结构已变, 请检查截断锚点")
     js = js.replace("statusDot.className = 'dot off'", "statusDot.className = 'pv-dot off'")
     js = js.replace("statusDot.className = 'dot'", "statusDot.className = 'pv-dot'")
     js = js.replace("getPetAvatar", "pvGetPetAvatar")
@@ -100,6 +116,9 @@ def main() -> None:
                     <div>等待进入 PVP 对战画面…</div>
                     <div style="font-size: 10px; color: var(--dim); margin-top: 4px;">点上方「启动识别」开始监视</div>
                 </div>
+            </div>
+            <div class="ai-chat" id="aiChat">
+                <div class="ai-empty">💬 AI 伙伴待命中…</div>
             </div>
         </div>
 """
@@ -236,8 +255,16 @@ def main() -> None:
     widget = widget.replace("<style>",
                             "<style>\n    html, body { background: #0a0e1a !important; }", 1)
 
+    # 产物自检: 关键 JS 合约缺失 = 生成残废, 立刻失败(勿静默写出)
+    for must in ("function updatePVPData", "function onStarfallSelect",
+                 "function switchTab", "pvEngineToggle"):
+        if must not in widget:
+            raise SystemExit(f"build_float_console: 产物缺失 {must!r}")
+    if "document.getElementById('pvpBody').style.display" in widget:
+        raise SystemExit("build_float_console: PVP 版 toggleFold 残留(壳层剔除失效)")
+
     OUT.write_text(widget, encoding="utf-8")
-    print(f"已生成 {OUT} ({len(widget)} 字符)")
+    print(f"已生成 {OUT} ({len(widget)} 字符), 自检通过")
 
 
 if __name__ == "__main__":

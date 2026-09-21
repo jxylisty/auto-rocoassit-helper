@@ -431,6 +431,30 @@ body {
     .starfall-dmg { color: #7c5cd6; }
     .starfall-dmg.lethal { color: var(--wax); }
     .starfall-sub { color: var(--ink-3); }
+
+    /* ===== AI 陪玩弹幕条 ===== */
+    .ai-chat {
+        border-top: 1px dashed rgba(139, 92, 246, 0.35);
+        margin-top: 8px; padding: 5px 2px 2px;
+        min-height: 46px; max-height: 64px; overflow: hidden;
+        display: flex; flex-direction: column; gap: 3px;
+    }
+    .ai-chat .ai-line {
+        display: flex; align-items: flex-start; gap: 5px;
+        font-size: 11px; line-height: 1.45;
+        color: var(--ink-2);
+        animation: aiFadeIn 0.25s ease-out;
+    }
+    .ai-chat .ai-line .ai-tag {
+        flex: 0 0 auto; font-size: 9px; font-weight: 800;
+        padding: 1px 5px; border-radius: 999px; margin-top: 1px;
+        background: rgba(139, 92, 246, 0.16); color: #6d5aa8;
+    }
+    .ai-chat .ai-line.mood-hype .ai-tag { background: rgba(250, 204, 21, 0.25); color: #a16207; }
+    .ai-chat .ai-line.mood-care .ai-tag { background: rgba(74, 222, 128, 0.2); color: #3f6212; }
+    .ai-chat .ai-line.mood-salt .ai-tag { background: rgba(248, 113, 113, 0.2); color: #b91c1c; }
+    .ai-chat .ai-empty { font-size: 10px; color: var(--ink-3); padding: 6px 2px; }
+    @keyframes aiFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
 <body>
@@ -550,6 +574,30 @@ function syncPvpSize() {
 })();
 
 // 星陨层数下拉: 选择后进入手动模式(不再自动跟随致死层数)
+
+// ===== AI 陪玩弹幕条 (由主程序 /comment 端点推送) =====
+let _aiChatLines = [];   // {text, mood, ts}
+function pushAiComment(text, mood) {
+    mood = mood || 'normal';
+    _aiChatLines.push({ text: String(text || '').slice(0, 120), mood: String(mood), ts: Date.now() });
+    if (_aiChatLines.length > 3) _aiChatLines = _aiChatLines.slice(-3);
+    renderAiChat();
+}
+function renderAiChat() {
+    const box = document.getElementById('aiChat');
+    if (!box) return;
+    if (!_aiChatLines.length) {
+        box.innerHTML = '<div class="ai-empty">💬 AI 伙伴待命中…</div>';
+        return;
+    }
+    const TAGS = { hype: '🔥', care: '💚', salt: '🌶', normal: '✨' };
+    box.innerHTML = _aiChatLines.map(l => {
+        const tag = TAGS[l.mood] || '✨';
+        return '<div class="ai-line mood-' + l.mood + '">'
+            + '<span class="ai-tag">' + tag + ' AI</span>'
+            + '<span>' + l.text + '</span></div>';
+    }).join('');
+}
 function onStarfallSelect(value) {
     starfallMode = 'manual';
     starfallManualStacks = parseInt(value, 10) || 1;
