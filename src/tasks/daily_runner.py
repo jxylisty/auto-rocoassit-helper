@@ -154,6 +154,7 @@ class DailyRunner:
                             return
                         if step.get("extra", {}).get("on_fail") != "skip":
                             self._log("[日常] 步骤失败, 任务中止", "error")
+                            self.state["detail"] = f"任务失败: {name} ({e})"
                             return
                     done += 1
                     self._pause()
@@ -271,12 +272,16 @@ class DailyRunner:
         if action == "game_launch":
             if not self._launch_cb:
                 raise RuntimeError("启动回调未注入(bridge 未接 game_launch)")
-            result = self._launch_cb() or {}
-            if not result.get("success"):
-                raise RuntimeError(result.get("message", "WeGame 拉起失败"))
+            result = self._launch_cb()
+            # 兼容两种回调返回: bool(成功与否) 或 dict({success, message, ...})
+            ok = result if isinstance(result, bool) else bool((result or {}).get("success", True))
+            msg = "" if isinstance(result, bool) else str((result or {}).get("message", ""))
+            if not ok:
+                raise RuntimeError(msg or "WeGame 拉起失败")
             # 等游戏窗口/进程出现(最长 300s), 出现即任务完成
             from src.capture.window_capture import find_window
-            deadline = time.time() + float((result.get("wait_window")) or 300)
+            wait_cfg = 300 if isinstance(result, bool) else float((result or {}).get("wait_window") or 300)
+            deadline = time.time() + wait_cfg
             while time.time() < deadline:
                 if self._stop_event.is_set():
                     raise RuntimeError("__STOP__")

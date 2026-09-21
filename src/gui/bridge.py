@@ -189,7 +189,8 @@ class AppBridge:
         # 日常任务执行器(MAA 式): 复用截图管线与全停体系
         try:
             from src.tasks.daily_runner import DailyRunner
-            self.daily = DailyRunner(self._capture_frame, self._enqueue_log)
+            self.daily = DailyRunner(self._capture_frame, self._enqueue_log,
+                                     launch_cb=self.game_launch)
         except Exception:
             self.daily = None
         # 快捷键 F4/F9/F10 直接调 tool 内部方法, 绕过 GUI 入口的互斥逻辑,
@@ -1623,6 +1624,142 @@ class AppBridge:
             return cl < gr and cr > gl and ct < gb and cb_ > gt
         except Exception:
             return False
+
+    # ========================================
+    # WeGame 拉起游戏 (game_launch 日常动作的实现)
+    # ========================================
+
+    def game_launch(self) -> dict:
+        """无 UAC 拉起 WeGame 并尝试启动洛克王国。
+        链路: 计划任务 LKW_WeGameLaunch(提权启动 wegame.exe)
+             → 等 WeGame 窗口 → 计划任务 LKW_WeGameFocus 置顶窗口
+             → auto_click=true 时 OCR 定位「启动」按钮模拟点击
+             → 等游戏窗口(UnrealWindow)出现(最长 wait_window 秒)。
+        配置: data/config/game_launch.json"""
+        import subprocess
+        import time as _t
+        cfg_path = CONFIG_DIR / "game_launch.json"
+        cfg = {}
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        task_name = cfg.get("task_name", "LKW_WeGameLaunch")
+        focus_task = cfg.get("task_focus_name", "LKW_WeGameFocus")
+        appid = str(cfg.get("appid", "2002304"))
+        wait_window = int(cfg.get("wait_window", 300))
+        auto_click = bool(cfg.get("auto_click", True))
+
+        def _win32_popen_schtasks(action: str, args: list) -> subprocess.Popen:
+            # CREATE_NO_WINDOW: 不闪黑框
+            return subprocess.Popen(
+                ["schtasks", action, *args],
+                creationflags=0x08000000, close_fds=True)
+
+        # 1. 计划任务启动 WeGame(提权, 无 UAC 弹窗)
+        self._enqueue_log(f"[启动游戏] 计划任务 {task_name} 拉起 WeGame...", "info")
+        proc = _win32_popen_schtasks("/run", ["/tn", task_name])
+        proc.wait(timeout=15)
+
+        # 2. 等 WeGame 主窗口出现(Title 含 WeGame), 最长 wegame_wait 秒
+        wegame_wait = int(cfg.get("wegame_wait", 45))
+        from src.capture.window_capture import find_window
+        wegame_deadline = _t.time() + wegame_wait
+        while _t.time() < wegame_deadline:
+            if self._stop_event.is_set():
+                return {"success": False, "message": "已停止"}
+            try:
+                if find_window(title_matcher=lambda t: "WeGame" in t,
+                               exclude_own_process=True):
+                    break
+            except Exception:
+                pass
+            _t.sleep(1)
+        else:
+            return {"success": False, "message": f"等待 {wegame_wait}s 未出现 WeGame 窗口"}
+
+        self._enqueue_log("WeGame 已启动, 置顶窗口...", "info")
+        # 3. 置顶 WeGame(计划任务上下文运行, 才能对提权窗口 SetWindowPos)
+        _win32_popen_schtasks("/run", ["/tn", focus_task])
+
+        # 4. OCR 定位「启动」按钮并模拟点击(auto_click=true)
+        if auto_click:
+            ok = self._wegame_auto_click(appid)
+            if not ok:
+                self._enqueue_log("[启动游戏] OCR 未命中「启动」按钮, 请在 WeGame 界面手动点启动", "warning")
+
+        # 5. 等游戏窗口出现
+        self._enqueue_log(f"[启动游戏] 等待游戏窗口出现(最长 {wait_window}s)...", "info")
+        game_deadline = _t.time() + wait_window
+        while _t.time() < game_deadline:
+            if self._stop_event.is_set():
+                return {"success": False, "message": "已停止"}
+            try:
+                if find_window(class_name="UnrealWindow"):
+                    self._enqueue_log("[启动游戏] 游戏窗口已出现", "success")
+                    return {"success": True, "message": "游戏已启动"}
+            except Exception:
+                pass
+            _t.sleep(2)
+        return {"success": False, "message": f"等待 {wait_window}s 未出现游戏窗口"}
+
+    def _wegame_auto_click(self, appid: str, max_clicks: int = 3) -> bool:
+        """WeGame 界面 OCR 找「启 动」按钮并点击(需已置顶)。返回是否命中。"""
+        import time as _t
+        from src.capture.window_capture import find_window
+        from src.utils.ocr_engine import read_best
+        from src.driver.mouse_controller import MouseController
+        btn_streak = 0
+        clicked = False
+        deadline = _t.time() + 45
+        mouse = MouseController()
+        while _t.time() < deadline and not clicked:
+            if self._stop_event.is_set():
+                return False
+            info = find_window(title_matcher=lambda t: "WeGame" in t,
+                               exclude_own_process=True)
+            if not info:
+                _t.sleep(2)
+                continue
+            from src.capture.fast_capture import FastCapture
+            fc = FastCapture()
+            frame = fc.capture(rect=info.rect)
+            if frame is None or frame.size == 0:
+                _t.sleep(2)
+                continue
+            text, boxes = read_best(frame)
+            if not text:
+                _t.sleep(2)
+                continue
+            # OCR 找「启动」文本框(WeGame 大按钮, 可能写作"启动"/"启 动")
+            fh, fw = frame.shape[:2]
+            hit = None
+            for line in (boxes or []):
+                txt = str(line[1][0] if isinstance(line, (list, tuple)) and len(line) >= 2 else line)
+                clean = txt.replace(" ", "")
+                if "启动" in clean or "开始游戏" in clean:
+                    box = line[0] if isinstance(line, (list, tuple)) else None
+                    if box:
+                        xs = [p[0] for p in box]; ys = [p[1] for p in box]
+                        cx = (min(xs) + max(xs)) / 2 / fw
+                        cy = (min(ys) + max(ys)) / 2 / fh
+                        hit = (cx, cy)
+                        break
+            if hit:
+                btn_streak += 1
+                # 连续 2 次同位置命中才点(防 OCR 误认别的文字)
+                if btn_streak >= 2:
+                    x = info.rect[0] + int(info.width * hit[0])
+                    y = info.rect[1] + int(info.height * hit[1])
+                    mouse.move_to(x, y)
+                    _t.sleep(0.15)
+                    mouse.click('left', 0.06)
+                    clicked = True
+                    self._enqueue_log("[启动游戏] 已点击「启动」按钮", "info")
+            else:
+                btn_streak = 0
+                _t.sleep(2)
+        return clicked
 
     def vision_status(self) -> dict:
         """游戏窗口检测（不截图）"""
