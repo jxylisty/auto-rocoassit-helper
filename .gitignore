@@ -59,6 +59,7 @@ env/
 *.bmp
 *.gif
 !data/templates/**/*.png
+!data/config/roi_templates/*.png
 !data/templates/**/*.jpg
 !docs/**/*.png
 !docs/**/*.jpg
