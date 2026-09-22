@@ -146,6 +146,25 @@ def build_rules_pack() -> dict:
             "neutral": 1.0, "single_resist": 0.5, "double_resist": 0.25,
             "note": "计数口径: 对防御方每个属性分别统计 weak/resist, 非连乘",
         },
+        "battle_structure": {
+            "team_size": 6,
+            "hearts": 4,
+            "heart_rule": "己方精灵死亡扣 1 心(部分精灵特性影响扣心数), 4 心扣完即负",
+            "actions_per_turn": [
+                "出招: 从在场精灵的 4 个技能中选 1 个(消耗对应能量)",
+                "聚能: 变化类操作, 本回合不攻击, 回复 5 点能量",
+                "换宠: 任意存活精灵间自由替换",
+            ],
+            "energy_rule": "技能消耗能量; 聚能+5; 能量不足的技能不可选",
+            "resonance_skill": {
+                "name": "愿力冲击",
+                "cost": 2,
+                "power": 80,
+                "attr": "与精灵血脉(属性)相关",
+                "note": "第 6 技能(共鸣魔法), 4 技能槽之外的额外选择",
+            },
+            "win_condition": "扣完对方 4 心",
+        },
         "damage_formula": (
             "damage = max(1, (atk/def) * level_const * power * powerBuff "
             "* sameTypeBonus * attrMultiplier * levelMod * weatherMod "

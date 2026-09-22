@@ -39,6 +39,10 @@ class RoundLogger:
         self.enemy_names_seen: list = []   # 本局敌方出场序列
         self.player_names_seen: list = []
         self._closed = True
+        # 手牌追踪: 敌方已出场精灵 → {hp_seen_min(最低血量比例), turns(在场回合数)}
+        self.enemy_roster: dict[str, dict] = {}
+        self.player_energy_last: int | None = None
+        self.turn_count = 0
 
     # ---------------- 生命周期 ----------------
 
@@ -60,6 +64,9 @@ class RoundLogger:
         self.player_hp_max_seen = 0
         self.enemy_names_seen = [enemy_name] if enemy_name else []
         self.player_names_seen = [player_name] if player_name else []
+        self.enemy_roster = {}
+        self.player_energy_last = None
+        self.turn_count = 0
         self._closed = False
         self._write({"t": _now(), "event": "match_start",
                      "player": player_name, "enemy": enemy_name})
@@ -140,11 +147,18 @@ class RoundLogger:
                                "from": self.last_enemy_name, "to": e_name})
             if e_name not in self.enemy_names_seen:
                 self.enemy_names_seen.append(e_name)
+            self.enemy_roster.setdefault(e_name, {
+                "hp_seen_max": 0.0, "hp_seen_min": 1.0, "turns": 0, "seen_down": False})
             self.last_enemy_name = e_name
             self.last_enemy_hp_pct = None   # 新宠血量基线重置
 
         # --- 血量增减 ---
         if isinstance(e_hp, (int, float)) and e_hp > 0:
+            roster = self.enemy_roster.setdefault(e_name, {
+                "hp_seen_max": 0.0, "hp_seen_min": 1.0, "turns": 0, "seen_down": False})
+            roster["hp_seen_max"] = max(roster["hp_seen_max"], float(e_hp))
+            roster["hp_seen_min"] = min(roster["hp_seen_min"], float(e_hp))
+            roster["turns"] += 1
             if self.last_enemy_hp_pct is not None:
                 delta = e_hp - self.last_enemy_hp_pct
                 if abs(delta) >= 0.01:   # 1% 以上才记
@@ -167,16 +181,47 @@ class RoundLogger:
                                    "caused_by": "enemy"})
             self.last_player_hp_val = p_hp
 
-        # --- 技能栏变化(我方可用技能集) ---
+        # --- 技能栏变化(我方可用技能集) — 变化一次≈过了一回合, 递增回合数 ---
         if skills and skills != self.last_skills:
+            self.turn_count += 1
             events.append({"t": now, "event": "skills_seen",
+                           "turn": self.turn_count,
                            "skills": skills})
             self.last_skills = skills
+
+        # 敌方被打倒检测: 血量曾见底(<3%) → 该精灵已阵亡(粗判, 换宠前最后一次)
+        for name, info in self.enemy_roster.items():
+            if info["hp_seen_min"] <= 0.03:
+                info["seen_down"] = True
 
         # 事件写盘
         for e in events:
             self._write(e)
         return events
+
+    def hands_summary(self, current_enemy: str = "") -> dict:
+        """手牌/心数/能量摘要 (snapshot 透出给 AI):
+        enemy_roster: 敌方已出场精灵及状态; enemy_dead/alive 计数; enemy_hearts_left 估算"""
+        dead = [n for n, i in self.enemy_roster.items() if i.get("seen_down")]
+        alive = [n for n in self.enemy_roster if n not in dead]
+        # 未出场精灵 = 6 - 已见; 心数 = 4 - 阵亡数(忽略扣心特性)
+        enemy_hearts_left = max(0, 4 - len(dead))
+        roster_view = {n: {
+            "status": ("dead" if n in dead else
+                       (f"hp_min_seen={i['hp_seen_min']:.0%}" if n != current_enemy else "on_field")),
+            "hp_seen_min": round(i["hp_seen_min"], 2),
+            "turns_on_field": i["turns"],
+        } for n, i in self.enemy_roster.items()}
+        return {
+            "enemy_seen": self.enemy_names_seen,
+            "enemy_roster": roster_view,
+            "enemy_dead": dead,
+            "enemy_alive_seen": alive,
+            "enemy_unseen_count": max(0, 6 - len(self.enemy_names_seen)),
+            "enemy_hearts_left_est": enemy_hearts_left,
+            "enemy_hearts_lost_est": 4 - enemy_hearts_left,
+            "turn_count": self.turn_count,
+        }
 
     def _write(self, obj: dict):
         try:

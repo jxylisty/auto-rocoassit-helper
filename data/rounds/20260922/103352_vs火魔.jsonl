@@ -1,0 +1,8 @@
+{"t": "2026-09-22 10:33:52", "event": "match_start", "player": "迪莫", "enemy": "火魔"}
+{"t": "2026-09-22 10:33:52", "event": "skills_seen", "turn": 1, "skills": ["a", "b"]}
+{"t": "2026-09-22 10:33:52", "event": "switch_enemy", "from": "火魔", "to": "海皇波塞冬"}
+{"t": "2026-09-22 10:33:52", "event": "skills_seen", "turn": 2, "skills": ["a", "c"]}
+{"t": "2026-09-22 10:33:52", "event": "enemy_hp_change", "from": 1.0, "to": 0.02, "delta_pct": -0.98, "caused_by": "player"}
+{"t": "2026-09-22 10:33:52", "event": "player_hp_change", "from": 374, "to": 200, "delta": -174, "caused_by": "enemy"}
+{"t": "2026-09-22 10:33:52", "event": "switch_enemy", "from": "海皇波塞冬", "to": "迪莫"}
+{"t": "2026-09-22 10:33:52", "event": "match_end", "duration_sec": 0}

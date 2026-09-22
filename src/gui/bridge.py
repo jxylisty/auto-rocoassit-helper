@@ -2605,7 +2605,52 @@ class AppBridge:
             return data
         if getattr(result, "in_battle", False):
             self._enrich_result(data, result)
+            # 手牌/心数/回合摘要(回合日志聚合, 供 AI 做终局与换宠决策)
+            try:
+                logger = getattr(self, "_round_logger", None)
+                if logger and not logger._closed:
+                    data["hands"] = logger.hands_summary(
+                        current_enemy=(data.get("enemy") or {}).get("name", ""))
+            except Exception:
+                pass
+            # 能量线推演: 本回合可放技能 / 聚能后下回合可放 / 距愿力还差几点
+            try:
+                data["energy_plan"] = self._energy_plan(data)
+            except Exception:
+                pass
         return data
+
+    @staticmethod
+    def _energy_plan(data: dict) -> dict:
+        """我方能量线: 基于当前能量与技能消耗, 推演本回合/聚能后/两回合后的可选动作。
+        聚能=+5 不攻击; 愿力冲击固定 2 能耗 80 威。"""
+        player = data.get("player") or {}
+        energy = int(player.get("energy_val") or 0)
+        from src.pvp.skill_loader import get_skill
+        consume_map = {}
+        for sk_name in (player.get("skills") or []):
+            if not sk_name:
+                continue
+            sk = get_skill(sk_name) or {}
+            try:
+                consume_map[sk_name] = int(float(sk.get("consume") or 0))
+            except (TypeError, ValueError):
+                consume_map[sk_name] = 0
+        resonance_cost = 2
+
+        def _affordable(e: int) -> list:
+            return [n for n, c in consume_map.items() if c <= e]
+
+        plan = {
+            "energy_now": energy,
+            "this_turn_skills": _affordable(energy),
+            "can_resonance_now": energy >= resonance_cost,
+            "after_charge_energy": energy + 5,
+            "after_charge_skills": _affordable(energy + 5),
+            "charge_then_resonance_next_turn": (energy + 5) >= resonance_cost,
+            "deficit_to_resonance": max(0, resonance_cost - energy),
+        }
+        return plan
 
     def push_ai_comment(self, text: str, mood: str = "normal") -> bool:
         """AI 陪玩评论 → 悬浮窗弹幕条 (evaluate_js)"""
