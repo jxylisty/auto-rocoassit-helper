@@ -261,6 +261,36 @@ class PvpPipeline:
         # 头像模板库(懒加载: 导入失败/库为空时静默降级, 只走 OCR)
         self._avatar_lib: object | None = None
         self._avatar_tried = False
+        # 聚能图标模板(in_battle 判定用): 战斗界面左下角聚能按钮, PVP/PVE 都有
+        self._charge_tmpl: np.ndarray | None = None
+        self._charge_tried = False
+
+    def _charge_icon_present(self, frame: np.ndarray) -> bool:
+        """战斗界面标志判定: 左下角聚能按钮模板匹配(PVP/PVE 都有该按钮)。
+        模板未就绪/匹配异常时返回 False(不影响 OCR 兜底)。"""
+        try:
+            if self._charge_tmpl is None:
+                if self._charge_tried:
+                    return False
+                self._charge_tried = True
+                tmpl_path = PROJECT_ROOT / "data" / "config" / "roi_templates" / "聚能图标.png"
+                if not tmpl_path.exists():
+                    return False
+                self._charge_tmpl = cv2.imdecode(
+                    np.fromfile(str(tmpl_path), dtype=np.uint8), cv2.IMREAD_COLOR)
+                if self._charge_tmpl is None:
+                    return False
+            # 聚能按钮固定在左下角 — 只搜左下 1/4 区域, 提速且防远处相似物
+            fh, fw = frame.shape[:2]
+            roi = frame[fh // 2:, :fw // 2]
+            th, tw = self._charge_tmpl.shape[:2]
+            if roi.shape[0] < th or roi.shape[1] < tw:
+                return False
+            res = cv2.matchTemplate(roi, self._charge_tmpl, cv2.TM_CCOEFF_NORMED)
+            _, maxv, _, _ = cv2.minMaxLoc(res)
+            return maxv >= 0.72
+        except Exception:
+            return False
 
     def _match_avatars(self, frame: np.ndarray) -> dict:
         """头像模板匹配兜底: 裁 我方/敌方精灵头像 ROI → PvpTemplateLibrary.match。
@@ -453,8 +483,21 @@ class PvpPipeline:
             if m:
                 result.enemy_hp_pct = int(m.group(1)) / 100.0
 
-        result.in_battle = (result.player_name != "" or result.enemy_name != "" or
-                           result.player_hp != "")
+        # in_battle 判定: 聚能图标(战斗界面标志, PVP/PVE 都有)为主;
+        # 名字/血条 OCR 只作兜底(菜单/野外会误识别出"精灵名"导致假战斗态)
+        charge_seen = self._charge_icon_present(frame)
+        if charge_seen:
+            result.in_battle = True
+        else:
+            result.in_battle = (result.player_hp != "" and result.player_name_conf >= 0.9)
+        if not result.in_battle:
+            # 非战斗态: 清空精灵名/技能识别 — 防地图/菜单 UI 文字被当成精灵名
+            # 混进换宠检测与推演("乱识别精灵名"的根治)
+            result.player_name = ""
+            result.enemy_name = ""
+            result.player_name_conf = 0.0
+            result.enemy_name_conf = 0.0
+            result.skills = ["", "", "", ""]
 
         # 缓存结果
         self._cached_result = result

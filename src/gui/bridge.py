@@ -3217,13 +3217,38 @@ class AppBridge:
             return {"success": False, "message": str(e)}
 
     def resource_sync(self) -> dict:
-        """从官方 API / 本地高清库一键同步最新图鉴与技能图标资源"""
+        """从官方 API 一键同步最新图鉴/技能数据与立绘图标 (真下载, 全量约几分钟)。
+        后台线程执行: 前端立即返回启动成功, 进度通过日志抽屉实时回流;
+        完成后再推送一条汇总日志。重复点击防抖。"""
         try:
-            from src.pvp.resource_updater import ResourceUpdater
-            updater = ResourceUpdater(on_progress=lambda msg, p: self._enqueue_log(msg, "info" if p < 1.0 else "success"))
-            res = updater.sync()
-            return res
+            if getattr(self, "_resource_syncing", False):
+                return {"success": False, "message": "同步正在进行中, 请勿重复触发"}
+            self._resource_syncing = True
+
+            def _finish(res):
+                self._resource_syncing = False
+                if res.get("success"):
+                    self._enqueue_log("✅ " + str(res.get("message", "资源同步完成")), "success")
+                else:
+                    self._enqueue_log("❌ 资源同步失败: " + str(res.get("message", "")), "error")
+
+            def _worker():
+                from src.pvp.resource_updater import ResourceUpdater
+                updater = ResourceUpdater(
+                    on_progress=lambda msg, p: self._enqueue_log(msg, "info"))
+                try:
+                    res = updater.sync()
+                except Exception as e:
+                    res = {"success": False, "message": str(e)}
+                _finish(res)
+
+            threading.Thread(target=_worker, daemon=True, name="ResourceSync").start()
+            self._enqueue_log("🚀 官方资源同步已启动: 全量图鉴/技能/立绘下载中, 进度见日志…", "info")
+            return {"success": True,
+                    "message": "同步已启动(后台执行), 进度请在日志抽屉查看",
+                    "async": True}
         except Exception as e:
+            self._resource_syncing = False
             self._enqueue_log(f"资源同步失败: {e}", "error")
             return {"success": False, "message": str(e)}
 

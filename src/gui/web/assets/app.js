@@ -1908,22 +1908,19 @@ async function doResourceSync() {
     try {
         const r = await pywebview.api.resource_sync();
         if (r.success) {
+            // 后台异步模式: 立即返回"已启动", 完成结果走日志抽屉
             showToast(r.message, 'success');
             addLog(r.message, 'success');
+            if (tag) {
+                tag.textContent = '后台同步中…';
+                tag.style.background = 'rgba(245, 158, 11, 0.2)';
+                tag.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+                tag.style.color = '#fbbf24';
+            }
             if (r.stats) {
                 if ($('rscStatPets')) $('rscStatPets').textContent = r.stats.pets || '375+';
                 if ($('rscStatSkills')) $('rscStatSkills').textContent = r.stats.skills || '569+';
                 if ($('rscStatIcons')) $('rscStatIcons').textContent = r.stats.icons || '18';
-            }
-            if (tag) {
-                tag.textContent = '已是最新';
-                tag.style.background = 'rgba(34, 197, 94, 0.2)';
-                tag.style.borderColor = 'rgba(34, 197, 94, 0.4)';
-                tag.style.color = '#4ade80';
-            }
-            // 刷新 PVP 缓存
-            if (typeof loadPVPData === 'function') {
-                loadPVPData();
             }
         } else {
             showToast('同步失败: ' + r.message, 'error');

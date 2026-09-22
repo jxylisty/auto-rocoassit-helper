@@ -1,0 +1,6 @@
+{"t": "2026-09-22 16:02:09", "event": "match_start", "player": "霹雳迪迪", "enemy": ""}
+{"t": "2026-09-22 16:02:10", "event": "switch_mine", "from": "霹雳迪迪", "to": "燃薪虫"}
+{"t": "2026-09-22 16:02:24", "event": "switch_mine", "from": "燃薪虫", "to": "白金独角兽"}
+{"t": "2026-09-22 16:02:24", "event": "switch_enemy", "from": "公平鸽", "to": "白发路路"}
+{"t": "2026-09-22 16:02:26", "event": "switch_mine", "from": "白金独角兽", "to": "燃薪虫"}
+{"t": "2026-09-22 16:02:26", "event": "match_end", "duration_sec": 16}
