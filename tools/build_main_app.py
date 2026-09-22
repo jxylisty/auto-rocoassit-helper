@@ -91,6 +91,7 @@ def main() -> None:
         "--add-data", f"{staging / 'src' / 'pvp' / 'data'};src/pvp/data",
         "--add-data", f"{staging / 'interception'};interception",
         "--add-data", f"{PROJECT_ROOT / 'src/gui/web'};web",
+        "--add-data", f"{PROJECT_ROOT / 'src/gui/studio'};studio",
         *(["--add-data", f"{src_for_pack / 'pyarmor_runtime_000000'};pyarmor_runtime_000000",
            "--add-data", f"{src_for_pack / 'src'};src"]
           if obfuscate else []),

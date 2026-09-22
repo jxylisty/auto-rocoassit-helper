@@ -141,7 +141,8 @@ def _run_frozen(smoke: bool) -> None:
         _bridge.PROJECT_ROOT = exe_root
         _bridge.CONFIG_DIR = exe_root / "data" / "config"
         _bridge.SCREENSHOT_DIR = exe_root / "data" / "screenshots"
-        _bridge.WEB_DIR = base / "web"  # ROI 工坊等前端资源随包在 _MEIPASS/web
+        _bridge.WEB_DIR = base / "web"  # 主前端资源随包在 _MEIPASS/web
+        _bridge.STUDIO_DIR = base / "studio"  # 视觉工坊独立目录
 
         import src.gui.auth as _auth
         _auth.AUTH_FILE = exe_root / "data" / "config" / "auth.json"
