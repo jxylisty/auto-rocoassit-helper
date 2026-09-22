@@ -311,11 +311,13 @@ class AppBridge:
             if self._widget_visible:
                 self._widget.hide()
                 self._widget_visible = False
+                self._pvp_float_visible = False
             else:
                 last_pos = self._last_widget_pos
                 self._place_widget()
                 self._widget.show()
                 self._widget_visible = True
+                self._pvp_float_visible = True   # 同一窗口: F2 显示时 PVP 推送闸门同步开
                 # show() 会 Activate 并可能重置位置, 显示后按物理像素再钉一次
                 self._ensure_widget_on_screen()
                 self._reassert_widget_pos()
@@ -741,6 +743,7 @@ class AppBridge:
                 self._place_widget()   # 之前直接 show(), 窗口总落在创建默认位(主屏左上角)
                 self._widget.show()
                 self._widget_visible = True
+                self._pvp_float_visible = True   # 自动弹出同样开 PVP 推送闸门
                 # show() 会 Activate 并可能重置位置, 显示后按物理像素再钉一次
                 self._ensure_widget_on_screen()
                 self._reassert_widget_pos()
@@ -3214,12 +3217,16 @@ class AppBridge:
             return {"success": False, "message": "PVP悬浮窗未创建"}
         try:
             result = self.widget_toggle()
-            if result.get("visible"):
+            visible = bool(result.get("visible"))
+            # 推送闸门与 widget 显隐状态同步(此前 _pvp_float_visible 从未置 True,
+            # 引擎识别正常但数据永远不推悬浮窗)
+            self._pvp_float_visible = visible
+            if visible:
                 try:
                     self._pvp_float_window.evaluate_js('switchTab("pvp")')
                 except Exception:
                     pass
-            return {"success": True, "visible": result.get("visible", False)}
+            return {"success": True, "visible": visible}
         except Exception as e:
             return {"success": False, "message": str(e)}
 

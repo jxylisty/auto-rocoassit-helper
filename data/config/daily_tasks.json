@@ -27,7 +27,7 @@
     "extra": {}
    }
   ],
-  "enabled": true
+  "enabled": false
  },
  {
   "id": "claim_wish_star",
@@ -251,7 +251,7 @@
     }
    }
   ],
-  "enabled": false
+  "enabled": true
  },
  {
   "id": "ball_contract_hatch",
