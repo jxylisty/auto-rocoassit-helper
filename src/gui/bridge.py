@@ -55,6 +55,23 @@ CONFIG_FILES = {
             {"key": "exit_on_battle", "name": "遭遇战斗自动退出", "desc": "是否在检测到遭遇战斗画面时立即自动停止丢球与按键（true/false）"}
         ]
     },
+    "ai_vision.json": {
+        "title": "AI 视觉识别 (状态栏识图)",
+        "icon": "🤖",
+        "type": "json",
+        "desc": "用多模态 AI 直接读状态栏截图识别状态/印记（PVP 对战页「AI 识别」标签页可视化配置）",
+        "page_hint": "PVP 对战",
+        "gui_page": "pvp",
+        "fields": [
+            {"key": "enabled", "name": "总开关", "desc": "开启后 PVP 识别管线按间隔调用 AI 读状态栏（true/false）"},
+            {"key": "base_url", "name": "API 地址", "desc": "OpenAI 兼容接口地址，本地豆包桥为 http://127.0.0.1:7868/v1"},
+            {"key": "api_key", "name": "API Key", "desc": "接口密钥，本地豆包桥固定为 DoubaoAPI"},
+            {"key": "model", "name": "模型名", "desc": "多模态模型：doubao/vision-express（识图+推理）或 doubao/vision（纯识图）"},
+            {"key": "prompt", "name": "识图提示词", "desc": "发给模型的识别要求，留空使用内置提示词"},
+            {"key": "interval_s", "name": "识别间隔(秒)", "desc": "同一状态栏两次 AI 识别的最小间隔，避免刷接口"},
+            {"key": "template", "name": "ROI 模板", "desc": "状态栏框位来源（视觉工坊画的模板名，如 pvp状态）"}
+        ]
+    },
     "settings.yaml": {
         "title": "挂机引擎与全局设置",
         "icon": "⚔️",
@@ -1669,6 +1686,28 @@ class AppBridge:
         except Exception:
             return False
 
+    def _guard_console_occlusion(self, game_rect) -> bool:
+        """识别引擎的遮挡防护: 控制台叠在游戏上方时 mss 截到的是控制台画面,
+        引擎表现为"双方全不识别"。检测命中即自动最小化控制台(悬浮窗独立, 不受影响),
+        日志只报一次, 遮挡解除后复位以便下次再报。返回是否发生了遮挡。"""
+        try:
+            if not game_rect or not self._console_overlaps_game(game_rect):
+                if getattr(self, "_occlusion_guarded", False):
+                    self._occlusion_guarded = False
+                    self._enqueue_log("游戏画面不再被遮挡, 识别恢复", "info")
+                return False
+            if not getattr(self, "_occlusion_guarded", False):
+                self._occlusion_guarded = True
+                self._enqueue_log("⚠ 检测到控制台窗口遮挡游戏画面(截到的是控制台), 已自动最小化控制台", "warning")
+                try:
+                    if self._window:
+                        self._window.minimize()
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            return False
+
     # ========================================
     # WeGame 拉起游戏 (game_launch 日常动作的实现)
     # ========================================
@@ -2546,6 +2585,9 @@ class AppBridge:
                     continue
                 self._last_frame = frame
 
+                # 1.5 遮挡防护: 控制台叠在游戏上方时截到的是控制台画面 → 自动最小化
+                self._guard_console_occlusion(info.rect)
+
                 # 2. 识别
                 result = pipeline.analyze(frame)
                 data = pipeline.to_dict(result)
@@ -2834,6 +2876,70 @@ class AppBridge:
         return {"success": True}
 
     # ========================================
+    # 5.5 AI 视觉识别设置 (状态栏识图)
+    # ========================================
+
+    def ai_vision_get_settings(self) -> dict:
+        from src.gui.ai_vision import load_config
+        return {"success": True, "settings": load_config()}
+
+    def ai_vision_save_settings(self, params: dict) -> dict:
+        from src.gui import ai_vision
+        if not isinstance(params, dict) or not params:
+            return {"success": False, "message": "参数为空"}
+        cfg = ai_vision.load_config()
+        if "enabled" in params:
+            cfg["enabled"] = bool(params["enabled"])
+        if "base_url" in params:
+            cfg["base_url"] = str(params["base_url"]).strip()
+        if "api_key" in params:
+            cfg["api_key"] = str(params["api_key"]).strip()
+        if "model" in params:
+            cfg["model"] = str(params["model"]).strip()
+        if "prompt" in params:
+            cfg["prompt"] = str(params["prompt"])
+        if "interval_s" in params:
+            try:
+                cfg["interval_s"] = max(3, min(600, int(float(params["interval_s"]))))
+            except Exception:
+                pass
+        if "template" in params:
+            cfg["template"] = str(params["template"]).strip()
+        ai_vision.save_config(cfg)
+        self._enqueue_log("AI 视觉识别配置已保存", "info")
+        return {"success": True, "settings": cfg}
+
+    def ai_vision_test(self) -> dict:
+        """截一帧游戏画面, 按状态栏 ROI 裁图发给多模态 AI, 返回识别结果"""
+        from src.pvp.roi_template import load_template, resolve_rois
+        try:
+            info, frame = self._capture_frame()
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+        try:
+            from src.gui import ai_vision
+            cfg = ai_vision.load_config()
+            tpl = load_template(cfg.get("template") or "pvp状态")
+            if not tpl or not tpl.get("rois"):
+                return {"success": False,
+                        "message": f"ROI 模板「{cfg.get('template') or 'pvp状态'}」不存在或没有框位, 请先在视觉工坊框状态栏"}
+            rois = resolve_rois(cfg.get("template") or "pvp状态",
+                                frame.shape[1], frame.shape[0])
+            crops = ai_vision.crop_frame_to_jpeg_b64(frame, rois or [])
+            if not crops:
+                return {"success": False, "message": "状态栏裁图失败, 请检查模板框位"}
+            result = ai_vision.ask_vision(cfg, crops)
+            if not result.get("ok"):
+                self._enqueue_log(f"AI 识别失败: {result.get('error')}", "error")
+                return {"success": False, "message": result.get("error", "AI 识别失败")}
+            self._enqueue_log(f"AI 识别完成({result.get('elapsed')}s): {result.get('text', '')[:60]}", "success")
+            return {"success": True, "text": result.get("text", ""),
+                    "elapsed": result.get("elapsed"),
+                    "crops": [{"id": c["id"], "image": c["data_url"]} for c in crops]}
+        except Exception as e:
+            return {"success": False, "message": f"AI 识别异常: {e}"}
+
+    # ========================================
     # 6. PVP 对战助手 API
     # ========================================
 
@@ -2892,13 +2998,58 @@ class AppBridge:
             pass
         return ""
 
+    def _ensure_game_front_logged(self) -> bool:
+        """把游戏窗口置前并验证(背包盘点/日常任务共用)。
+        逻辑同 DailyRunner._ensure_game_front: bring_to_front → 验证 →
+        AttachThreadInput 借前台线程输入状态再切 → 再验证。"""
+        try:
+            import win32gui
+            import win32process
+            from src.capture.window_capture import WindowCapture, find_window
+            info = find_window(class_name="UnrealWindow") or find_window()
+            if info is None:
+                self._enqueue_log("未找到游戏窗口, 无法置顶", "warning")
+                return False
+            if win32gui.GetForegroundWindow() == info.hwnd:
+                return True
+            WindowCapture(info.hwnd).bring_to_front()
+            time.sleep(0.4)
+            if win32gui.GetForegroundWindow() != info.hwnd:
+                cur_tid, _ = win32process.GetWindowThreadProcessId(
+                    win32gui.GetForegroundWindow())
+                dst_tid, _ = win32process.GetWindowThreadProcessId(info.hwnd)
+                attached = False
+                try:
+                    attached = win32process.AttachThreadInput(cur_tid, dst_tid, True)
+                    win32gui.SetForegroundWindow(info.hwnd)
+                    win32gui.BringWindowToTop(info.hwnd)
+                finally:
+                    if attached:
+                        try:
+                            win32process.AttachThreadInput(cur_tid, dst_tid, False)
+                        except Exception:
+                            pass
+                time.sleep(0.3)
+            ok = win32gui.GetForegroundWindow() == info.hwnd
+            if ok:
+                self._enqueue_log("游戏窗口已置顶", "info")
+            else:
+                self._enqueue_log("游戏窗口置顶失败, 截图/点击可能不准", "warning")
+            return ok
+        except Exception as e:
+            self._enqueue_log(f"置顶异常: {e}", "warning")
+            return False
+
     def bag_scan(self) -> dict:
-        """背包盘点: 抓一帧游戏画面, 按网格识别球种+数量, 与上次快照做减法"""
+        """背包盘点: 置顶游戏 → 抓一帧画面, 按网格识别球种+数量, 与上次快照做减法"""
         try:
             from src.perception.bag_scanner import BagScanner
             scanner = BagScanner()
             if not scanner.available():
                 return {"success": False, "message": "背包 ROI 未配置(需要 背包.json 的 roi_1/roi_2/背包整体ocr)"}
+            # mss 是屏幕级抓图: 游戏被遮挡时截到的是遮挡窗口, 先置顶再截
+            self._ensure_game_front_logged()
+            time.sleep(0.5)   # 等渲染稳定, 避免抓到窗口切换过渡帧
             info, frame = self._capture_frame()
             res = scanner.scan_and_diff(frame)
             res["success"] = True
@@ -2911,14 +3062,17 @@ class AppBridge:
             return {"success": False, "message": str(e)}
 
     def bag_open(self) -> dict:
-        """Esc → 点击背包按钮 → 打开确认 → 确认后才点咕噜球筛选(内核级, 4秒防抖)。
-        不主动抢游戏焦点(按用户要求); 打开失败返回明确错误, 不静默吞掉。"""
+        """置顶游戏 → Esc → 点击背包按钮 → 打开确认 → 确认后才点咕噜球筛选
+        (内核级, 4秒防抖)。打开失败返回明确错误, 不静默吞掉。"""
         try:
             from src.perception.bag_scanner import open_bag_click, BAG_OPEN_DEBOUNCE
             now = time.time()
             if now - getattr(self, "_bag_open_last", 0.0) < BAG_OPEN_DEBOUNCE:
                 return {"success": False, "message": "背包打开过于频繁(防抖), 请稍候"}
             self._bag_open_last = now
+            # Esc 只在游戏有焦点时有效: 先置顶(点击链依赖游戏在前台)
+            self._ensure_game_front_logged()
+            time.sleep(0.4)
             ok = open_bag_click()
             if not ok:
                 return {"success": False,
@@ -3417,6 +3571,12 @@ class AppBridge:
                     self._stop_event.wait(self._live_interval)
                     continue
                 self._live_black_warned = False
+
+                # 遮挡防护: 控制台叠在游戏上方时截到的是控制台画面 → 自动最小化
+                try:
+                    self._guard_console_occlusion(info.rect)
+                except Exception:
+                    pass
 
                 # 帧差检测：像素均值差 < 5 则跳过识别
                 try:
@@ -4066,6 +4226,16 @@ class Api:
 
     def engine_save_settings(self, params):
         return self._bridge.engine_save_settings(params)
+
+    # AI 视觉识别
+    def ai_vision_get_settings(self):
+        return self._bridge.ai_vision_get_settings()
+
+    def ai_vision_save_settings(self, params):
+        return self._bridge.ai_vision_save_settings(params)
+
+    def ai_vision_test(self):
+        return self._bridge.ai_vision_test()
 
     # 工具箱
     def tools_list(self):

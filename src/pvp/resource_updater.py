@@ -338,7 +338,12 @@ class ResourceUpdater:
                 self._write_json("skills.json", skills)
             sealed_note = ""
             if list(DATA_DIR.glob("*.bin")):
-                sealed_note = "(检测到密封 .bin: 数据已写入明文 .json, 开发者可跑 tools/seal_assets.py --force 重密封)"
+                # 密封环境下 loader 优先读 .bin: 明文更新不重密封=授权用户永远看到旧数据
+                # (20260922 排查结论: "同步后悬浮窗/搜索还是旧数据"的根因)。自动重密封。
+                if self._reseed_bins():
+                    sealed_note = "(.bin 已随新数据自动重密封)"
+                else:
+                    sealed_note = "(⚠ .bin 自动重密封失败, 授权环境仍读旧数据, 请手动跑 tools/seal_assets.py --force)"
 
             # ---------- 5. 下载图片资源 ----------
             dl_pets = dl_skills = dl_fail = 0
@@ -428,6 +433,35 @@ class ResourceUpdater:
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(path)
+
+    @staticmethod
+    def _reseed_bins() -> bool:
+        """用构建 keys.json 里的 data_seed 把明文 json 重密封为 .bin。
+        授权态 loader 优先读 .bin, 不同步密封=新数据对授权用户不可见。
+        seed 文件缺失/派生失败返回 False(由调用方降级提示)。"""
+        try:
+            keys_file = PVP_DIR.parents[1] / "build" / "_hardened" / "keys.json"
+            if not keys_file.exists():
+                return False
+            seed = json.loads(keys_file.read_text(encoding="utf-8")).get("data_seed")
+            if not seed:
+                return False
+            # 复用 seal_assets 的加密原语(纯标准库, 直接 import 不跑 CLI)
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "seal_assets", PVP_DIR.parents[1] / "tools" / "seal_assets.py")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            key = mod.derive_key(str(seed))
+            for json_path in sorted(DATA_DIR.glob("*.json")):
+                if json_path.stem not in getattr(mod, "SEALED_NAMES", []):
+                    continue
+                blob = mod.encrypt_bytes(key, json_path.read_bytes(),
+                                         json_path.stem.encode("utf-8"))
+                json_path.with_suffix(".bin").write_bytes(blob)
+            return True
+        except Exception:
+            return False
 
 
 def run_sync_in_background(on_progress=None, on_done=None):

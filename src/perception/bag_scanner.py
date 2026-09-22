@@ -82,8 +82,8 @@ def _bag_grid_has_ball(frame) -> bool:
 
 def open_bag_click(button_roi: tuple = None, filter_roi: tuple = None) -> bool:
     """按 Esc 呼出菜单 → 点击「背包按钮」 → 打开确认 → 点击「咕噜球筛选」。
-    不主动把游戏置顶(用户要求): 游戏没焦点时第一轮跳过 Esc(按键会打到控制台),
-    直接点背包按钮位置 —— 该次点击会激活游戏窗口, 第二轮 Esc 就有效了。
+    置顶由调用方(bag_open)负责; Esc 只在游戏有焦点时按(否则打到别的窗口),
+    游戏没焦点时首轮跳过 Esc, 靠首次点击激活游戏窗口, 第二轮 Esc 即有效。
     坐标换算: 窗口rect + 归一化中心 → 屏幕坐标。
     返回: 背包是否确认打开(未确认不点筛选, 调用方据此报错而不是空扫)。"""
     import time as _t

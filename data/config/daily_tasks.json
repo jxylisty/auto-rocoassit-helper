@@ -98,6 +98,18 @@
     }
    },
    {
+    "name": "点击通行证按钮",
+    "action": "roi_click",
+    "target": [
+     "领取通行证奖励",
+     "通行证按钮"
+    ],
+    "extra": {
+     "retry": 1,
+     "retry_gap": 1.2
+    }
+   },
+   {
     "name": "点击全部领取",
     "action": "roi_click",
     "target": "领取按钮",
@@ -258,7 +270,7 @@
   "name": "咕噜球契约孵蛋",
   "repeat": 3,
   "round_gap": 2,
-  "notes": "P→孵蛋按钮→建立契约→OCR 选普通/高级球→建立契约→点空白继续; repeat=3 轮。模板: 咕噜球契约孵蛋.json",
+  "notes": "P→孵蛋按钮→建立契约→OCR 选普通/高级球→建立契约→等契约完成(OCR 识别「点击空白部分继续」出现)→OCR 确认后点屏幕→repeat 下一轮。模板: 咕噜球契约孵蛋.json; 球识别失败会打印逐格 OCR 原文便于对标注",
   "steps": [
    {
     "name": "打开孵蛋界面",
@@ -351,15 +363,23 @@
     }
    },
    {
-    "name": "点击空白继续",
-    "action": "roi_click",
-    "target": [
-     "咕噜球契约孵蛋",
-     "点击空白部分继续"
-    ],
+    "name": "等契约完成(识别提示文字)",
+    "action": "ocr_assert",
+    "target": "点击空白部分继续",
     "extra": {
-     "retry": 1,
-     "retry_gap": 1
+     "timeout": 15,
+     "interval": 0.8,
+     "on_fail": "skip"
+    }
+   },
+   {
+    "name": "点击屏幕继续",
+    "action": "ocr_click_text",
+    "target": "点击空白部分继续",
+    "extra": {
+     "timeout": 8,
+     "interval": 0.8,
+     "on_fail": "skip"
     }
    },
    {

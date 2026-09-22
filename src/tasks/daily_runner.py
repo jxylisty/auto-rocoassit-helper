@@ -578,11 +578,13 @@ def _roi_click_center(runner, target, extra: dict):
 
 def _roi_ocr_pick(runner, target, extra: dict):
     """roi_ocr_pick 动作(咕噜球契约孵蛋选球):
-    模板里 ROI id 以「球N」命名的格子 = 候选球; 对每格球名条带 OCR,
-    点第一个名字命中期望列表的球。target=期望球名列表或单个球名。"""
+    模板里 ROI id 以「球N」命名的格子 = 候选球名条带(整格 OCR, 不再切下部 30% —
+    标注的球格子本身就只有 30~42px 高, 切完只剩字迹残段导致 OCR 必败);
+    点第一个名字命中期望列表的球。target=期望球名列表或单个球名。
+    extra.poll_secs: 面板可能还在展开, 最多轮询这么久(默认 6s, 0 帧差轮询)。
+    全 miss 时把每格 OCR 原文打进日志, 便于对标注。"""
     import time as _t
     import json as _json
-    from pathlib import Path
     from src.driver.mouse_controller import MouseController
     from src.utils.ocr_engine import read_combined
 
@@ -598,29 +600,42 @@ def _roi_ocr_pick(runner, target, extra: dict):
     if not balls:
         raise RuntimeError(f"模板 {template} 里没有「球N」格子 ROI")
 
-    info, frame = runner._frame()
-    fh, fw = frame.shape[:2]
-    mouse = MouseController()
+    poll_deadline = _t.time() + float(extra.get("poll_secs", 6))
     picked = None
-    for r in balls:
-        rx, ry, rw, rh = (float(r.get("rx", 0)), float(r.get("ry", 0)),
-                          float(r.get("rw", 0)), float(r.get("rh", 0)))
-        # OCR 取格子下部 30% 球名条带
-        y0, y1 = int((ry + rh * 0.70) * fh), int((ry + rh) * fh)
-        x0, x1 = int(rx * fw), int((rx + rw) * fw)
-        crop = frame[max(0, y0):min(fh, y1), max(0, x0):min(fw, x1)]
-        if crop.size == 0:
-            continue
-        text, _ = read_combined(crop)
-        name = str(text or "").strip()
-        if name and any(w in name for w in wants):
-            picked = r
-            runner._log(f"OCR 命中期望球: '{name}' ({r.get('id')})", "info")
+    last_texts = []
+    info = None
+    while picked is None:
+        info, frame = runner._frame()
+        fh, fw = frame.shape[:2]
+        last_texts = []
+        for r in balls:
+            rx, ry, rw, rh = (float(r.get("rx", 0)), float(r.get("ry", 0)),
+                              float(r.get("rw", 0)), float(r.get("rh", 0)))
+            # 全格 OCR: 球N ROI 即球名条带本身, 不再裁剪
+            x0, x1 = int(rx * fw), int((rx + rw) * fw)
+            y0, y1 = int(ry * fh), int((ry + rh) * fh)
+            crop = frame[max(0, y0):min(fh, y1), max(0, x0):min(fw, x1)]
+            if crop.size == 0:
+                last_texts.append((r.get("id"), "(空)"))
+                continue
+            text, _ = read_combined(crop)
+            name = str(text or "").strip()
+            last_texts.append((r.get("id"), name or "(未读出)"))
+            if name and any(w in name for w in wants):
+                picked = r
+                runner._log(f"OCR 命中期望球: '{name}' ({r.get('id')})", "info")
+                break
+        if picked is not None or _t.time() >= poll_deadline:
             break
+        if runner._stop_event.wait(0.8):
+            raise RuntimeError("__STOP__")
+
     if picked is None:
-        raise RuntimeError(f"OCR 未找到期望球 {wants}, 请检查球名或标注")
+        detail = ", ".join(f"{rid}='{t}'" for rid, t in last_texts)
+        raise RuntimeError(f"OCR 未找到期望球 {wants} (逐格原文: {detail})")
     x = info.rect[0] + int(info.width * (float(picked["rx"]) + float(picked["rw"]) / 2))
     y = info.rect[1] + int(info.height * (float(picked["ry"]) + float(picked["rh"]) / 2))
+    mouse = MouseController()
     mouse.move_to(x, y)
     _t.sleep(0.15)
     mouse.click('left', 0.06 + 0.05 * (_t.time() % 1))
