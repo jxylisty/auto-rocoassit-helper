@@ -1660,45 +1660,60 @@ class AppBridge:
         return info
 
     @staticmethod
-    def _console_overlaps_game(game_rect) -> bool:
-        """检查控制台自身窗口是否遮挡了游戏窗口(遮挡时 BitBlt 会截到黑图)"""
+    def _console_covers_game(game_hwnd, game_rect) -> bool:
+        """控制台是否真的盖在游戏上面(Z 序判断, 不是矩形相交)。
+        算法: 从游戏窗口沿 Z 序往上走, 枚举位于其上方的可见窗口;
+        若存在本进程的"洛克王国"控制台窗口与游戏矩形相交且盖在其上 → 遮挡。
+        旧版只比矩形相交(全屏窗口永远相交), 控制台在游戏后面也误报 → 引擎
+        不停最小化控制台, 用户完全无法看日志(20260922 实机反馈)。"""
         try:
             import os
             import win32gui
             import win32process
 
             own_pid = os.getpid()
-            rects = []
+            gl, gt, gr, gb = game_rect
+            # EnumWindows 返回顺序即 Z 序(顶层在前): 只关心排在游戏前面的窗口
+            above = []
+            seen_game = False
 
             def _cb(hwnd, _):
+                nonlocal seen_game
+                if hwnd == game_hwnd:
+                    seen_game = True
+                    return
+                if seen_game:            # 游戏之后的(更底层)不再关心
+                    return
                 if not win32gui.IsWindowVisible(hwnd):
                     return
+                if win32gui.GetWindowLong(hwnd, -20) & 0x80:  # GWL_EXSTYLE & WS_EX_TOOLWINDOW(悬浮窗)
+                    return
                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                if pid == own_pid and "洛克王国" in win32gui.GetWindowText(hwnd):
-                    rects.append(win32gui.GetWindowRect(hwnd))
+                title = win32gui.GetWindowText(hwnd)
+                if pid == own_pid and "洛克王国" in title:
+                    above.append(win32gui.GetWindowRect(hwnd))
 
-            win32gui.EnumWindows(_cb, 0)
-            if not rects:
-                return False
-            cl, ct, cr, cb_ = rects[0]
-            gl, gt, gr, gb = game_rect
-            return cl < gr and cr > gl and ct < gb and cb_ > gt
+            win32gui.EnumWindows(_cb, None)
+            for (cl, ct, cr, cb_) in above:
+                if cl < gr and cr > gl and ct < gb and cb_ > gt:
+                    return True
+            return False
         except Exception:
             return False
 
-    def _guard_console_occlusion(self, game_rect) -> bool:
-        """识别引擎的遮挡防护: 控制台叠在游戏上方时 mss 截到的是控制台画面,
-        引擎表现为"双方全不识别"。检测命中即自动最小化控制台(悬浮窗独立, 不受影响),
-        日志只报一次, 遮挡解除后复位以便下次再报。返回是否发生了遮挡。"""
+    def _guard_console_occlusion(self, game_rect, game_hwnd=None) -> bool:
+        """识别引擎的遮挡防护: 控制台真盖在游戏上面时 mss 截到的是控制台画面。
+        Z 序判定(见 _console_covers_game), 只有真遮挡才最小化控制台并记一次性日志;
+        用户主动把控制台拖到游戏前面看日志 → 会提示一次; 控制台在后面时永不打扰。"""
         try:
-            if not game_rect or not self._console_overlaps_game(game_rect):
+            covered = bool(game_hwnd) and self._console_covers_game(game_hwnd, game_rect)
+            if not covered:
                 if getattr(self, "_occlusion_guarded", False):
                     self._occlusion_guarded = False
-                    self._enqueue_log("游戏画面不再被遮挡, 识别恢复", "info")
                 return False
             if not getattr(self, "_occlusion_guarded", False):
                 self._occlusion_guarded = True
-                self._enqueue_log("⚠ 检测到控制台窗口遮挡游戏画面(截到的是控制台), 已自动最小化控制台", "warning")
+                self._enqueue_log("⚠ 控制台盖在游戏上方, 引擎截到的是控制台画面 — 已自动最小化(看完日志把控制台拖到旁边即可)", "warning")
                 try:
                     if self._window:
                         self._window.minimize()
@@ -2586,7 +2601,7 @@ class AppBridge:
                 self._last_frame = frame
 
                 # 1.5 遮挡防护: 控制台叠在游戏上方时截到的是控制台画面 → 自动最小化
-                self._guard_console_occlusion(info.rect)
+                self._guard_console_occlusion(info.rect, info.hwnd)
 
                 # 2. 识别
                 result = pipeline.analyze(frame)
@@ -3574,7 +3589,7 @@ class AppBridge:
 
                 # 遮挡防护: 控制台叠在游戏上方时截到的是控制台画面 → 自动最小化
                 try:
-                    self._guard_console_occlusion(info.rect)
+                    self._guard_console_occlusion(info.rect, info.hwnd)
                 except Exception:
                     pass
 
