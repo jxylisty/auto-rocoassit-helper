@@ -954,8 +954,10 @@ class AppBridge:
         if getattr(self, "_widget_dragging", False) and time.time() < getattr(self, "_widget_drag_until", 0):
             return {"success": False, "message": "拖拽中,跳过 resize"}
         try:
-            safe_w = max(280, min(600, int(width)))
-            safe_h = max(36, min(900, int(height)))
+            safe_w = max(280, min(620, int(width)))
+            # 1400: PVP 全展开(VS看板+推演+威胁+星陨+AI聊天)内容高度可超 1000,
+            # 旧上限 900 会把内容压缩重叠("展开挤在一起")
+            safe_h = max(36, min(1400, int(height)))
             self._widget.resize(safe_w, safe_h)
             return {"success": True, "width": safe_w, "height": safe_h}
         except Exception as e:
@@ -2523,32 +2525,55 @@ class AppBridge:
                     calc_skills.append({"name": sk_name, "power": 0, "type": "变化",
                                         "dmg_min": 0, "dmg_max": 0, "mult": 1, "is_kill": False})
 
-            # 敌方威胁(敌方技能库威力最高的 4 个)
-            enemy_skills_raw = enemy_pet.get("skills", [])[:10]
+            # 敌方威胁预测: 与主控台 pvp_calc_all_skills 同一套玩家筛选规则 —
+            # 1) 按敌方种族值高项只选匹配的物攻/魔攻技能(双刀全显示)
+            # 2) 排除「升龙咆哮」 3) 威力<=60 的攻击技能剔除(龙系豁免)
+            enemy_race = enemy_pet.get("race", {})
+            try:
+                e_pa = int(enemy_race.get("attack", 0) or 0)
+            except (TypeError, ValueError):
+                e_pa = 0
+            try:
+                e_ma = int(enemy_race.get("mattack", 0) or 0)
+            except (TypeError, ValueError):
+                e_ma = 0
+            e_allowed = ("物攻", "魔攻") if e_pa == e_ma else (("物攻",) if e_pa > e_ma else ("魔攻",))
+
+            enemy_skills_raw = enemy_pet.get("skills", [])   # 全量, 筛选规则会收紧
             enemy_skills = [s["name"] if isinstance(s, dict) else s for s in enemy_skills_raw]
             enemy_threats = []
             for esk_name in enemy_skills:
                 esk = get_skill(esk_name) or {}
-                esk_power = float(esk.get("power", 0)) if esk.get("power") else 0
+                try:
+                    esk_power = float(esk.get("power", 0)) if esk.get("power") else 0
+                except (TypeError, ValueError):
+                    esk_power = 0
                 esk_type = esk.get("type", "")
-                if esk_power > 0 and esk_type in ("物攻", "魔攻"):
-                    edmg = calculate_damage_full(
-                        attacker_panel=enemy_panel, defender_panel=self_panel,
-                        skill_power=esk_power, skill_type=esk_type,
-                        skill_attr=esk.get("attr", "普"),
-                        attacker_attrs=enemy_pet.get("types", []),
-                        defender_attrs=self_pet.get("types", []),
-                    )
-                    is_lethal = result.player_hp_val > 0 and edmg["damage"] >= result.player_hp_val
-                    enemy_threats.append({
-                        "name": esk_name, "power": int(esk_power),
-                        "dmg_min": edmg["damage"],
-                        "dmg_max": round(edmg["damage"] * 1.15),
-                        "is_lethal": is_lethal,
-                        "tags": esk.get("tags", []),
-                    })
-                if len(enemy_threats) >= 4:
-                    break
+                esk_attr = (esk.get("attr") or "").rstrip("系")
+                if esk_name == "升龙咆哮":
+                    continue
+                if not (esk_power > 0 and esk_type in e_allowed):
+                    continue
+                if esk_power <= 60 and esk_attr != "龙":
+                    continue
+                edmg = calculate_damage_full(
+                    attacker_panel=enemy_panel, defender_panel=self_panel,
+                    skill_power=esk_power, skill_type=esk_type,
+                    skill_attr=esk.get("attr", "普"),
+                    attacker_attrs=enemy_pet.get("types", []),
+                    defender_attrs=self_pet.get("types", []),
+                )
+                is_lethal = result.player_hp_val > 0 and edmg["damage"] >= result.player_hp_val
+                enemy_threats.append({
+                    "name": esk_name, "power": int(esk_power),
+                    "dmg_min": edmg["damage"],
+                    "dmg_max": round(edmg["damage"] * 1.15),
+                    "is_lethal": is_lethal,
+                    "tags": esk.get("tags", []),
+                })
+            # 按伤害降序取前 4
+            enemy_threats.sort(key=lambda t: -t["dmg_min"])
+            enemy_threats = enemy_threats[:4]
 
             # 敌方《洛克王国：世界》真实速度极值区间(对齐点击头像显示的区间)
             enemy_race_speed = float(enemy_pet.get("race", {}).get("speed", 0))

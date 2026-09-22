@@ -1246,7 +1246,7 @@ function updatePVPData(data) {
     let threatsHtml = '';
     if (data.enemy_threats && data.enemy_threats.length) {
         threatsHtml = `
-            <div class="sec-title">⚠️ 敌方技能池 & 机制预警</div>
+            <div class="sec-title">🎯 敌方预测伤害 (按其种族高项筛选)</div>
             ${data.enemy_threats.map(t => {
                 const isLethal = t.is_lethal;
                 const iconUrl = getSkillIcon(t.name);
