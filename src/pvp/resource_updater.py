@@ -6,16 +6,12 @@
 真正做事:
 1. 分页拉取全量精灵列表 (/pets) — 增量发现新精灵/新形态
 2. 逐只拉取 profile (种族值/属性/立绘URL) 与 skills (技能表)
-3. 增量更新本地 JSON 数据库 (src/pvp/data/*.json — 密封前的明文源)
+3. 增量更新本地 JSON 数据库 (src/pvp/data/*.json, 明文直读)
 4. 下载缺失的精灵立绘与技能图标 → src/gui/web/assets/img/ (webp)
 5. 重建 pet_title_index.json (前端头像映射)
 
-注意: 核心数据 (pet_detail/pet_index/...) 在分发包里是密封 .bin。
-开发环境同步产出明文 .json (seal_assets.py 可再密封);
-若存在 .bin 且无明文 .json, 数据更新仍然落地为 .json (loader 明文优先级高于
-密封 .bin 的前提是密钥未注入; 已授权环境下 .bin 优先生效) — 因此同步完成后
-若检测到 .bin 存在, 会同时重密封 (调用 seal_assets 的密钥派生需要 seed,
-跳过自动密封, 提示开发者手动跑 seal_assets.py --force)。
+数据为明文 JSON (20260922 移除 .bin 密封 — 公开游戏数据无需加密,
+密封层曾是"同步后授权用户仍见旧数据"问题的根源), 同步结果即时生效。
 """
 
 import io
@@ -336,14 +332,8 @@ class ResourceUpdater:
                 self._write_json("pet_index.json", pet_index)
                 self._write_json("pet_race_speed.json", pet_race_speed)
                 self._write_json("skills.json", skills)
-            sealed_note = ""
-            if list(DATA_DIR.glob("*.bin")):
-                # 密封环境下 loader 优先读 .bin: 明文更新不重密封=授权用户永远看到旧数据
-                # (20260922 排查结论: "同步后悬浮窗/搜索还是旧数据"的根因)。自动重密封。
-                if self._reseed_bins():
-                    sealed_note = "(.bin 已随新数据自动重密封)"
-                else:
-                    sealed_note = "(⚠ .bin 自动重密封失败, 授权环境仍读旧数据, 请手动跑 tools/seal_assets.py --force)"
+            # 数据为明文直读(20260922 起 .bin 已移除, 公开游戏数据不再密封),
+            # 同步结果即时生效, 无需任何密封步骤
 
             # ---------- 5. 下载图片资源 ----------
             dl_pets = dl_skills = dl_fail = 0
@@ -393,7 +383,7 @@ class ResourceUpdater:
             elapsed = time.time() - t0
             msg = (f"同步完成({elapsed:.0f}s): 新增形态 {new_forms}, 新技能 {new_skills}, "
                    f"新建立绘 {dl_pets}" + (f", 失败 {dl_fail}" if dl_fail else "") +
-                   f" · 索引 {pet_count} 立绘/{skill_count} 技能图标/{icon_count} 属性徽章 {sealed_note}")
+                   f" · 索引 {pet_count} 立绘/{skill_count} 技能图标/{icon_count} 属性徽章")
             self._notify(f"🎉 {msg}", 1.0)
             return {
                 "success": True,
@@ -433,35 +423,6 @@ class ResourceUpdater:
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(path)
-
-    @staticmethod
-    def _reseed_bins() -> bool:
-        """用构建 keys.json 里的 data_seed 把明文 json 重密封为 .bin。
-        授权态 loader 优先读 .bin, 不同步密封=新数据对授权用户不可见。
-        seed 文件缺失/派生失败返回 False(由调用方降级提示)。"""
-        try:
-            keys_file = PVP_DIR.parents[1] / "build" / "_hardened" / "keys.json"
-            if not keys_file.exists():
-                return False
-            seed = json.loads(keys_file.read_text(encoding="utf-8")).get("data_seed")
-            if not seed:
-                return False
-            # 复用 seal_assets 的加密原语(纯标准库, 直接 import 不跑 CLI)
-            import importlib.util
-            spec = importlib.util.spec_from_file_location(
-                "seal_assets", PVP_DIR.parents[1] / "tools" / "seal_assets.py")
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            key = mod.derive_key(str(seed))
-            for json_path in sorted(DATA_DIR.glob("*.json")):
-                if json_path.stem not in getattr(mod, "SEALED_NAMES", []):
-                    continue
-                blob = mod.encrypt_bytes(key, json_path.read_bytes(),
-                                         json_path.stem.encode("utf-8"))
-                json_path.with_suffix(".bin").write_bytes(blob)
-            return True
-        except Exception:
-            return False
 
 
 def run_sync_in_background(on_progress=None, on_done=None):
