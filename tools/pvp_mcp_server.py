@@ -107,6 +107,31 @@ TOOLS = [
         },
     },
     {
+        "name": "pvp_rounds_list",
+        "description": (
+            "列出近期 PVP 对局的回合日志文件(自动记录: 换宠/血量增减/技能/胜负), "
+            "新→旧排序。用 pvp_round_log 读具体一份的完整事件流。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"days": {"type": "integer", "description": "回溯天数, 默认7"}},
+            "required": [],
+        },
+    },
+    {
+        "name": "pvp_round_log",
+        "description": (
+            "读取一份对局的完整回合事件流(match_start/switch/enemy_hp_change/"
+            "player_hp_change/skills_seen/match_end), 用于复盘与对手习惯分析。"
+            "file 参数来自 pvp_rounds_list。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"file": {"type": "string", "description": "日志文件路径"}},
+            "required": ["file"],
+        },
+    },
+    {
         "name": "pvp_history",
         "description": (
             "查询玩家真实录入的 PVP 战报历史(时间/结果/双方队伍)。"
@@ -133,6 +158,11 @@ def tool_call(name: str, args: dict) -> dict:
                        f"&kind={args.get('kind', 'all')}")
     if name == "pvp_history":
         return api_get(f"/history?limit={int(args.get('limit') or 10)}")
+    if name == "pvp_rounds_list":
+        return api_get(f"/rounds?days={int(args.get('days') or 7)}")
+    if name == "pvp_round_log":
+        from urllib.parse import quote
+        return api_get(f"/round?file={quote(args.get('file', ''))}")
     return {"error": f"未知工具: {name}"}
 
 

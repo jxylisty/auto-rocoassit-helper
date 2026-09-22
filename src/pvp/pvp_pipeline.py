@@ -258,6 +258,43 @@ class PvpPipeline:
         # 帧差跳帧缓存
         self._last_combined_hash: float | None = None
         self._cached_result: PvpResult | None = None
+        # 头像模板库(懒加载: 导入失败/库为空时静默降级, 只走 OCR)
+        self._avatar_lib: object | None = None
+        self._avatar_tried = False
+
+    def _match_avatars(self, frame: np.ndarray) -> dict:
+        """头像模板匹配兜底: 裁 我方/敌方精灵头像 ROI → PvpTemplateLibrary.match。
+        库未加载/加载失败/ROI 缺失时返回空 dict(不阻塞主识别链)。"""
+        out: dict = {}
+        if self._avatar_lib is None:
+            if self._avatar_tried:
+                return out
+            self._avatar_tried = True
+            try:
+                import sys as _sys
+                lib_dir = PROJECT_ROOT / "src" / "pvp" / "lib"
+                for pth in (str(lib_dir), str(PROJECT_ROOT)):
+                    if pth not in _sys.path:
+                        _sys.path.insert(0, pth)
+                from pvp_lib import PvpTemplateLibrary  # noqa
+                lib = PvpTemplateLibrary()
+                lib.load()
+                if lib.status().get("n_templates", 0) > 0:
+                    self._avatar_lib = lib
+            except Exception as e:
+                self._avatar_err = str(e)   # 仅记录一次, 不阻塞主链
+                return out
+        for side, roi_id in (("player", "我方精灵头像"), ("enemy", "敌方精灵头像")):
+            crop = self._crop(frame, roi_id)
+            if crop is None or crop.size == 0:
+                continue
+            try:
+                hits = self._avatar_lib.match(crop, n_top=1)
+            except Exception:
+                continue
+            if hits and hits[0].get("confidence") in ("high", "medium"):
+                out[side] = hits[0]
+        return out
 
     @staticmethod
     def _calc_hash(img: np.ndarray) -> float:
@@ -374,6 +411,21 @@ class PvpPipeline:
                 else:
                     result.enemy_name = matched or cleaned
                     result.enemy_name_conf = 0.9 if matched else 0.3
+
+        # ---- 3.5 头像库兜底: 名字 OCR 失败/低置信时用精灵头像模板匹配 ----
+        # (改名精灵/OCR 噪声时名字不可靠; 头像库 84 宠 202 模板, 库内自测 high 置信)
+        if (result.player_name_conf < 0.5) or (result.enemy_name_conf < 0.5):
+            avatar_hits = self._match_avatars(frame)
+            if avatar_hits.get("player") and result.player_name_conf < 0.5:
+                hit = avatar_hits["player"]
+                result.player_name = hit["name"]
+                result.player_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
+                result.errors.append(f"我方名字走头像兜底: {hit['name']}({hit['confidence']})")
+            if avatar_hits.get("enemy") and result.enemy_name_conf < 0.5:
+                hit = avatar_hits["enemy"]
+                result.enemy_name = hit["name"]
+                result.enemy_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
+                result.errors.append(f"敌方名字走头像兜底: {hit['name']}({hit['confidence']})")
 
         # ---- 4. 技能名 ----
         for i, roi_id in enumerate(["技能1", "技能2", "技能3", "技能4"]):

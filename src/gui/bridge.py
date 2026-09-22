@@ -2347,6 +2347,28 @@ class AppBridge:
     # PVP 实时识别引擎
     # ========================================
 
+    def _round_logger_tick(self, data: dict, result) -> None:
+        """回合日志: in_battle 状态切换开/关对局文件, 每帧 diff 事件落盘"""
+        logger = getattr(self, "_round_logger", None)
+        if logger is None:
+            from src.pvp.round_logger import RoundLogger
+            logger = RoundLogger()
+            self._round_logger = logger
+        if result.in_battle:
+            if logger._closed or not logger.file:
+                logger.start_match(result.player_name or "", result.enemy_name or "")
+                self._enqueue_log(f"[回合日志] 开局: {logger.match_id}", "info")
+            logger.update(data)
+        else:
+            if not logger._closed:
+                out = logger.close_match(final_snapshot=data)
+                if out:
+                    rec = out.get("recorded")
+                    self._enqueue_log(
+                        f"[回合日志] 收尾 {out['duration_sec']}s"
+                        + (f", 自动记录战报: {rec}" if rec else "(无胜负判定, 未写战报)"),
+                        "info")
+
     def _enrich_result(self, data: dict, result) -> None:
         """识别结果附加伤害推演字段(calc_skills/enemy_threats/速度/愿力)。
         _pvp_loop 与本地 API /snapshot 共用; 精灵数据未就绪/名字未识别时写 calc_error。"""
@@ -2497,6 +2519,12 @@ class AppBridge:
                     self._pvp_float_window.evaluate_js(
                         f"updatePVPData({json.dumps(data, ensure_ascii=False)})"
                     )
+
+                # 4.2 回合日志: 进战斗开局 / 每帧 diff 事件 / 脱战斗收尾写战报
+                try:
+                    self._round_logger_tick(data, result)
+                except Exception:
+                    pass
 
                 # 4.5 同步双方精灵到主控台「PVP 实时对战」详细查询页
                 if result.in_battle and result.player_name and result.enemy_name                         and self._window and self._pvp_running:

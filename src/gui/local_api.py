@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 LOCAL_API_PORT = 17365
 
@@ -84,6 +85,10 @@ class LocalApiServer(threading.Thread):
                         return self._send(200, handle_search(bridge, params))
                     if path == "/history":
                         return self._send(200, handle_history(bridge, params))
+                    if path == "/rounds":
+                        return self._send(200, handle_rounds(params))
+                    if path == "/round":
+                        return self._send(200, handle_round_detail(params))
                     return self._send(404, {"error": f"未知端点 {path}"})
                 except Exception as e:
                     return self._send(500, {"error": str(e)})
@@ -214,6 +219,22 @@ def handle_analyze(bridge, body: dict) -> dict:
         def_nature_down=body.get("def_nature_down"),
     )
     return {"matchup": res}
+
+
+def handle_rounds(params: dict) -> dict:
+    """列出近期回合日志文件(新→旧)"""
+    from src.pvp.round_logger import RoundLogger
+    days = min(int(params.get("days") or 7), 30)
+    return {"matches": RoundLogger.list_matches(days=days)}
+
+
+def handle_round_detail(params: dict) -> dict:
+    """读一份回合日志全文(事件流) — AI 复盘对局用"""
+    from src.pvp.round_logger import RoundLogger
+    f = params.get("file") or ""
+    if not f or ".." in f:
+        return {"error": "需要 file 参数(由 /rounds 返回的路径)"}
+    return RoundLogger.read_match(Path(f))
 
 
 def handle_comment(bridge, body: dict) -> dict:
