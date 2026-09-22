@@ -108,7 +108,10 @@ TOOLS = [
     },
     {
         "name": "pvp_history",
-        "description": "查询近期 PVP 战报历史(时间/结果/双方队伍), 可用于分析对手风格",
+        "description": (
+            "查询玩家真实录入的 PVP 战报历史(时间/结果/双方队伍)。"
+            "可能为空(玩家尚未录入) — 为空时不要编造胜率或对手风格。"
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"limit": {"type": "integer", "description": "条数, 默认10"}},

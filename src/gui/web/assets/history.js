@@ -192,12 +192,26 @@ window.filterHistory = function(filter) {
     refreshHistoryList(filter);
 };
 
-// 一键生成 15 场演示战报
+// 一键生成 15 场演示战报(仅供界面预览, AI 陪玩会当真实战绩读取 — 需二次确认)
 window.generateMockHistory = async function() {
+    const ok = await new Promise((resolve) => {
+        if (typeof showCustomModal === 'function') {
+            showCustomModal({
+                title: '生成演示战报',
+                desc: '将写入 15 条随机生成的假对局(仅供界面预览)。\n注意: AI 陪玩读取战报历史时无法区分真假, 会把这些当真实战绩分析。\n确认要写入吗?',
+                confirmText: '确认写入',
+                cancelText: '取消',
+                onConfirm: () => resolve(true),
+                onCancel: () => resolve(false),
+            });
+        } else {
+            resolve(confirm('将写入 15 条随机生成的假对局(仅供预览), AI 会当真实战绩读取。确认吗?'));
+        }
+    });
+    if (!ok) return;
     try {
-        showToast('正在生成 15 场赛季实战对局数据…', 'info');
         await window.pywebview.api.pvp_generate_mock_history(15);
-        showToast('生成成功！已为您装入 15 场实战战报', 'success');
+        showToast('已写入 15 场演示战报(假数据, 可点清空移除)', 'warning');
         await loadMatchHistory();
     } catch (e) {
         showToast('生成失败: ' + e, 'error');

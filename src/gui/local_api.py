@@ -183,9 +183,17 @@ def handle_search(bridge, params: dict) -> dict:
 
 
 def handle_history(bridge, params: dict) -> dict:
-    """战报历史(只读)"""
+    """战报历史(只读)。空库时明确告知 AI 无数据(绝不用演示数据冒充)。"""
     limit = min(int(params.get("limit") or 10), 50)
-    return {"matches": bridge.pvp_get_history(limit=limit).get("matches", [])}
+    res = bridge.pvp_get_history(limit=limit)
+    matches = res.get("matches", [])
+    return {
+        "matches": matches,
+        "count": len(matches),
+        "note": ("当前没有真实对局记录 — 战报由用户在对局结束后手动录入。"
+                 "不要假设对手风格或胜率, 如需历史分析请告知用户先打几场积累数据。"
+                 ) if not matches else "",
+    }
 
 
 def handle_analyze(bridge, body: dict) -> dict:
