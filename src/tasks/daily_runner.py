@@ -6,7 +6,7 @@
 - 任务 = 有序步骤列表; 步骤 = {name, action, target, extra}
   action:
     - template_click : 模板匹配等待出现 → 拟人点击 (target=模板名, extra={timeout, region})
-    - key            : 按键 (target=键名)
+    - key            : 按键 (target=键名) — 执行前自动把游戏窗口置前, 防止按键打到别的窗口
     - click_ratio    : 按屏幕比例坐标点击 (target=[rx, ry])
     - wait_template  : 等模板出现(不点击), 用于确认页面到位
     - wait_seconds   : 等待 N 秒 (extra={seconds})
@@ -86,7 +86,9 @@ class DailyRunner:
         return {"success": True, "total": len(queue)}
 
     def _run_queue(self, queue: list):
-        """串行执行任务队列; 单个任务失败只中止该任务, 继续下一个; 手动停止全停"""
+        """串行执行任务队列; 单个任务失败只中止该任务, 继续下一个; 手动停止全停。
+        任务与任务之间: 延迟 + 等待回到初始界面(衔接校验), 防止上一任务的
+        弹窗/子页面残留导致下一任务第一步就点错。"""
         self._queue_running = True
         total = len(queue)
         try:
@@ -95,8 +97,11 @@ class DailyRunner:
                     break
                 self._log(f"[日常] 流水线 {idx}/{total}: {task.get('name')}", "info")
                 self._run_task(task, queue_index=idx, queue_total=total)
-                if idx < total and self._stop_event.wait(1.5):
-                    break
+                if idx < total and not self._stop_event.is_set():
+                    # 任务间延迟(默认 2.5s, 可被 stop 打断) + 初始界面校验在
+                    # _run_task 开头做(那里能拿到下一任务上下文)
+                    if self._stop_event.wait(2.5):
+                        break
         finally:
             self._queue_running = False
             self.state["running"] = False
@@ -118,6 +123,110 @@ class DailyRunner:
     def _log(self, msg, level="info"):
         self._log_cb(msg, level)
 
+    # ---------- 初始界面衔接校验 ----------
+    INITIAL_SCREEN_JSON = "判断是否处于初始界面.json"
+    INITIAL_SCREEN_REF = "判断是否处于初始界面.png"   # ROI 区域参考图(自动采集)
+
+    def _initial_screen_roi(self) -> Optional[tuple]:
+        """读初始界面模板 JSON 里「识别标志」ROI → (rx, ry, rw, rh)"""
+        try:
+            data = json.loads((TEMPLATE_DIR / self.INITIAL_SCREEN_JSON).read_text(encoding="utf-8"))
+            for r in data.get("rois", []):
+                rid = str(r.get("id", "")) + str(r.get("label", ""))
+                if "识别" in rid or "标志" in rid or "初始" in rid:
+                    return (r["rx"], r["ry"], r["rw"], r["rh"])
+            rois = data.get("rois", [])
+            if rois:
+                r = rois[0]
+                return (r["rx"], r["ry"], r["rw"], r["rh"])
+        except Exception:
+            pass
+        return None
+
+    def _initial_screen_match(self, frame, ref_img) -> float:
+        """ROI 区域图案与参考图相似度 (0~1)。ref_img 为 ROI 区域的裁剪参考图。"""
+        import cv2
+        roi = self._initial_screen_roi()
+        if not roi:
+            return 0.0
+        rx, ry, rw, rh = roi
+        h, w = frame.shape[:2]
+        crop = frame[int(ry * h):int((ry + rh) * h), int(rx * w):int((rx + rw) * w)]
+        if crop.size == 0 or ref_img.size == 0:
+            return 0.0
+        # 参考图缩放到当前裁剪尺寸(窗口大小可能变过), 灰度归一后模板匹配
+        ref = cv2.resize(ref_img, (crop.shape[1], crop.shape[0]),
+                         interpolation=cv2.INTER_AREA)
+        g1 = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        g2 = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY)
+        try:
+            res = cv2.matchTemplate(g1, g2, cv2.TM_CCOEFF_NORMED)
+            return float(res.max()) if res.size else 0.0
+        except Exception:
+            return 0.0
+
+    def _wait_initial_screen(self, timeout: float = 25.0) -> bool:
+        """等待游戏回到初始(主)界面 — 任务与任务之间的衔接校验(用户要求)。
+        用「判断是否处于初始界面」模板 JSON 的「识别标志」ROI:
+        - 参考图不存在 → 自动采集当前 ROI 区域存为 PNG(首次自学习);
+        - 参考图存在 → 每次比对该位置图案是否与参考一致(一致=回到初始界面)。
+        未配置 ROI 时退化为画面静止判据。返回是否确认到达初始界面。"""
+        import cv2
+        import numpy as np
+        ref_path = TEMPLATE_DIR / self.INITIAL_SCREEN_REF
+        ref_img = cv2.imread(str(ref_path), cv2.IMREAD_COLOR) if ref_path.exists() else None
+        has_roi = self._initial_screen_roi() is not None
+
+        deadline = time.time() + timeout
+        self._ensure_game_front()
+        if self._stop_event.wait(1.0):
+            return False
+        while time.time() < deadline:
+            if self._stop_event.is_set():
+                return False
+            try:
+                _, frame = self._frame_provider()
+                if frame is not None and frame.size:
+                    if ref_img is None and has_roi:
+                        # 首次运行: 当前画面采集参考图(用户点一键执行时游戏应在初始界面)
+                        roi = self._initial_screen_roi()
+                        rx, ry, rw, rh = roi
+                        h, w = frame.shape[:2]
+                        crop = frame[int(ry * h):int((ry + rh) * h),
+                                     int(rx * w):int((rx + rw) * w)]
+                        if crop.size:
+                            try:
+                                from src.utils.image_io import imwrite_unicode
+                                if imwrite_unicode(ref_path, crop):
+                                    ref_img = crop
+                                    self._log("[日常] 已自动采集初始界面参考图: "
+                                              + self.INITIAL_SCREEN_REF, "success")
+                            except Exception:
+                                pass
+                    if ref_img is not None and has_roi:
+                        score = self._initial_screen_match(frame, ref_img)
+                        if score >= self._threshold():
+                            self._log(f"[日常] 已回到初始界面 (图案匹配 {score:.2f})", "success")
+                            return True
+                    elif not has_roi:
+                        # 无 ROI: 画面静止判据(相隔 1.2s 两帧几乎一致 → 界面稳定)
+                        if self._stop_event.wait(1.2):
+                            return False
+                        _, f2 = self._frame_provider()
+                        if f2 is not None and f2.size and f2.shape == frame.shape:
+                            diff = cv2.absdiff(
+                                cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY),
+                                cv2.cvtColor(f2, cv2.COLOR_BGR2GRAY))
+                            still = float(np.mean(diff < 12))
+                            if still >= 0.92:
+                                self._log(f"[日常] 画面已稳定, 视为初始界面 ({still:.2f})", "success")
+                                return True
+            except Exception:
+                pass
+            self._stop_event.wait(1.0)
+        self._log("[日常] 等待初始界面超时(继续下一任务, 可能落在非主界面)", "warning")
+        return False
+
     def _run_task(self, task: dict, queue_index: int = 0, queue_total: int = 0):
         self.running = True
         steps = task.get("steps", [])
@@ -128,6 +237,16 @@ class DailyRunner:
                       "step": "", "step_index": 0, "total_steps": total, "ok": 0, "fail": 0, "detail": "",
                       "queue_index": queue_index, "queue_total": queue_total}
         self._log(f"[日常] 开始任务: {task.get('name')} ({len(steps)} 步 x {repeats} 轮)", "success")
+        # 开跑前强制把游戏拉到前台+焦点(用户要求: 一键执行后游戏必须在前台,
+        # 否则后续 key/click_ratio 步骤全打到别的窗口)
+        self._ensure_game_front()
+        if self._stop_event.wait(0.6):
+            return
+        # 任务衔接校验: 上一任务结束后界面可能停在任意弹窗/子页面,
+        # 先等回到初始界面再执行本任务
+        if queue_index > 0 or getattr(self, "_ran_once", False):
+            self._wait_initial_screen()
+        self._ran_once = True
         done = 0
         try:
             for rnd in range(repeats):
@@ -176,15 +295,43 @@ class DailyRunner:
 
     # ---------- 步骤实现 ----------
     def _ensure_game_front(self):
-        """游戏窗口置前+焦点(点击/按键动作的前置条件)"""
+        """游戏窗口置前+焦点(点击/按键动作的前置条件)。
+        AttachThreadInput 借前台线程输入状态再切, 后台线程直接 SetForegroundWindow
+        常被 Windows 前台锁拒绝。失败仅记日志不阻塞(下一步截图/点击会再触发)。"""
         try:
+            import win32gui
+            import win32process
             from src.capture.window_capture import WindowCapture, find_window
             info = find_window(class_name="UnrealWindow") or find_window()
-            if info is not None:
-                WindowCapture(info.hwnd).bring_to_front()
-                self._stop_event.wait(0.4)
-        except Exception:
-            pass
+            if info is None:
+                self._log("[日常] 未找到游戏窗口, 跳过置前", "warning")
+                return
+            if win32gui.GetForegroundWindow() == info.hwnd:
+                return
+            WindowCapture(info.hwnd).bring_to_front()
+            self._stop_event.wait(0.4)
+            if win32gui.GetForegroundWindow() != info.hwnd:
+                cur_tid, _ = win32process.GetWindowThreadProcessId(
+                    win32gui.GetForegroundWindow())
+                dst_tid, _ = win32process.GetWindowThreadProcessId(info.hwnd)
+                attached = False
+                try:
+                    attached = win32process.AttachThreadInput(cur_tid, dst_tid, True)
+                    win32gui.SetForegroundWindow(info.hwnd)
+                    win32gui.BringWindowToTop(info.hwnd)
+                finally:
+                    if attached:
+                        try:
+                            win32process.AttachThreadInput(cur_tid, dst_tid, False)
+                        except Exception:
+                            pass
+                self._stop_event.wait(0.3)
+            if win32gui.GetForegroundWindow() == info.hwnd:
+                self._log("[日常] 游戏窗口已置前", "info")
+            else:
+                self._log("[日常] 游戏窗口置前失败, 按键/点击可能无效", "warning")
+        except Exception as e:
+            self._log(f"[日常] 置前异常: {e}", "warning")
 
     def _frame(self):
         # roi_click/click_ratio/key 等动作依赖屏幕坐标与焦点 → 截图前统一置前
@@ -232,6 +379,9 @@ class DailyRunner:
             return
 
         if action == "key":
+            # key 依赖游戏键盘焦点: 控制台在前台时按 h/e 会打到控制台或别的窗口
+            # (用户实机反馈"按某个键直接就没用了"), 故每次按键前强制置前一次
+            self._ensure_game_front()
             from src.driver import human_input
             human_input.press(str(target))
             return

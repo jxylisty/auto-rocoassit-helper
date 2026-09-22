@@ -36,6 +36,9 @@ function randomColor() {
 
 function addTmplOption(t) {
     const sel = $('tmplSelect');
+    // 首个真实模板进来时替换掉 disabled 占位项(占位项不可选, 不影响判断)
+    const placeholder = sel.querySelector('option:disabled');
+    if (placeholder) placeholder.remove();
     if ([...sel.options].some(o => o.value === t.name)) return;
     const opt = document.createElement('option');
     opt.value = t.name;
@@ -440,14 +443,7 @@ function renderManager() {
 async function studioTmplLoad() {
     const name = $('tmplSelect').value;
     if (!name) {
-        // 切回「-- 加载模板 --」= 新建空白画布: 清空当前 ROI 与模板名。
-        // 否则上一模板的 ROI 会被自动保存混带进新模板(交叉污染)
-        roi = {}; roiMeta = {}; tmplName = '';
-        $('tmplName').value = '';
-        roiSel = null;
-        renderManager();
-        renderOverlay();
-        setStatus('已清空画布 — 新建模板模式');
+        // 占位项(disabled)没有真实 value: 不清空画布, 避免误触发
         return;
     }
     try {

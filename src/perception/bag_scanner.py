@@ -59,67 +59,40 @@ def load_bag_filter_roi() -> Optional[tuple]:
     return None
 
 
-def _force_foreground(hwnd: int, attempts: int = 3) -> bool:
-    """可靠地把游戏窗口拉到前台并拿到键盘焦点。
-    pywebview API 跑在后台线程, 直接 SetForegroundWindow 常被 Windows 拒绝
-    (后台进程无置前权) → 先 AttachThreadInput 借前台线程的输入状态再切, 重试多次。
-    返回是否真的成为前台窗口。"""
-    import time as _t
-    import win32gui
-    import win32process
-    import win32api
+def _bag_grid_has_ball(frame) -> bool:
+    """背包界面打开确认: 在「背包整体ocr」区域内跑一次球模板匹配。
+    任一已知球型命中(≥阈值)即认为背包网格真的渲染出来了。
+    旧亮度判据的问题: Esc 菜单/主界面上该位置常有亮色元素, 误判"已打开"
+    → 后续扫描在错误界面上空扫, 还会误点「咕噜球筛选」位置。"""
     try:
-        cur_tid, _ = win32process.GetWindowThreadProcessId(
-            win32gui.GetForegroundWindow())
-        dst_tid, _ = win32process.GetWindowThreadProcessId(hwnd)
+        data = json.loads(BAG_ROI_PATH.read_text(encoding="utf-8"))
+        rois = {str(r.get("id")): r for r in data.get("rois", [])}
+        region = rois.get("背包整体ocr") or rois.get("背包整体")
+        if not region:
+            return True   # 没配整体区域时无法判定, 不阻塞主链
+        from src.perception.ball_watcher import BallTemplateMatcher
+        m = BallTemplateMatcher(active_balls=None, prefer="ingame")
+        m.present_threshold = 0.5   # 打开确认用宽松阈值(只判断"有没有球卡片")
+        hit = m.match_frame_rect(
+            frame, (region["rx"], region["ry"], region["rw"], region["rh"]))
+        return bool(hit.get("present"))
     except Exception:
-        return False
-    for i in range(attempts):
-        try:
-            if win32gui.GetForegroundWindow() == hwnd:
-                return True
-            # Esc 关掉可能打开着的游戏菜单(半透明遮罩会挡点击), 再置前
-            if i > 0:
-                try:
-                    win32api.keybd_event(0x1B, 0, 0, 0)      # Esc down
-                    win32api.keybd_event(0x1B, 0, 2, 0)      # Esc up
-                    _t.sleep(0.4)
-                except Exception:
-                    pass
-            attached = False
-            try:
-                if cur_tid != dst_tid:
-                    attached = win32process.AttachThreadInput(cur_tid, dst_tid, True)
-                win32gui.SetForegroundWindow(hwnd)
-                win32gui.BringWindowToTop(hwnd)
-            finally:
-                if attached:
-                    try:
-                        win32process.AttachThreadInput(cur_tid, dst_tid, False)
-                    except Exception:
-                        pass
-            _t.sleep(0.5)
-        except Exception:
-            _t.sleep(0.4)
-    return win32gui.GetForegroundWindow() == hwnd
+        return True   # 判定异常时不阻塞主链
 
 
 def open_bag_click(button_roi: tuple = None, filter_roi: tuple = None) -> bool:
-    """游戏获得焦点 → 按 Esc 呼出菜单 → 点击「背包按钮」 → 点击「咕噜球筛选」。
+    """按 Esc 呼出菜单 → 点击「背包按钮」 → 打开确认 → 点击「咕噜球筛选」。
+    不主动把游戏置顶(用户要求): 游戏没焦点时第一轮跳过 Esc(按键会打到控制台),
+    直接点背包按钮位置 —— 该次点击会激活游戏窗口, 第二轮 Esc 就有效了。
     坐标换算: 窗口rect + 归一化中心 → 屏幕坐标。
-    注意顺序: 必须先给游戏键盘焦点, 否则 Esc 会打到别的窗口。"""
+    返回: 背包是否确认打开(未确认不点筛选, 调用方据此报错而不是空扫)。"""
     import time as _t
     from src.driver import human_input
-    from src.capture.window_capture import find_window
+    from src.capture.window_capture import find_window, get_foreground_hwnd
     import interception
-    import win32gui
 
     info = find_window(class_name="UnrealWindow") or find_window()
     if not info or info.width < 50 or info.height < 50:
-        return False
-
-    # 1. 游戏窗口置顶激活(关键: 没焦点 Esc 无效; 失败则整链不执行, 避免空扫)
-    if not _force_foreground(info.hwnd):
         return False
 
     left, top, right, bottom = info.rect
@@ -142,13 +115,16 @@ def open_bag_click(button_roi: tuple = None, filter_roi: tuple = None) -> bool:
         _t.sleep(0.09)
         interception.mouse_up(button="left")
 
-    # 2. Esc 呼出菜单 → 点背包按钮 (带一次重试: 菜单动画慢时首次点击常落空)
+    confirmed = False
     for attempt in range(2):
-        human_input.press("esc")      # 呼出菜单
-        _t.sleep(0.8 if attempt == 0 else 1.2)   # 等菜单动画(重试时给更久)
+        # Esc 只在游戏有焦点时按(否则打到别的窗口); 首轮点击会自动激活游戏
+        game_focused = get_foreground_hwnd() == info.hwnd
+        if game_focused or attempt > 0:
+            human_input.press("esc")      # 呼出菜单
+            _t.sleep(0.8 if attempt == 0 else 1.2)   # 等菜单动画(重试时给更久)
         _click(target_x, target_y)
         _t.sleep(1.4)                 # 等背包界面打开(渲染网格)
-        # 打开确认: 截一帧看「背包按钮 ROI」区域是否已被背包界面替换
+        # 打开确认: 截一帧在「背包整体ocr」区域找已知球模板
         try:
             from src.capture.window_capture import find_window as _fw
             info2 = _fw(class_name="UnrealWindow") or _fw()
@@ -156,47 +132,27 @@ def open_bag_click(button_roi: tuple = None, filter_roi: tuple = None) -> bool:
                 from src.capture.fast_capture import FastCapture
                 fc = FastCapture()
                 frame = fc.capture(rect=info2.rect)
-                if frame is not None and frame.size and _bag_ui_visible(frame, info2):
+                if frame is not None and frame.size and _bag_grid_has_ball(frame):
+                    confirmed = True
                     break
         except Exception:
             pass
         if attempt == 0:
             _t.sleep(0.5)  # 未确认打开, 稍候重试整条链
 
-    # 3. 自动点击「咕噜球筛选」Tab (若配置)
-    if filter_roi is None:
-        filter_roi = load_bag_filter_roi()
-    if filter_roi:
-        fx, fy, fw, fh = filter_roi
-        filter_x = left + int((fx + fw / 2.0) * w)
-        filter_y = top + int((fy + fh / 2.0) * h)
-        _click(filter_x, filter_y)
-        _t.sleep(0.5)                 # 等待筛选切换/网格刷新
+    # 只有确认背包真的打开了才点「咕噜球筛选」Tab —— 之前无条件点击,
+    # 菜单没关时该坐标落在菜单图标(如商城)上, 正是"点成咕噜球筛选"的来源
+    if confirmed:
+        if filter_roi is None:
+            filter_roi = load_bag_filter_roi()
+        if filter_roi:
+            fx, fy, fw, fh = filter_roi
+            filter_x = left + int((fx + fw / 2.0) * w)
+            filter_y = top + int((fy + fh / 2.0) * h)
+            _click(filter_x, filter_y)
+            _t.sleep(0.5)             # 等待筛选切换/网格刷新
 
-    return True
-
-
-def _bag_ui_visible(frame, info) -> bool:
-    """判断背包界面是否已打开(打开确认信号):
-    「背包按钮」屏幕位置的颜色与菜单态差异大 → 菜单已关闭/被界面覆盖。
-    简化判据: Esc 菜单是半透明遮罩, 打开菜单时该点亮度明显低于主界面亮色按钮;
-    背包界面打开后按钮区域被背包面板覆盖。任一状态均视为"菜单已推进"。"""
-    try:
-        import numpy as np
-        roi = load_bag_button_roi()
-        if not roi:
-            return True   # 无法判定时不阻塞主链
-        rx, ry, rw, rh = roi
-        h, w = frame.shape[:2]
-        patch = frame[int(ry * h):int((ry + rh) * h),
-                      int(rx * w):int((rx + rw) * w)]
-        if patch.size == 0:
-            return True
-        mean = float(np.mean(patch))
-        # 菜单开着时该按钮在半透明暗遮罩下, 均值低; 菜单关闭(点击成功)后该点恢复亮色
-        return mean > 90
-    except Exception:
-        return True
+    return confirmed
 
 
 def load_bag_layout() -> Optional[dict]:

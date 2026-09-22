@@ -1193,6 +1193,9 @@ class AppBridge:
     def daily_run(self, task_id):
         return self._bridge.daily_run(task_id)
 
+    def daily_run_queue(self, task_ids):
+        return self._bridge.daily_run_queue(task_ids)
+
     def daily_stop(self):
         return self._bridge.daily_stop()
 
@@ -1235,7 +1238,41 @@ class AppBridge:
             self._pvp_running = False
         except Exception:
             pass
+        try:
+            self.daily._ran_once = False   # 单任务也做初始界面衔接校验
+        except Exception:
+            pass
         return self.daily.start_task(task_id)
+
+    def daily_run_queue(self, task_ids) -> dict:
+        """一键执行: MAA 式流水线(按清单顺序串行)。
+        启动前把游戏窗口强制置顶(用户要求), 否则按键/点击全打到控制台。"""
+        gate = self._auth_gate()
+        if gate:
+            return gate
+        if not self.daily:
+            return {"success": False, "message": "日常执行器不可用"}
+        try:
+            if self.engine.running:
+                self.engine.stop("启动日常任务")
+        except Exception:
+            pass
+        try:
+            self._pvp_running = False
+        except Exception:
+            pass
+        try:
+            self.daily._ran_once = False
+        except Exception:
+            pass
+        # 启动即置顶游戏(异步不阻塞 JS 返回; runner 内部每步还有兜底置前)
+        def _front_job():
+            try:
+                self.daily._ensure_game_front()
+            except Exception:
+                pass
+        threading.Thread(target=_front_job, daemon=True).start()
+        return self.daily.start_queue(task_ids)
 
     def daily_stop(self) -> dict:
         if self.daily:
@@ -2874,8 +2911,8 @@ class AppBridge:
             return {"success": False, "message": str(e)}
 
     def bag_open(self) -> dict:
-        """置前游戏 → Esc → 点击背包按钮(内核级, 4秒防抖)。
-        置前失败返回明确错误(由 _force_foreground 判定), 不静默吞掉。"""
+        """Esc → 点击背包按钮 → 打开确认 → 确认后才点咕噜球筛选(内核级, 4秒防抖)。
+        不主动抢游戏焦点(按用户要求); 打开失败返回明确错误, 不静默吞掉。"""
         try:
             from src.perception.bag_scanner import open_bag_click, BAG_OPEN_DEBOUNCE
             now = time.time()
@@ -2885,18 +2922,18 @@ class AppBridge:
             ok = open_bag_click()
             if not ok:
                 return {"success": False,
-                        "message": "打开背包失败: 无法把游戏切到前台(Esc/点击需要游戏焦点), 请手动点一下游戏窗口后重试"}
+                        "message": "打开背包失败: 菜单→背包按钮点击链未能打开背包界面, 请手动打开背包后用「直接盘点」"}
             return {"success": True, "message": "已打开背包"}
         except Exception as e:
             return {"success": False, "message": str(e)}
 
     def bag_open_and_scan(self) -> dict:
-        """置前游戏 → 打开背包(含重试+打开确认) → 盘点 → 返回结果。
+        """打开背包(含重试+打开确认) → 盘点 → 返回结果。
         打开失败时直接报错返回, 不在错误界面上空扫(根治'识别出一堆乱球')"""
         opened = self.bag_open()
         if not opened.get("success"):
             return {"success": False,
-                    "message": opened.get("message") or "无法置前游戏窗口, 请手动点一下游戏画面后再试"}
+                    "message": opened.get("message") or "打开背包失败, 请手动打开背包后再试"}
         res = self.bag_scan()
         if res.get("success"):
             res["bag_opened"] = True
@@ -4106,6 +4143,9 @@ class Api:
 
     def daily_run(self, task_id):
         return self._bridge.daily_run(task_id)
+
+    def daily_run_queue(self, task_ids):
+        return self._bridge.daily_run_queue(task_ids)
 
     def daily_stop(self):
         return self._bridge.daily_stop()

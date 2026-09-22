@@ -972,6 +972,13 @@
     });
 </script>
 <script>
+let starfallMode = 'auto';          // 'auto' | 'manual'
+let starfallManualStacks = 0;
+let _lastStarfallTable = null;      // 缓存最近一次推送的速查表, 供下拉重渲染
+let _lastEnemyHp = 0;               // 缓存敌方估算 HP, 供本地重绘致死判定
+let _lastPayload = null;            // 缓存最近一次完整推送, 供下拉变更后本地重绘
+
+// 属性映射
 const ATTR_MAP = {
     "火": "fire.webp", "水": "water.webp", "草": "grass.webp", "电": "electric.webp", "冰": "ice.webp",
     "虫": "bug.webp", "翼": "flying.webp", "地": "ground.webp", "萌": "fairy.webp", "武": "fighting.webp",

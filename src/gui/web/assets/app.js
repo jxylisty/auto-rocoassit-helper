@@ -1183,8 +1183,11 @@ async function tmplRefreshList() {
         const r = await pywebview.api.roi_template_list();
         if (!r.success) return;
         const sel = $('tmplSelect');
-        sel.innerHTML = '<option value="">-- 选择模板 --</option>' +
-            r.templates.map(t => `<option value="${t.name}">${t.name} (${t.roi_count}ROI)</option>`).join('');
+        // 不放空白占位选项(用户反馈: 空选项严重影响判断);
+        // 列表为空时只给一条禁用提示, 不可选中
+        sel.innerHTML = r.templates.length
+            ? r.templates.map(t => `<option value="${t.name}">${t.name} (${t.roi_count}ROI)</option>`).join('')
+            : '<option value="" disabled>暂无模板</option>';
     } catch (e) { /* 静默 */ }
 }
 
@@ -1245,7 +1248,15 @@ async function tmplSaveDialog() {
             rx: box.left, ry: box.top, rw: box.width, rh: box.height,
         });
     });
-    if (!rois.length) { showToast('请先创建至少一个 ROI', 'warning'); return; }
+    if (!rois.length) {
+        // 允许 0 ROI 保存(与 ROI 工坊一致): 先建模板文件占位, ROI 后续再框
+        const ok = await showModalConfirm({
+            title: '保存空模板',
+            desc: '当前模板没有任何 ROI, 仍要保存吗？可以先建模板占位, 之后继续框选。',
+            confirmText: '保存'
+        });
+        if (!ok) return;
+    }
     const img = $('shotImg');
     const baseRes = img ? [img.naturalWidth, img.naturalHeight] : [1920, 1080];
     try {

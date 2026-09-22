@@ -67,7 +67,9 @@ def main() -> None:
     # 去掉壳层常量: 与挂机脚本的 H_EXPANDED/H_FOLDED 跨块重复声明
     # 会让第二个 script 块整体抛异常报废(标签/推送全挂)
     js = js.replace("const PVP_W = 360, H_EXPANDED = 540, H_FOLDED = 42;", "")
-    js = js[js.index("const ATTR_MAP"):]                    # 从属性映射开始
+    # 从星陨状态声明区开始(它在 ATTR_MAP 之前! 曾因从 ATTR_MAP 截起把这些
+    # updatePVPData 依赖的全局声明截丢 → ReferenceError: _lastStarfallTable)
+    js = js[js.index("let starfallMode = 'auto';"):]
     # 截到 updatePVPData 块结尾 —— updatePVPData/onStarfallSelect 必须保留
     # (合并版悬浮窗全靠 updatePVPData 渲染 500ms 推送; 曾按"// 初始尺寸校准"
     # 锚点截断导致 updatePVPData 被截丢, 悬浮窗 PVP tab 永远停在"等待进入对战")
@@ -78,11 +80,16 @@ def main() -> None:
     if i != -1:
         js = js[:i + len(tail_anchor)]
     # 只剔除壳层三件套(toggleFold/syncPvpSize/waitInit): 合并版尺寸校准由外壳 syncSize 接管
+    # 注意: 壳层函数之后紧跟 AI 弹幕函数, 但壳层之前的头部声明区(let starfallMode/
+    # _lastStarfallTable/_lastEnemyHp/_lastPayload 等)是 updatePVPData 的依赖, 必须保留
     a = js.find("async function toggleFold")
     b = js.find("// ===== AI 陪玩弹幕条")
     if a != -1 and b != -1 and b > a:
         js = js[:a] + js[b:]
-    for must in ("function updatePVPData", "function pushAiComment"):
+    # 产物自检: 关键函数 + updatePVPData 依赖的全局声明, 缺一即报错
+    for must in ("function updatePVPData", "function pushAiComment",
+                 "let starfallMode", "let _lastStarfallTable",
+                 "let _lastEnemyHp", "let _lastPayload"):
         if must not in js:
             raise SystemExit(f"build_float_console: 剔除壳层后缺失 {must!r}")
     # 必要函数自检: 缺了说明 overlay 结构又变了, 立刻报错而不是产出残废文件
