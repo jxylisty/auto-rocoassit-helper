@@ -3,3 +3,5 @@
 {"type": "ocr_fail_plate", "ocr": null, "conf": 0.0, "file": "ocr_fail\\fail_0912_215228_plate.png", "time": "2026-09-12T21:52:28"}
 {"type": "enemy_avatar", "ocr": "绿翼鸟", "conf": 0.99, "file": "enemy_avatar\\绿翼鸟_215236.png", "time": "2026-09-12T21:52:36"}
 {"type": "enemy_nameplate", "ocr": "绿翼鸟", "conf": 0.99, "file": "enemy_nameplate\\绿翼鸟_215236.png", "time": "2026-09-12T21:52:36"}
+{"type": "enemy_avatar", "ocr": "尖角蜘蛛", "conf": 1.0, "file": "enemy_avatar\\尖角蜘蛛_172918.png", "time": "2026-09-22T17:29:18"}
+{"type": "enemy_nameplate", "ocr": "尖角蜘蛛", "conf": 1.0, "file": "enemy_nameplate\\尖角蜘蛛_172918.png", "time": "2026-09-22T17:29:18"}
