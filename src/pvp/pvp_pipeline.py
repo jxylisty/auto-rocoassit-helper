@@ -318,6 +318,11 @@ class PvpPipeline:
             crop = self._crop(frame, roi_id)
             if crop is None or crop.size == 0:
                 continue
+            # 质量闸: ROI 被聊窗/弹层盖住时是低对比灰碎片, 模板匹配必瞎配
+            # (实测定界: 清晰头像 std≈70/动态范围≈250, 被盖碎片 std≈18/范围≈84)
+            g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            if float(g.std()) < 35 or (int(g.max()) - int(g.min())) < 120:
+                continue
             try:
                 hits = self._avatar_lib.match(crop, n_top=1)
             except Exception:
@@ -522,6 +527,10 @@ class PvpPipeline:
                 "name_conf": result.enemy_name_conf,
                 "hp_pct": result.enemy_hp_pct,
                 "hp_color": result.enemy_hp_color,
+                # 敌方 HUD 可信度: 血条色为 0 且名字低置信 → 大概率被弹窗/聊窗遮挡,
+                # 前端据此显示"敌方疑似被遮挡", 不把 hp=0 当真值渲染
+                "occluded": (result.enemy_hp_color <= 0.0
+                             and result.enemy_name_conf < 0.9),
             },
             "in_battle": result.in_battle,
             "errors": result.errors,

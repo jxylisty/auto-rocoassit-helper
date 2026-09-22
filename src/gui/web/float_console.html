@@ -1109,8 +1109,11 @@ function updatePVPData(data) {
     }
 
     // 双方血量与属性
-    const enemyHpPct = Math.round((e.hp_pct !== undefined ? e.hp_pct : 1.0) * 100);
-    const enemyHpColor = enemyHpPct > 50 ? 'green' : enemyHpPct > 20 ? 'yellow' : 'red';
+    // 敌方被遮挡标记: 血条色 0 + 名字低置信 → HUD 大概率被弹窗/聊窗盖住,
+    // 显示"疑似被遮挡"提示, 血条走未知态(不渲染假 0%)
+    const enemyOccluded = !!e.occluded;
+    const enemyHpPct = enemyOccluded ? null : Math.round((e.hp_pct !== undefined ? e.hp_pct : 1.0) * 100);
+    const enemyHpColor = enemyHpPct == null ? '' : (enemyHpPct > 50 ? 'green' : enemyHpPct > 20 ? 'yellow' : 'red');
 
     const playerHp = p.hp || '?';
     const playerHpMax = p.hp_max || 450;
@@ -1294,17 +1297,17 @@ function updatePVPData(data) {
                 <div class="pet-header">
                     <img class="pet-avatar" src="${enemyAvatar}" onerror="this.src='assets/img/icons/normal.webp'">
                     <div class="pet-info">
-                        <div class="pet-name">${e.name || '敌方精灵'}</div>
+                        <div class="pet-name">${e.name || '敌方精灵'}${enemyOccluded ? ' <span style="font-size:9.5px;color:#fbbf24" title="敌方名字条/血条被弹窗或聊天悬浮窗挡住了">⚠疑似被遮挡</span>' : ''}</div>
                         <div class="pet-attrs">${enemyAttrIcons || '<span style="font-size:9.5px;color:var(--dim)">常规</span>'}</div>
                     </div>
                 </div>
                 <div class="stat-bar-box">
                     <div class="stat-nums">
-                        <span class="hp-val">${enemyHpPct}%</span>
+                        <span class="hp-val">${enemyOccluded ? '?%' : enemyHpPct + '%'}</span>
                         <span style="color:var(--dim)">HP</span>
                     </div>
                     <div class="bar-track">
-                        <div class="bar-fill" style="width: ${100 - enemyHpPct}%"></div>
+                        <div class="bar-fill" style="width: ${enemyOccluded ? 0 : (100 - enemyHpPct)}%; opacity:${enemyOccluded ? 0.25 : 1}"></div>
                     </div>
                 </div>
                 <div class="energy-row" style="justify-content: flex-end;">
