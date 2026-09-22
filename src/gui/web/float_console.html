@@ -1270,7 +1270,7 @@ function updatePVPData(data) {
                 <div class="pet-header">
                     <img class="pet-avatar" src="${playerAvatar}" onerror="this.src='assets/img/icons/normal.webp'">
                     <div class="pet-info">
-                        <div class="pet-name">${p.name || '我方精灵'}</div>
+                        <div class="pet-name">${p.name || '我方精灵'}${p.name_via_avatar ? ' <span style="font-size:9.5px;color:#7dd3fc" title="按头像判定(可能与取名不同)">🪪</span>' : ''}</div>
                         <div class="pet-attrs">${playerAttrIcons || '<span style="font-size:9.5px;color:var(--dim)">常规</span>'}</div>
                     </div>
                 </div>
@@ -1297,7 +1297,7 @@ function updatePVPData(data) {
                 <div class="pet-header">
                     <img class="pet-avatar" src="${enemyAvatar}" onerror="this.src='assets/img/icons/normal.webp'">
                     <div class="pet-info">
-                        <div class="pet-name">${e.name || '敌方精灵'}${enemyOccluded ? ' <span style="font-size:9.5px;color:#fbbf24" title="敌方名字条/血条被弹窗或聊天悬浮窗挡住了">⚠疑似被遮挡</span>' : ''}</div>
+                        <div class="pet-name">${e.name || '敌方精灵'}${e.name_via_avatar ? ' <span style="font-size:9.5px;color:#7dd3fc" title="OCR 名字与头像冲突或名字低置信, 已按头像判定 — 对面可能改了名">🪪头像判定</span>' : ''}${enemyOccluded ? ' <span style="font-size:9.5px;color:#fbbf24" title="敌方名字条/血条被弹窗或聊天悬浮窗挡住了">⚠疑似被遮挡</span>' : ''}</div>
                         <div class="pet-attrs">${enemyAttrIcons || '<span style="font-size:9.5px;color:var(--dim)">常规</span>'}</div>
                     </div>
                 </div>

@@ -237,6 +237,8 @@ class PvpResult:
     player_hp_max: int = 0
     enemy_name: str = ""
     enemy_name_conf: float = 0.0
+    enemy_name_via_avatar: bool = False   # 名字来自头像兜底/交叉覆盖(非 OCR 直读)
+    player_name_via_avatar: bool = False
     enemy_hp_pct: float = 0.0  # 0.0-1.0
     enemy_hp_color: float = 0.0  # 色彩积分值
     skills: list[str] = field(default_factory=lambda: ["", "", "", ""])
@@ -449,20 +451,48 @@ class PvpPipeline:
                     result.enemy_name = matched or cleaned
                     result.enemy_name_conf = 0.9 if matched else 0.3
 
-        # ---- 3.5 头像库兜底: 名字 OCR 失败/低置信时用精灵头像模板匹配 ----
-        # (改名精灵/OCR 噪声时名字不可靠; 头像库 84 宠 202 模板, 库内自测 high 置信)
-        if (result.player_name_conf < 0.5) or (result.enemy_name_conf < 0.5):
-            avatar_hits = self._match_avatars(frame)
-            if avatar_hits.get("player") and result.player_name_conf < 0.5:
-                hit = avatar_hits["player"]
-                result.player_name = hit["name"]
-                result.player_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
-                result.errors.append(f"我方名字走头像兜底: {hit['name']}({hit['confidence']})")
-            if avatar_hits.get("enemy") and result.enemy_name_conf < 0.5:
-                hit = avatar_hits["enemy"]
-                result.enemy_name = hit["name"]
-                result.enemy_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
-                result.errors.append(f"敌方名字走头像兜底: {hit['name']}({hit['confidence']})")
+        # ---- 3.4 头像交叉验证(防恶意改名): 部分玩家把精灵命名成别的精灵的名字,
+        # OCR 会自信读出假名(conf 0.9)。头像不会说谎 — 名字与头像冲突时头像赢。
+        # 头像 unavailable(未收录/低质/低margin) 时保留 OCR 结果(此时无从证伪)。
+        avatar_hits = self._match_avatars(frame)
+        for side in ("player", "enemy"):
+            hit = avatar_hits.get(side)
+            if not hit:
+                continue
+            r = result.player_name if side == "player" else result.enemy_name
+            conf = result.player_name_conf if side == "player" else result.enemy_name_conf
+            if r and conf >= 0.9 and r != hit["name"]:
+                # OCR 高置信名 vs 头像命中名冲突 → 改名欺诈嫌疑, 头像优先
+                if side == "player":
+                    result.player_name = hit["name"]
+                    result.player_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
+                    result.player_name_via_avatar = True
+                else:
+                    result.enemy_name = hit["name"]
+                    result.enemy_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
+                    result.enemy_name_via_avatar = True
+                result.errors.append(
+                    f"{'我方' if side == 'player' else '敌方'}名字与头像冲突 "
+                    f"(OCR'{r}' → 头像'{hit['name']}', 疑似改名)")
+
+        # ---- 3.5 头像兜底: 名字 OCR 失败/低置信时用精灵头像模板匹配 ----
+        # (3.4 已跑过匹配, 此处直接复用结果)
+        for side in ("player", "enemy"):
+            hit = avatar_hits.get(side)
+            if not hit:
+                continue
+            conf = result.player_name_conf if side == "player" else result.enemy_name_conf
+            if conf < 0.5:
+                if side == "player":
+                    result.player_name = hit["name"]
+                    result.player_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
+                    result.player_name_via_avatar = True
+                    result.errors.append(f"我方名字走头像兜底: {hit['name']}({hit['confidence']})")
+                else:
+                    result.enemy_name = hit["name"]
+                    result.enemy_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
+                    result.enemy_name_via_avatar = True
+                    result.errors.append(f"敌方名字走头像兜底: {hit['name']}({hit['confidence']})")
 
         # ---- 4. 技能名 ----
         for i, roi_id in enumerate(["技能1", "技能2", "技能3", "技能4"]):
@@ -521,12 +551,15 @@ class PvpPipeline:
                 "hp_val": result.player_hp_val,
                 "hp_max": result.player_hp_max,
                 "skills": result.skills,
+                "name_via_avatar": result.player_name_via_avatar,
                 "energy": result.energy,
                 "energy_val": result.energy_val,
             },
             "enemy": {
                 "name": result.enemy_name,
                 "name_conf": result.enemy_name_conf,
+                # 名字来自头像(而非 OCR 直读): 可能是改名精灵的真实身份, 前端可加标记
+                "name_via_avatar": result.enemy_name_via_avatar,
                 "hp_pct": result.enemy_hp_pct,
                 "hp_color": result.enemy_hp_color,
                 # 敌方 HUD 可信度: 血条色为 0 且名字低置信 → 大概率被弹窗/聊窗遮挡,
