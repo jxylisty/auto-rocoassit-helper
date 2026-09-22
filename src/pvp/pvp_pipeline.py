@@ -483,13 +483,15 @@ class PvpPipeline:
             if m:
                 result.enemy_hp_pct = int(m.group(1)) / 100.0
 
-        # in_battle 判定: 聚能图标(战斗界面标志, PVP/PVE 都有)为主;
-        # 名字/血条 OCR 只作兜底(菜单/野外会误识别出"精灵名"导致假战斗态)
+        # in_battle 判据(三选一, 防单点失效):
+        # 1. 聚能图标(战斗界面标志) — 但放大招时会消失, 不能单用
+        # 2. 我方名字高置信(≥0.9 词库模糊命中) + 我方血量数字同时在场
+        #    (菜单/野外误 OCR 出"精灵名"通常无血量数字伴随, 双条件可滤)
+        # 3. 敌方血条色条存在(非零) + 敌方名条 OCR 有字
         charge_seen = self._charge_icon_present(frame)
-        if charge_seen:
-            result.in_battle = True
-        else:
-            result.in_battle = (result.player_hp != "" and result.player_name_conf >= 0.9)
+        self_hud = (result.player_hp != "" and result.player_name_conf >= 0.9)
+        enemy_hud = (result.enemy_hp_color > 0.0 and bool(result.enemy_name))
+        result.in_battle = charge_seen or self_hud or enemy_hud
         if not result.in_battle:
             # 非战斗态: 清空精灵名/技能识别 — 防地图/菜单 UI 文字被当成精灵名
             # 混进换宠检测与推演("乱识别精灵名"的根治)
