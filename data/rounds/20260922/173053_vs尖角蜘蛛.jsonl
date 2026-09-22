@@ -1,0 +1,3 @@
+{"t": "2026-09-22 17:30:53", "event": "match_start", "player": "冰钻布鲁斯", "enemy": "尖角蜘蛛"}
+{"t": "2026-09-22 17:31:00", "event": "enemy_hp_change", "from": 1.0, "to": 0.01, "delta_pct": -0.99, "caused_by": "player"}
+{"t": "2026-09-22 17:31:03", "event": "match_end", "duration_sec": 9}

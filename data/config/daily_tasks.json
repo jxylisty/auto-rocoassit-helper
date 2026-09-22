@@ -251,7 +251,7 @@
     }
    }
   ],
-  "enabled": true
+  "enabled": false
  },
  {
   "id": "ball_contract_hatch",
