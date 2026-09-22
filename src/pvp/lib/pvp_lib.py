@@ -90,6 +90,22 @@ def file_md5(fp: Path) -> str:
     return h.hexdigest()
 
 
+def hue_hist_18(bgr):
+    """饱和彩色像素的 18-bin 色相直方图(归一化)。饱和像素不足时返回 None。
+    这是区分"同模型不同色"精灵(鸭吉吉明黄 vs 音速犬橙棕)的关键特征 —
+    ORB 是灰度特征, 对颜色完全盲。"""
+    if bgr is None or bgr.ndim != 3 or bgr.shape[2] < 3:
+        return None   # 灰度图无颜色信息
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    m = ((s > 60) & (v > 60)).astype(np.uint8)
+    if int(m.sum()) < 50:
+        return None
+    hist = cv2.calcHist([hsv], [0], m, [18], [0, 180]).ravel()
+    total = hist.sum()
+    return hist / total if total > 0 else None
+
+
 def preproc96(img_bgr: Optional[np.ndarray]) -> Optional[Dict]:
     """PVP 头像 → 96×96 白底标准化画布 dict (含 gray / fg_mask)."""
     if img_bgr is None or img_bgr.size == 0 or img_bgr.shape[2] != 3:
@@ -120,6 +136,7 @@ class PvpTemplateLibrary:
         self.data: Dict[str, Any] = {"entries": [], "ingested": {}}
         self.entries: List[Dict] = []
         self._feat: Optional[List[Optional[np.ndarray]]] = None
+        self._hues: Optional[List[Optional[np.ndarray]]] = None
 
     # ---------- 元数据 ----------
     def load(self):
@@ -149,26 +166,31 @@ class PvpTemplateLibrary:
                     cache = pickle.load(f)
                 if cache.get("version") == version:
                     self._feat = cache["des"]
+                    self._hues = cache.get("hues")
                     return self._feat
             except Exception:
                 pass
         # 重建
         des_list: List[Optional[np.ndarray]] = []
+        hue_list: List[Optional[np.ndarray]] = []
         t0 = time.time()
         for i, e in enumerate(self.entries):
             img = imread_unicode(self.img_dir / e["file"])
             pp = preproc96(img)
             if pp is None:
                 des_list.append(None)
+                hue_list.append(None)
                 continue
             _, des = extract_orb_masked(pp["gray"], pp["fg_mask"])
             des_list.append(des)
+            hue_list.append(hue_hist_18(pp["bgr"]))
             if (i + 1) % 50 == 0:
                 print(f"    [feat] {i + 1}/{len(self.entries)}  {time.time() - t0:.0f}s")
         with open(self.feat_path, "wb") as f:
-            pickle.dump({"version": version, "des": des_list}, f)
+            pickle.dump({"version": version, "des": des_list, "hues": hue_list}, f)
         print(f"  [feat] 特征缓存重建: {len(des_list)} 条 ({time.time() - t0:.0f}s)")
         self._feat = des_list
+        self._hues = hue_list
         return des_list
 
     # ---------- 入库 (增量学习) ----------
@@ -234,16 +256,27 @@ class PvpTemplateLibrary:
         if not self.entries:
             return []
         des_list = self.features()
+        if self._hues is None or len(self._hues) != len(self.entries):
+            self.features(force_rebuild=True)
         pp = preproc96(crop_bgr)
         if pp is None:
             return []
+        q_hue = hue_hist_18(pp["bgr"])
         _, q_des = extract_orb_masked(pp["gray"], pp["fg_mask"])
         if q_des is None or len(q_des) < 2:
             return []
         seq_best: Dict[int, float] = {}
         seq_name = {e["seq"]: e["name"] for e in self.entries}
-        for e, des in zip(self.entries, des_list):
+        for e, des, t_hue in zip(self.entries, des_list, self._hues or []):
             s = orb_match_score_raw(q_des, des)
+            # 颜色乘积项: 同模型不同色(鸭吉吉明黄 vs 音速犬橙棕)时 ORB 分不开,
+            # 用色相直方图相关性压制 — 颜色不符的相关性可为负, 压到地板 0.2 倍
+            if s > 0 and q_hue is not None and t_hue is not None:
+                hue_sim = cv2.compareHist(q_hue.astype(np.float32),
+                                          np.asarray(t_hue, dtype=np.float32),
+                                          cv2.HISTCMP_CORREL)
+                if hue_sim < 0.5:
+                    s *= 0.2 if hue_sim < 0.0 else 0.5
             if s > seq_best.get(e["seq"], 0.0):
                 seq_best[e["seq"]] = float(s)
         full_rank = sorted(seq_best.items(), key=lambda x: -x[1])
