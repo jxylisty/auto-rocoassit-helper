@@ -246,10 +246,13 @@ class PvpTemplateLibrary:
             s = orb_match_score_raw(q_des, des)
             if s > seq_best.get(e["seq"], 0.0):
                 seq_best[e["seq"]] = float(s)
-        ranked = sorted(seq_best.items(), key=lambda x: -x[1])[:n_top]
+        full_rank = sorted(seq_best.items(), key=lambda x: -x[1])
+        ranked = full_rank[:n_top]
         out = []
         for rank, (seq, raw) in enumerate(ranked):
-            second = ranked[1][1] if len(ranked) > 1 else 0.0
+            # 第二名取自完整排序(n_top=1 时 ranked 被截断, 若从 ranked 取会
+            # 得 second=0 → margin 恒 1.0, 区分度闸完全失效)
+            second = full_rank[1][1] if len(full_rank) > 1 else 0.0
             margin = (raw - second) / raw if raw > 1e-6 else 0.0
             if raw >= IMG_RAW_HIGH and margin >= IMG_MARGIN_HIGH:
                 conf = "high"

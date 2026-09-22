@@ -327,7 +327,9 @@ class PvpPipeline:
                 hits = self._avatar_lib.match(crop, n_top=1)
             except Exception:
                 continue
-            if hits and hits[0].get("confidence") in ("high", "medium"):
+            # margin 闸: 第一名不显著领先第二名时是"一堆同模型精灵并列",
+            # (如鸭吉吉/音速犬/霹雳迪迪同模型, raw 差 <0.1%) — 采纳必错, 宁可空名
+            if hits and hits[0].get("confidence") in ("high", "medium")                     and float(hits[0].get("margin", 0)) >= 0.25:
                 out[side] = hits[0]
         return out
 
