@@ -875,6 +875,9 @@ class AppBridge:
         """
         if not getattr(self, "_widget", None):
             return {"success": False}
+        # 标记拖拽中(供 widget_resize 跳过), 300ms 无移动自动过期
+        self._widget_dragging = True
+        self._widget_drag_until = time.time() + 0.3
         try:
             ww, wh = self._widget_physical_size()
             cx, cy = self._widget_physical_topleft()
@@ -947,6 +950,9 @@ class AppBridge:
         # 未显示时跳过,由 widget_toggle 在 show 后再触发前端校准
         if not getattr(self, "_widget_visible", False):
             return {"success": False, "message": "悬浮窗未显示,跳过 resize"}
+        # 拖拽中跳过 resize: resize 触发 WebView2 重排并与拖拽 SetWindowPos 抢渲染(闪烁)
+        if getattr(self, "_widget_dragging", False) and time.time() < getattr(self, "_widget_drag_until", 0):
+            return {"success": False, "message": "拖拽中,跳过 resize"}
         try:
             safe_w = max(280, min(600, int(width)))
             safe_h = max(36, min(900, int(height)))
