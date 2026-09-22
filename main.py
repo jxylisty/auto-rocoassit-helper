@@ -97,6 +97,32 @@ def start_gui():
     # 卡密登录态: 后台静默校验(用户版; 开发者版直接放行)
     bridge.start_auth_verify()
 
+    # 启动看门狗: WebView2 偶发挂起(残留进程占用用户数据目录等)表现为
+    # "无报错但窗口永不出现"。20s 未 shown → 写诊断日志 + 弹窗, 不再无声卡死。
+    def _boot_watchdog():
+        import time as _t
+        for _ in range(40):          # 20s 内每 0.5s 查一次
+            _t.sleep(0.5)
+            try:
+                if window.events.shown.is_set():
+                    return
+            except Exception:
+                return
+        try:
+            detail = ("窗口 20 秒未就绪 — 多为 WebView2 运行时挂起。\n"
+                      "常见原因: 上次实例/WebView2 进程残留。\n"
+                      "处理: 任务管理器结束所有 python.exe 与 msedgewebview2.exe 后重试。")
+            log_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+            (log_dir / "data" / "logs").mkdir(parents=True, exist_ok=True)
+            (log_dir / "data" / "logs" / "boot_watchdog.log").write_text(
+                f"{_t.strftime('%Y-%m-%d %H:%M:%S')} {detail}", encoding="utf-8")
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, detail, "启动看门狗", 0x30)
+        except Exception:
+            pass
+    import threading as _th
+    _th.Thread(target=_boot_watchdog, daemon=True).start()
+
     webview.start()
 
 
