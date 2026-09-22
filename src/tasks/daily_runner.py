@@ -439,7 +439,8 @@ class DailyRunner:
                     if find_window(class_name="UnrealWindow"):
                         self._log("游戏窗口已出现, 启动完成", "success")
                         return
-                    r2 = subprocess.run(["tasklist"], capture_output=True)
+                    r2 = subprocess.run(["tasklist"], capture_output=True,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                     if "洛克王国" in r2.stdout.decode("gbk", errors="replace"):
                         self._log("游戏进程已出现(加载中)", "success")
                         return

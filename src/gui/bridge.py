@@ -3374,7 +3374,8 @@ class AppBridge:
             result = subprocess.run(
                 [sys.executable, str(lib_dir / "pvp_lib.py"), "recognize", str(tmp)],
                 capture_output=True, text=True, timeout=120,
-                cwd=str(lib_dir)
+                cwd=str(lib_dir),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
             )
             if result.returncode != 0:
                 return {"success": False, "message": f"识别失败: {result.stderr[:200]}"}
