@@ -853,7 +853,10 @@
 
     async function toggleFold() {
         folded = !folded;
-        $('wBody').style.display = folded ? 'none' : '';
+        // 展开时只点亮当前 tab 的内容体(此前无条件点亮 wBody,
+        // 在 PVP tab 下折叠再展开会同时显示挂机+PVP 两块内容)
+        $('wBody').style.display = (folded || activeTab !== 'afk') ? 'none' : '';
+        $('pvRoot').style.display = (folded || activeTab !== 'pvp') ? 'none' : '';
         $('foldBtn').textContent = folded ? '▴' : '▾';
         try { await pywebview.api.widget_set_folded(folded); } catch (e) {}
         // 等布局完成再量尺寸
@@ -1347,8 +1350,9 @@ function updatePVPData(data) {
     let activeTab = 'afk';
     function switchTab(tab) {
         activeTab = tab;
-        $('wBody').style.display = tab === 'afk' ? '' : 'none';
-        $('pvRoot').style.display = tab === 'pvp' ? '' : 'none';
+        // 折叠态下切 tab 只换按钮高亮, 不展开内容体
+        $('wBody').style.display = (!folded && tab === 'afk') ? '' : 'none';
+        $('pvRoot').style.display = (!folded && tab === 'pvp') ? '' : 'none';
         $('tabAfk').classList.toggle('active', tab === 'afk');
         $('tabPvp').classList.toggle('active', tab === 'pvp');
         requestAnimationFrame(() => setTimeout(syncSize, 30));
