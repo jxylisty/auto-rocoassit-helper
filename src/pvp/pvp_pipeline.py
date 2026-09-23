@@ -4,7 +4,7 @@ PVP 实时识别管线 — 双引擎 OCR + 快速截图
 
 架构:
   1. FastCapture 后台线程持续抓取最新帧
-  2. 中文区域 (精灵名/技能名) → PaddleOCR PP-OCRv4 批量合成图识别
+  2. 中文区域 (精灵名/技能名) → RapidOCR 批量合成图识别
   3. 数字区域 (血量/能量/PP) → Tesseract OcrNumberReader (照抄挂机引擎)
   4. 敌方血条 → 色彩积分 (0ms，无需 OCR)
 """
@@ -158,30 +158,7 @@ def enemy_hp_color_ratio(crop: np.ndarray) -> float:
     return round(adjusted, 2)
 
 
-# ---- PaddleOCR 批量识别 ----
-_paddleocr_instance = None
-
-
-def _get_paddleocr():
-    global _paddleocr_instance
-    if _paddleocr_instance is not None:
-        return _paddleocr_instance
-    os.environ.setdefault('OMP_NUM_THREADS', '1')
-    os.environ.setdefault('MKL_NUM_THREADS', '1')
-    os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
-    from paddleocr import PaddleOCR
-    _paddleocr_instance = PaddleOCR(
-        use_doc_orientation_classify=False,
-        use_doc_unwarping=False,
-        use_textline_orientation=False,
-        lang='ch',
-        ocr_version='PP-OCRv4',
-        text_det_limit_side_len=64,
-        text_det_thresh=0.1,
-        text_det_box_thresh=0.2,
-        text_det_unclip_ratio=1.8,
-    )
-    return _paddleocr_instance
+# ---- 批量识别(基于 RapidOCR, 比 PaddleOCR 省~200MB 内存) ----
 
 
 def ocr_batch_chinese(crops: list[tuple[str, np.ndarray]]) -> dict[str, str]:

@@ -231,7 +231,7 @@ class AppBridge:
         # 视觉调试状态
         self._last_shot_path: Path | None = None  # 最近一次保存的截图
         self._last_frame = None                    # 最近一次识别用的帧(numpy)
-        self._paddleocr = None                     # PaddleOCR 实例（懒加载）
+        self._pvp_float_visible = False    # F2 显示状态(同一窗口)
 
         # 实时识别
         self._live_running = False
@@ -1963,45 +1963,12 @@ class AppBridge:
                 "width": info.width, "height": info.height,
                 "result": result, "roi": roi}
 
-    def _get_paddleocr(self):
-        if self._paddleocr is not None:
-            return self._paddleocr
-        # 修复 Windows 上 libifcoremd.dll MKL 线程冲突崩溃
-        import os
-        os.environ.setdefault('OMP_NUM_THREADS', '1')
-        os.environ.setdefault('MKL_NUM_THREADS', '1')
-        os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
-        from paddleocr import PaddleOCR
-        try:
-            self._paddleocr = PaddleOCR(
-                use_doc_orientation_classify=False,
-                use_doc_unwarping=False,
-                use_textline_orientation=False,
-                lang='ch',
-                ocr_version='PP-OCRv4',
-                text_det_limit_side_len=64,
-                text_det_thresh=0.1,
-                text_det_box_thresh=0.2,
-                text_det_unclip_ratio=1.8,
-            )
-        except Exception:
-            # v4 不可用时回退到默认 server 模型
-            self._paddleocr = PaddleOCR(
-                use_doc_orientation_classify=False,
-                use_doc_unwarping=False,
-                use_textline_orientation=False,
-                lang='ch',
-                text_det_limit_side_len=64,
-                text_det_thresh=0.1,
-                text_det_box_thresh=0.2,
-                text_det_unclip_ratio=1.8,
-            )
-        return self._paddleocr
-
     def vision_ocr_preview(self, rois: dict = None) -> dict:
-        """PaddleOCR 批量识别：所有 ROI 拼成一张图，一次 OCR 调用"""
+        """RapidOCR 批量识别: 逐个 ROI 裁切后独立识别(替代重载慢的 PaddleOCR)。
+        首调用时 RapidOCR 懒加载(~1s)，之后复用无额外内存消耗。"""
         import cv2, numpy as np
         from src.perception.ocr_reader import OcrNameReader
+        from src.utils.ocr_engine import read_combined as _ocr_read
 
         if self._last_frame is None:
             try:
@@ -2018,85 +1985,39 @@ class AppBridge:
             except Exception:
                 pass
 
-        try:
-            ocr = self._get_paddleocr()
-        except Exception as e:
-            return {"success": False, "message": f"PaddleOCR 初始化失败: {e}"}
-
         pet_list = OcrNameReader._load_pets() if hasattr(OcrNameReader, '_load_pets') else []
 
-        # --- 第一阶段：收集所有 ROI 裁剪，拼成一张合成图 ---
-        crops = []  # [(roi_id, crop, y_offset, label, is_number)]
-        roi_order = []
-        total_h = 0
+        results = {}
         for roi_id, box in roi_data.items():
             if not box or not box.get("width"):
                 continue
-            x = int(box["left"] * fw)
-            y = int(box["top"] * fh)
+            x = int(box["left"] * fw) if "left" in box else int(float(box.get("rx", 0)) * fw)
+            y = int(box["top"] * fh) if "top" in box else int(float(box.get("ry", 0)) * fh)
             w = int(box["width"] * fw)
             h = int(box["height"] * fh)
             if w <= 0 or h <= 0:
                 continue
             crop = frame[y:y+h, x:x+w]
-            pad = max(10, min(h, w) // 2)
-            padded = cv2.copyMakeBorder(crop, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=(0, 0, 0))
-            ph, pw = padded.shape[:2]
             is_number = any(kw in roi_id.lower() for kw in ("hp", "血", "energy", "能量", "power"))
-            label = roi_data[roi_id].get("label", roi_id) if isinstance(roi_data[roi_id], dict) else roi_id
-            roi_order.append(roi_id)
-            crops.append((roi_id, padded, total_h, total_h + ph, label, is_number))
-            total_h += ph + 4  # 4px 分隔
+            label = box.get("label", roi_id)
 
-        if not crops:
-            return {"success": True, "results": {}, "roi": roi_data}
-
-        # 创建合成图
-        max_w = max(c[1].shape[1] for c in crops)
-        composite = np.zeros((total_h, max_w, 3), dtype=np.uint8)
-        for roi_id, crop_img, y0, y1, _, _ in crops:
-            composite[y0:y0 + crop_img.shape[0], :crop_img.shape[1]] = crop_img
-
-        # --- 第二阶段：一次 OCR 识别整张合成图 ---
-        try:
-            res = ocr.predict(composite)
-            all_texts = res[0].get('rec_texts', []) if res and res[0] else []
-            all_scores = res[0].get('rec_scores', []) if res and res[0] else []
-            all_boxes = res[0].get('rec_boxes', []) if res and res[0] else []
-        except Exception:
-            all_texts, all_scores, all_boxes = [], [], []
-
-        # --- 第三阶段：按 y 位置映射回各 ROI ---
-        results = {}
-        for roi_id, _, y0, y1, label, is_number in crops:
-            # 收集落在该 ROI 范围内的识别结果
-            roi_texts = []
-            roi_scores = []
-            for ti, (text, score) in enumerate(zip(all_texts, all_scores)):
-                if ti < len(all_boxes) and len(all_boxes[ti]) >= 1:
-                    cy = (all_boxes[ti][0][1] + all_boxes[ti][-1][1]) / 2
-                    if y0 <= cy <= y1:
-                        roi_texts.append(text)
-                        roi_scores.append(score)
-
-            joined = ''.join(roi_texts)
-            conf = round(sum(roi_scores) / len(roi_scores), 2) if roi_scores else 0.0
+            joined, conf = "", 0.0
+            if crop.size > 0:
+                text, score = _ocr_read(crop)
+                if text:
+                    joined, conf = text, round(score, 2)
 
             if is_number:
                 joined = ''.join(ch for ch in joined if ch.isdigit() or ch in '%/')
-
-            corrected = False
-            if not is_number and joined and pet_list and hasattr(OcrNameReader, '_correct_with_pet_list'):
+            elif joined and pet_list:
                 cleaned = OcrNameReader._clean(joined) if hasattr(OcrNameReader, '_clean') else joined
-                if cleaned:
-                    matched = OcrNameReader._correct_with_pet_list(cleaned)
-                    if matched and matched[0]:
-                        joined = matched[0]
-                        corrected = True
+                matched = OcrNameReader._correct_with_pet_list(cleaned) if cleaned and hasattr(OcrNameReader, '_correct_with_pet_list') else None
+                if matched:
+                    joined = matched[0]
 
             results[roi_id] = {
                 "text": joined or "?", "conf": conf,
-                "raw": joined, "corrected": corrected,
+                "raw": joined, "corrected": bool(matched and matched[0]),
                 "label": label, "is_number": is_number,
             }
 
