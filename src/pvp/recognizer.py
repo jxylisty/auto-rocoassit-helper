@@ -17,14 +17,14 @@ if str(LIB_DIR) not in sys.path:
 import os
 os.environ.setdefault("PVP_LIB_DIR", str(LIB_DIR / "output" / "pvp_lib"))
 
-from pvp_lib import PvpLib  # noqa: E402
+from pvp_lib import PvpTemplateLibrary  # noqa: E402
 
 
 class PvpRecognizer:
     """PVP 精灵识别器"""
 
     def __init__(self):
-        self._lib = PvpLib()
+        self._lib = PvpTemplateLibrary()
 
     @property
     def status(self) -> dict:

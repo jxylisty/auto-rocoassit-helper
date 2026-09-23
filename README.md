@@ -65,7 +65,6 @@ D:\anaconda\python.exe main.py --throw
 lkwgai_pvp_assistant/
 ├── main.py                    # 启动入口（大前端 / 快捷键模式）
 ├── auto_throw_ball.py         # 自动丢球核心逻辑（三种模式，延迟可调）
-├── pvp_assistant_live.py      # Tkinter 实时识别侧栏（实验）
 ├── src/
 │   ├── gui/
 │   │   ├── bridge.py          # AppBridge：丢球/视觉/工具/配置/任务栏 桥接层
