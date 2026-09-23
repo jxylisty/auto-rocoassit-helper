@@ -399,20 +399,34 @@ class DailyRunner:
             return
 
         if action in ("ocr_assert", "ocr_click_text"):
-            from src.utils.ocr_engine import read_combined
+            from src.utils.ocr_engine import read_texts, read_combined
             while True:
                 if self._stop_event.is_set():
                     raise RuntimeError("__STOP__")
-                _, frame = self._frame()
-                text, _ = read_combined(frame)
-                if text and str(target) in str(text):
-                    if action == "ocr_assert":
+                info, frame = self._frame()
+                if action == "ocr_assert":
+                    text, _ = read_combined(frame)
+                    if text and str(target) in str(text):
                         return
-                    # OCR 点击: 粗定位——按文字行位置计算 y, x 取屏幕中心偏移
-                    info, frame2 = self._frame()
-                    h, w = frame2.shape[:2]
-                    self._click_ratio(info, 0.5, 0.5)
-                    return
+                else:
+                    # ocr_click_text: 按文字实际位置点击, 不再盲点屏幕中心(0.5,0.5)
+                    import numpy as np
+                    items = read_texts(frame)
+                    hit = next((it for it in items if str(target) in str(it["text"])), None)
+                    if hit and hit.get("box"):
+                        # 取文字框中心坐标(帧坐标), 换算到窗口绝对屏幕坐标
+                        box = hit["box"]
+                        cx = int(np.mean([p[0] for p in box]))
+                        cy = int(np.mean([p[1] for p in box]))
+                        sx = info.rect[0] + cx
+                        sy = info.rect[1] + cy
+                        from src.driver.mouse_controller import MouseController
+                        mouse = MouseController()
+                        mouse.move_to(sx, sy)
+                        import time as _t
+                        _t.sleep(0.15)
+                        mouse.click('left', 0.06 + 0.05 * (_t.time() % 1))
+                        return
                 if time.time() > deadline:
                     if extra.get("on_fail") == "skip":
                         raise StepSkipped()
