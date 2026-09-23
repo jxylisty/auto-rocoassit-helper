@@ -412,28 +412,33 @@ class FlowerChallenge:
         mouse.click('left', 0.07)
         self._exp()
         if not click_again:
-            self._log("已是最后一场, 不再点再次挑战")
+            self._log("已是最后一场，不再点再次挑战")
             return
         # OCR 等「再次挑战」出现 → 点击; 期间若已自动进入下一场战斗则不点
-        self._roi("再次挑战按钮")  # 缺 ROI 快速失败(避免轮询里空转到超时)
+        try:
+            self._roi("再次挑战按钮")  # 缺 ROI 快速失败 (避免轮询里空转到超时)
+        except Exception as e:
+            self._log(f"ROI「再次挑战按钮」不存在 ({e}), 直接盲点屏幕中心", "warning")
+        
         deadline = time.time() + 15
         while True:
             if self._stopped():
                 raise RuntimeError("__STOP__")
             if self._in_battle():
-                self._log("已回到战斗(下一场自动开始?), 跳过点再次挑战")
+                self._log("已回到战斗 (下一场自动开始？), 跳过点再次挑战")
                 return
             try:
                 text, _ = self._ocr_roi("再次挑战按钮")
             except Exception:
-                text = None  # 瞬时截图失败等, 继续轮询到超时
+                text = None  # 瞬时截图失败等，继续轮询到超时
             if text and ("再次" in str(text) or "挑战" in str(text)):
                 self._log(f"OCR 命中「再次挑战」({text}), 点击")
                 break
             if time.time() > deadline:
-                self._log(f"再次挑战 OCR 超时(最后读到[{text}]), 按标注位置直接点", "warning")
+                self._log(f"再次挑战 OCR 超时 (最后读到 [{text}]), 按标注位置直接点", "warning")
                 break
-            self._stop_event_wait_small()
+            # 小延迟 + 停止检查
+            self._stop_event_wait_small(0.3)
         self._exp()
         self._click_roi("再次挑战按钮")
 
