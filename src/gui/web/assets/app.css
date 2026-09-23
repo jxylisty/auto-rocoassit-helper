@@ -48,6 +48,36 @@
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
+
+/* ---------- 拖拽排序样式 ---------- */
+.daily-task-item {
+    cursor: grab;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.daily-task-item:active {
+    cursor: grabbing;
+}
+.daily-task-item.sortable-ghost {
+    opacity: 0.4;
+    background: var(--panel-hover);
+    border: 2px dashed var(--accent);
+}
+.daily-task-item.sortable-chosen {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px var(--accent-glow);
+}
+.daily-task-list {
+    min-height: 50px;
+}
+/* 任务项拖动手柄样式 */
+.daily-task .dt-name {
+    cursor: grab;
+    padding: 4px 0;
+    user-select: none;
+}
+.daily-task .dt-name:active {
+    cursor: grabbing;
+}
     --radius-xl: 18px;
     --radius-full: 999px;
 
@@ -3219,4 +3249,71 @@ body > .app { height: calc(100vh - 40px) !important; }
     border: none; border-radius: 12px;
     background: transparent; pointer-events: auto;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+/* ---------- AI 识别设置卡(PVP 页 aivision 子页作用域) ---------- */
+#page-pvp .page-tab-pane[data-tab="aivision"] .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    box-sizing: border-box;
+    margin-bottom: 14px;
+}
+#page-pvp .page-tab-pane[data-tab="aivision"] .card-title {
+    font-weight: 700; font-size: 13px; color: var(--text);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+#page-pvp .page-tab-pane[data-tab="aivision"] .card-sub {
+    font-size: 11px; color: var(--dim); font-weight: 400;
+}
+#page-pvp .page-tab-pane[data-tab="aivision"] textarea.form-input,
+#page-pvp .page-tab-pane[data-tab="aibuddy"] textarea.form-input {
+    resize: vertical;
+    font-family: Consolas, 'Microsoft YaHei', monospace;
+}
+
+/* ---------- AI 伙伴设置卡(PVP 页 aibuddy 子页作用域) ---------- */
+#page-pvp .page-tab-pane[data-tab="aibuddy"] .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    box-sizing: border-box;
+    margin-bottom: 14px;
+}
+#page-pvp .page-tab-pane[data-tab="aibuddy"] .card-title {
+    font-weight: 700; font-size: 13px; color: var(--text);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+#page-pvp .page-tab-pane[data-tab="aibuddy"] .card-sub {
+    font-size: 11px; color: var(--dim); font-weight: 400;
+}
+
+/* ---------- AI 设置/对战页卡片作用域 ---------- */
+#page-ai .card,
+#page-aipvp .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    box-sizing: border-box;
+    margin-bottom: 14px;
+}
+#page-ai .card-title,
+#page-aipvp .card-title {
+    font-weight: 700; font-size: 13px; color: var(--text);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+#page-ai .card-sub,
+#page-aipvp .card-sub {
+    font-size: 11px; color: var(--dim); font-weight: 400;
+}
+#page-aipvp .engine-note {
+    max-width: 860px;
+}
+#page-aipvp pre {
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
 }

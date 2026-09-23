@@ -590,7 +590,36 @@
           + '<div class="dt-meta">' + (tk.steps || []).length + ' 步 · ' + describeDaily(tk) + '</div></span>'
           + '<span class="dt-badge">' + escapeDaily(tk.id) + '</span></div>';
       }).join('');
-      // 未选中(或选中项已消失)时自动选第一个并展示设置
+      
+      // 初始化拖拽排序
+      if (typeof Sortable !== 'undefined') {
+        new Sortable(box, {
+          animation: 150,
+          handle: '.dt-name',  // 拖动标题区域
+          ghostClass: 'sortable-ghost',
+          chosenClass: 'sortable-chosen',
+          onEnd: function (evt) {
+            // 拖拽结束，更新任务顺序
+            var newOrder = Array.from(box.querySelectorAll('.daily-task')).map(function (el) {
+              return el.getAttribute('data-id');
+            });
+            // 重新排序 tasks 数组
+            tasks.sort(function (a, b) {
+              return newOrder.indexOf(a.id) - newOrder.indexOf(b.id);
+            });
+            // 保存新顺序
+            var a = api();
+            if (a && a.daily_save) {
+              a.daily_save(tasks).then(function () {
+                if (typeof showToast === 'function') {
+                  showToast('任务顺序已保存', 'success');
+                }
+              }).catch(function () {});
+            }
+          }
+        });
+      }
+      // 未选中 (或选中项已消失) 时自动选第一个并展示设置
       if (!selected || !tasks.some(function (t) { return t.id === selected; })) {
         dailyPick(tasks[0].id);
       }
