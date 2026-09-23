@@ -298,10 +298,10 @@
     }
    },
    {
-    "name": "等面板展开",
+    "name": "等孵蛋界面动画完成",
     "action": "wait_seconds",
     "extra": {
-     "seconds": 1.5
+     "seconds": 4
     }
    },
    {
@@ -317,10 +317,10 @@
     }
    },
    {
-    "name": "等球面板",
+    "name": "等球面板展开",
     "action": "wait_seconds",
     "extra": {
-     "seconds": 1.5
+     "seconds": 2.5
     }
    },
    {
@@ -390,6 +390,6 @@
     }
    }
   ],
-  "enabled": false
+  "enabled": true
  }
 ]
