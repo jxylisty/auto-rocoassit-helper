@@ -249,31 +249,40 @@ class PvpEngineMixin:
                         "info")
 
     def _merge_ocr_skill_bar(self, result, pipeline) -> None:
-        """抓包源(rkpp)下: 截屏 OCR 我方技能栏, 识别到的技能名优先覆盖抓包结果。
+        """抓包源(rkpp)下: 我方技能栏完全由截屏 OCR 产出。
 
-        OCR 准确率高(用户实测), 作为首选; OCR 某槽位识别为空时, 保留该槽位的
-        抓包值(result.skills 原值)兜底。整体识别全空则完全沿用抓包结果。
+        抓包侧已不再产出技能名(result.skills 恒为空)，故此处 OCR 识别到的槽位直接
+        写入；识别为空的槽位保持空串（不拿抓包的错误名兜底）。
+        防抖：某帧 OCR 失败/全空时，沿用上一帧成功的技能栏，避免技能栏闪没；
+        新一局开局(battle_start)清空缓存。
         """
+        if getattr(result, "battle_start", False):
+            self._ocr_skill_cache = None
         info = self._find_game_window()
         if not info:
+            self._apply_ocr_skill_cache(result)
             return
         left, top, right, bottom = info.rect
         w, h = right - left, bottom - top
         if w < 50 or h < 50:
+            self._apply_ocr_skill_cache(result)
             return
         frame = self._get_fast_capture().capture(rect=(left, top, w, h))
         if frame is None or frame.size == 0:
+            self._apply_ocr_skill_cache(result)
             return
         ocr_skills = pipeline.read_skill_bar(frame)
         if not any(ocr_skills):
+            self._apply_ocr_skill_cache(result)
             return
-        merged = list(getattr(result, "skills", ["", "", "", ""]) or ["", "", "", ""])
-        while len(merged) < 4:
-            merged.append("")
-        for i in range(4):
-            if ocr_skills[i]:
-                merged[i] = ocr_skills[i]
-        result.skills = merged[:4]
+        self._ocr_skill_cache = list(ocr_skills[:4])
+        result.skills = list(ocr_skills[:4])
+
+    def _apply_ocr_skill_cache(self, result) -> None:
+        """OCR 本帧失败时，沿用上一帧成功的技能栏（防闪没）。"""
+        cache = getattr(self, "_ocr_skill_cache", None)
+        if cache and getattr(result, "in_battle", False):
+            result.skills = list(cache)
 
     def _enrich_result(self, data: dict, result) -> None:
         """识别结果附加伤害推演字段(calc_skills/enemy_threats/速度/愿力)。

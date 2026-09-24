@@ -757,18 +757,13 @@ class RkppEventClient:
             result.battle_end = (not in_battle) and prev
 
             round_no = self._round_no
-            # 兜底：pet_skill 与上场宠可能不在同一 perform 项，analyze 时再解析一次
-            if not self._skill_bar and self._on_field_pid is not None:
-                skills = self._pet_skills.get(self._on_field_pid)
-                if skills:
-                    self._set_skill_bar(skills)
-            # 技能栏：优先用我方上场宠的完整技能栏，退化到本局已宣告技能
-            declared = list(self._skill_bar) or list(self._declared_skills)
-
+            # ★ 我方技能栏一律不在此产出（恒为空），完全交给 OCR 侧填充。
+            #   原因：抓包 skill_desc/skill_name 的名字判定不可靠（应对！类技能触发
+            #   特殊机制后名字会变）；且旧的 skill_icons ID 表与当前版本对不上。
+            #   抓包侧仅继续累计 self._skill_map 供编号校准（在 _collect_team 里做）。
             if result.battle_start:
                 # 新一局开局：本帧快照先给空（状态已由 _apply_enter 清理）
                 round_no = 0
-                declared = []
 
             if in_battle:
                 result.player_name = self._player_name
@@ -786,11 +781,7 @@ class RkppEventClient:
                 result.player_lineup = list(self._player_lineup)
                 result.enemy_lineup = list(self._enemy_lineup)
                 result.lineup_done = self._lineup_done
-                if declared:
-                    slots = ["", "", "", ""]
-                    for i, nm in enumerate(declared[:4]):
-                        slots[i] = nm
-                    result.skills = slots
+                result.skills = ["", "", "", ""]
             else:
                 # 非战斗态清空精灵名（与 PvpPipeline 语义一致，防串场）
                 result.player_name = ""
