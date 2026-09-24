@@ -1,0 +1,9 @@
+{"t": "2026-09-24 23:15:57", "event": "match_start", "player": "矿晶虫", "enemy": "小灵面"}
+{"t": "2026-09-24 23:15:57", "event": "skills_seen", "turn": 1, "skills": ["游泥表皮", "脉冲光线", "魔法增效", "泥巴喷射"]}
+{"t": "2026-09-24 23:16:11", "event": "enemy_hp_change", "from": 1.0, "to": 0.887, "delta_pct": -0.113, "caused_by": "player"}
+{"t": "2026-09-24 23:16:11", "event": "skills_seen", "turn": 2, "skills": ["能量守恒", "机械2", "水弹", "乱打"]}
+{"t": "2026-09-24 23:16:12", "event": "skills_seen", "turn": 3, "skills": ["能量守恒", "机械2", "水弹", "二"]}
+{"t": "2026-09-24 23:16:12", "event": "skills_seen", "turn": 4, "skills": ["能量守恒", "机械2", "水弹", "乱打"]}
+{"t": "2026-09-24 23:16:13", "event": "skills_seen", "turn": 5, "skills": ["MANW", "机械2", "水弹", "乱打"]}
+{"t": "2026-09-24 23:16:13", "event": "skills_seen", "turn": 6, "skills": ["能量守恒", "机械2", "水弹", "乱打"]}
+{"t": "2026-09-24 23:16:16", "event": "match_end", "duration_sec": 18}

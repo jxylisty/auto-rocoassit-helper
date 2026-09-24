@@ -1,0 +1,6 @@
+{"t": "2026-09-24 23:53:33", "event": "match_start", "player": "矿晶虫", "enemy": "护主犬"}
+{"t": "2026-09-24 23:53:33", "event": "skills_seen", "turn": 1, "skills": ["VE"]}
+{"t": "2026-09-24 23:53:36", "event": "skills_seen", "turn": 2, "skills": ["MMM"]}
+{"t": "2026-09-24 23:53:37", "event": "skills_seen", "turn": 3, "skills": ["游泥表皮", "脉冲光线", "魔法增效", "泥巴喷射"]}
+{"t": "2026-09-24 23:53:48", "event": "skills_seen", "turn": 4, "skills": ["8"]}
+{"t": "2026-09-24 23:53:52", "event": "match_end", "duration_sec": 18}

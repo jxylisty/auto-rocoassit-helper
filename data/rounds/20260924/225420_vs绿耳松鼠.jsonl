@@ -1,0 +1,5 @@
+{"t": "2026-09-24 22:54:20", "event": "match_start", "player": "矿晶虫", "enemy": "绿耳松鼠"}
+{"t": "2026-09-24 22:54:22", "event": "round_sync", "turn": 1, "source": "rkpp"}
+{"t": "2026-09-24 22:54:22", "event": "skills_seen", "turn": 2, "skills": ["能量守恒", "机械2", "水弹", "乱打"]}
+{"t": "2026-09-24 22:54:28", "event": "enemy_hp_change", "from": 1.0, "to": 0.881, "delta_pct": -0.119, "caused_by": "player"}
+{"t": "2026-09-24 23:03:19", "event": "match_end", "duration_sec": 538}

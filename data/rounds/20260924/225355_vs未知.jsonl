@@ -1,0 +1,6 @@
+{"t": "2026-09-24 22:53:55", "event": "match_start", "player": "", "enemy": ""}
+{"t": "2026-09-24 22:53:57", "event": "skills_seen", "turn": 1, "skills": ["种皮爆裂"]}
+{"t": "2026-09-24 22:54:00", "event": "round_sync", "turn": 6, "source": "rkpp"}
+{"t": "2026-09-24 22:54:00", "event": "skills_seen", "turn": 7, "skills": ["闪燃", "应对！偷袭", "种皮爆裂", "遁逃术"]}
+{"t": "2026-09-24 22:54:08", "event": "player_hp_change", "from": 121, "to": 105, "delta": -16, "caused_by": "enemy"}
+{"t": "2026-09-24 22:54:14", "event": "match_end", "duration_sec": 18}
