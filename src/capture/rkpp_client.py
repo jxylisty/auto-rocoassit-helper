@@ -60,10 +60,15 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Optional
 
 from src.pvp.pvp_pipeline import PvpResult
 from src.pvp.skill_ids import resolve_skill_name
+
+# id→名 对照表落盘位置（每局结束追加合并，越跑越全）
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_SKILL_MAP_FILE = _PROJECT_ROOT / "data" / "pvp" / "skill_id_name_map.json"
 
 # ---- 我方 / 敌方判定 ----
 # 实测：玩家队伍 pet_id ∈ 1..6，敌方 pet_id = 401。battle_enter 的 base.side
@@ -159,16 +164,15 @@ def _skill_display_name(sk: dict) -> str:
     return desc or name
 
 
-def _pick_battle_skills(skills: Any) -> list[str]:
-    """从一组 skill 条目里挑出 4 个「战斗技能」名。
+def _iter_battle_skill_pairs(skills: Any):
+    """从一组 skill 条目里产出 (skill_id, 显示名)，只保留战斗技能。
 
     特性/占位项的 skill_id 是 6 位（200146/7000010/7000030），战斗技能是 7 位
-    （如 7040390）。因此取 skill_id >= 1000000、名字非占位文本的前 4 个。
+    （如 7040390）。过滤条件：skill_id >= 1000000 且名字非占位文本。
     名字用 _skill_display_name 判定（应对 skill_desc/skill_name 反置）。
     """
-    bar: list[str] = []
     if not isinstance(skills, list):
-        return bar
+        return
     for sk in skills:
         if not isinstance(sk, dict):
             continue
@@ -178,9 +182,24 @@ def _pick_battle_skills(skills: Any) -> list[str]:
         nm = _skill_display_name(sk)
         if not nm or nm in _SKILL_PLACEHOLDERS:
             continue
+        yield sid, nm
+
+
+def _pick_battle_skills(skills: Any) -> list[str]:
+    """从一组 skill 条目里挑出 4 个「战斗技能」名（去重）。"""
+    bar: list[str] = []
+    for _sid, nm in _iter_battle_skill_pairs(skills):
         if nm not in bar:
             bar.append(nm)
     return bar[:4]
+
+
+def _skill_pairs_map(skills: Any) -> dict:
+    """从一组 skill 条目里取 {7位skill_id: 技能名}，用于导出 id→名 对照表。"""
+    out: dict[str, str] = {}
+    for sid, nm in _iter_battle_skill_pairs(skills):
+        out[str(sid)] = nm
+    return out
 
 
 def _decode_cn_hex(raw: Any) -> str:
@@ -209,7 +228,7 @@ def _parse_pet_info(bip: dict, *, common: Optional[dict] = None) -> dict:
        pos=18446744073709551615(uint64 max) 表示不在场。
     """
     out = {"pet_id": None, "name": "", "level": 0, "hp": None, "hp_max": 0, "pos": None,
-           "skills": []}
+           "skills": [], "skill_map": {}}
     if not isinstance(bip, dict):
         return out
     out["pet_id"] = _as_int(bip.get("pet_id"))
@@ -237,6 +256,7 @@ def _parse_pet_info(bip: dict, *, common: Optional[dict] = None) -> dict:
     srd = bip.get("skill_round_data")
     if isinstance(srd, list):
         out["skills"] = _pick_battle_skills(srd)
+        out["skill_map"] = _skill_pairs_map(srd)
     return out
 
 
@@ -307,6 +327,7 @@ class RkppEventClient:
         self._skill_bar: list[str] = []            # 我方上场宠 4 技能栏
         self._pet_skills: dict = {}                # pet_id → pet_skill.skills（全队）
         self._on_field_pid: Optional[int] = None   # 我方当前上场宠 pet_id
+        self._skill_map: dict = {}                 # 本局累计 {7位skill_id: 技能名}
         self._player_name = ""
         self._player_hp_val = 0
         self._player_hp_max = 0
@@ -354,6 +375,7 @@ class RkppEventClient:
             self._skill_bar = []
             self._pet_skills = {}
             self._on_field_pid = None
+            self._skill_map = {}
             self._player_name = ""
             self._player_hp_val = 0
             self._player_hp_max = 0
@@ -458,6 +480,7 @@ class RkppEventClient:
         self._skill_bar = []
         self._pet_skills = {}
         self._on_field_pid = None
+        self._skill_map = {}
         self._round_no = 0
         self._player_hp_val = 0
         self._player_hp_max = 0
@@ -494,6 +517,9 @@ class RkppEventClient:
                 nm = info["name"]
                 if nm and nm not in lineup:
                     lineup.append(nm)
+                # 累计 id→名 对照表(仅我方；敌方 skill_round_data 可能不完整)
+                if side == "player" and info.get("skill_map"):
+                    self._skill_map.update(info["skill_map"])
                 if cur is None and self._is_on_field(bip):
                     cur = info
         if cur is None and lineup:
@@ -617,6 +643,37 @@ class RkppEventClient:
         self._last_result = _RESULT_MAP.get(code, "") if code is not None else ""
         # real_pvp=0 说明这局不是真人 PVP（可能是 PVE/逃跑）
         self._last_real_pvp = bool(_as_int(si.get("real_pvp")))
+        # 每局结束：把本局累计的 id→名 对照表合并落盘（越跑越全）
+        self._export_skill_map()
+
+    def _export_skill_map(self) -> None:
+        """把 self._skill_map 合并进 data/pvp/skill_id_name_map.json。
+
+        结构：{"<7位skill_id>": "<技能名>", ...}。已存在则合并更新（新值覆盖旧值，
+        便于后续修正），不会删除已有条目。失败静默（不影响主流程）。
+        """
+        if not self._skill_map:
+            return
+        try:
+            merged: dict = {}
+            if _SKILL_MAP_FILE.exists():
+                try:
+                    old = json.loads(_SKILL_MAP_FILE.read_text(encoding="utf-8"))
+                    if isinstance(old, dict):
+                        merged = {str(k): str(v) for k, v in old.items()}
+                except Exception:
+                    merged = {}
+            before = len(merged)
+            merged.update({str(k): str(v) for k, v in self._skill_map.items()})
+            _SKILL_MAP_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _SKILL_MAP_FILE.write_text(
+                json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True),
+                encoding="utf-8")
+            added = len(merged) - before
+            if self._logger:
+                self._logger(f"[RKPP] 技能对照表已导出: +{added} 条, 共 {len(merged)} 条")
+        except Exception:
+            pass
 
     def _add_skill_name(self, name: Any, skill_id: Any = None) -> None:
         nm = str(name or "").strip()

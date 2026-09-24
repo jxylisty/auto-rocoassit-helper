@@ -248,6 +248,33 @@ class PvpEngineMixin:
                         + (f", 自动记录战报: {rec}" if rec else "(无胜负判定, 未写战报)"),
                         "info")
 
+    def _merge_ocr_skill_bar(self, result, pipeline) -> None:
+        """抓包源(rkpp)下: 截屏 OCR 我方技能栏, 识别到的技能名优先覆盖抓包结果。
+
+        OCR 准确率高(用户实测), 作为首选; OCR 某槽位识别为空时, 保留该槽位的
+        抓包值(result.skills 原值)兜底。整体识别全空则完全沿用抓包结果。
+        """
+        info = self._find_game_window()
+        if not info:
+            return
+        left, top, right, bottom = info.rect
+        w, h = right - left, bottom - top
+        if w < 50 or h < 50:
+            return
+        frame = self._get_fast_capture().capture(rect=(left, top, w, h))
+        if frame is None or frame.size == 0:
+            return
+        ocr_skills = pipeline.read_skill_bar(frame)
+        if not any(ocr_skills):
+            return
+        merged = list(getattr(result, "skills", ["", "", "", ""]) or ["", "", "", ""])
+        while len(merged) < 4:
+            merged.append("")
+        for i in range(4):
+            if ocr_skills[i]:
+                merged[i] = ocr_skills[i]
+        result.skills = merged[:4]
+
     def _enrich_result(self, data: dict, result) -> None:
         """识别结果附加伤害推演字段(calc_skills/enemy_threats/速度/愿力)。
         _pvp_loop 与本地 API /snapshot 共用; 精灵数据未就绪/名字未识别时写 calc_error。"""
@@ -528,6 +555,13 @@ class PvpEngineMixin:
                         _time.sleep(self._pvp_interval)
                         continue
                     result = rkpp_client.analyze()
+                    # 我方技能栏: OCR 优先(准确率高), 抓包结果兜底。
+                    # 仅在战斗态截图识别；窗口找不到/截图失败则保留抓包技能栏。
+                    if result.in_battle:
+                        try:
+                            self._merge_ocr_skill_bar(result, pipeline)
+                        except Exception:
+                            pass
                     data = rkpp_client.to_dict(result)
                     pipeline._cached_result = result
                     self._push_capture_snapshot(result, data)

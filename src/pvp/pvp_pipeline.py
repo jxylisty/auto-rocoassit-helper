@@ -423,6 +423,26 @@ class PvpPipeline:
 
         return composite, all_crops
 
+    def read_skill_bar(self, frame: np.ndarray) -> list[str]:
+        """只识别我方 4 个技能名 ROI（供抓包源做「OCR 优先」合并）。
+
+        返回长度 4 的列表，未识别到的槽位为空串。识别失败/无 ROI 时全空。
+        与 analyze() 里的技能名识别走同一套预处理 + RapidOCR，保证一致。
+        """
+        crops: list[tuple[str, np.ndarray]] = []
+        for roi_id in ["技能1", "技能2", "技能3", "技能4"]:
+            crop = self._crop(frame, roi_id)
+            if crop is None:
+                continue
+            if crop.shape[0] < 30 or crop.shape[1] < 80:
+                crop = preprocess_text_roi(crop, scale=3)
+            pad = max(10, min(crop.shape[0], crop.shape[1]) // 2)
+            padded = cv2.copyMakeBorder(crop, pad, pad, pad, pad,
+                                        cv2.BORDER_CONSTANT, value=(0, 0, 0))
+            crops.append((roi_id, padded))
+        texts = ocr_batch_chinese(crops) if crops else {}
+        return [texts.get(f"技能{i}", "").strip() for i in range(1, 5)]
+
     def analyze(self, frame: np.ndarray) -> PvpResult:
         """分析一帧，返回 PvpResult。帧差跳帧：静止画面直接返回缓存 (0ms)"""
         result = PvpResult()
