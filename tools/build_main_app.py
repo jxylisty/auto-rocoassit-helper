@@ -78,9 +78,11 @@ def main() -> None:
         src_for_pack = PROJECT_ROOT / "build" / "_obf_out"
 
     # ---- 3. PyInstaller ----
+    icon_file = PROJECT_ROOT / "data" / "assets" / "icons" / "app_icon.ico"
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", NAME,
+        *(["--icon", str(icon_file)] if icon_file.exists() else []),
         "--noconfirm",
         "--noconsole",  # 隐藏黑窗口;启动异常由 app_entry 写 boot_error.log + 弹窗
         "--onedir",

@@ -4,14 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>洛克王国 · PVP 助手控制台</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
 <link rel="stylesheet" href="assets/app.css">
 <script src="assets/pet_asset_map.js"></script>
+<!-- SortableJS: 拖拽排序 -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 </head>
 <body>
 <!-- 自绘标题栏(frameless 模式): 拖拽移动 / 置顶 / 最小化 / 关闭 -->
     <div class="titlebar" id="titleBar">
         <div class="tb-drag pywebview-drag-region" id="tbDragZone">
-            <img class="tb-logo" src="assets/img/balls/100740_国王球.png" alt="" onerror="this.style.display='none'">
+            <img class="tb-logo" src="assets/img/app_logo.png" alt="" onerror="this.style.display='none'">
             <span class="tb-title">洛克王国 · PVP 助手控制台</span>
         </div>
         <div class="tb-btns">
@@ -85,7 +88,7 @@
     <aside class="sidebar">
         <div class="logo">
             <div class="auth-avatar" id="authAvatarBox" onclick="authClick()" title="">
-                <img class="logo-medal" id="authAvatar" src="assets/img/balls/100740_国王球.png" alt="" onerror="this.style.visibility='hidden'">
+                <img class="logo-medal" id="authAvatar" src="assets/img/app_logo.png" alt="" onerror="this.style.visibility='hidden'">
             </div>
             <div>
                 <div class="logo-title">洛克王国助手</div>
@@ -99,11 +102,15 @@
             <button class="nav-item" data-page="pvp" onclick="switchPage('pvp')"><span class="nav-idx">02</span>PVP 对战</button>
             <button class="nav-item dev-only" data-page="vision" onclick="switchPage('vision')"><span class="nav-idx">03</span>视觉调试台<span class="nav-dev">DEV</span></button>
             <div class="nav-sep"></div>
+            <div class="nav-cap">AI 智能</div>
+            <button class="nav-item" data-page="ai" onclick="switchPage('ai')"><span class="nav-idx">04</span>AI 设置</button>
+            <button class="nav-item" data-page="aipvp" onclick="switchPage('aipvp')"><span class="nav-idx">05</span>AI 对战</button>
+            <div class="nav-sep"></div>
             <div class="nav-cap">管家</div>
-            <button class="nav-item" data-page="tools" onclick="switchPage('tools')"><span class="nav-idx">04</span>工具箱</button>
-            <button class="nav-item" data-page="daily" onclick="switchPage('daily')"><span class="nav-idx">05</span>日常任务</button>
-            <button class="nav-item" data-page="bag" onclick="switchPage('bag')"><span class="nav-idx">06</span>背包盘点</button>
-            <button class="nav-item" data-page="config" onclick="switchPage('config')"><span class="nav-idx">07</span>配置中心</button>
+            <button class="nav-item" data-page="tools" onclick="switchPage('tools')"><span class="nav-idx">06</span>工具箱</button>
+            <button class="nav-item" data-page="daily" onclick="switchPage('daily')"><span class="nav-idx">07</span>日常任务</button>
+            <button class="nav-item" data-page="bag" onclick="switchPage('bag')"><span class="nav-idx">08</span>背包盘点</button>
+            <button class="nav-item" data-page="config" onclick="switchPage('config')"><span class="nav-idx">09</span>配置中心</button>
         </nav>
 
         <div class="sidebar-foot">
@@ -507,8 +514,8 @@
             <!-- MAA 式: 左任务列表 / 右设置面板 -->
             <div class="daily-maa">
                 <div class="daily-side card card-pad">
-                    <div class="card-title" style="margin-bottom: 10px;">任务清单 <span class="card-sub">· 点击选中</span></div>
-                    <div id="dailyTaskList"></div>
+                    <div class="card-title" style="margin-bottom: 10px;">任务清单 <span class="card-sub">· 拖拽排序 · 点击选中</span></div>
+                    <div id="dailyTaskList" class="sortable-container"></div>
                     <p class="card-sub" style="margin-top:10px">想更稳就在「视觉调试台」给关键界面做模板图, 步骤里引用模板名。</p>
                 </div>
 
@@ -867,9 +874,415 @@
                 <div class="match-cards-container" id="historyCardList"></div>
             </div>
         </div>
+
+            <!-- AI 视觉识别(状态栏识图) -->
+            <div class="page-tab-pane" data-tab="aivision">
+            <div class="page-head">
+                <div>
+                    <h2>AI 视觉识别 <span class="fhb-tag">多模态识图</span></h2>
+                    <p>把状态栏截图发给多模态 AI 直接读状态/印记 · 模板匹配识别前的过渡方案</p>
+                </div>
+            </div>
+
+            <div class="card card-pad" style="max-width:860px">
+                <div class="card-title" style="margin-bottom:12px;">识别设置
+                    <span class="card-sub">· 保存即生效, 无需重启</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px;">
+                    <label class="chk"><input type="checkbox" id="aiVisionEnabled"> 启用 AI 识别状态栏</label>
+                    <div class="ctl-field">
+                        <label>识别间隔(秒)</label>
+                        <input type="number" id="aiVisionInterval" class="form-input" style="width:70px" min="3" max="600" step="1" value="10">
+                    </div>
+                    <span style="font-size:10.5px;color:var(--dim)">同一状态栏在间隔内不重复调用 · 手动测试不受限</span>
+                </div>
+
+                <div class="ctl-field" style="margin-bottom:14px;">
+                    <label>服务商预设</label>
+                    <select id="aiVisionPreset" class="form-select" style="width:auto" onchange="aiVisionPresetChange()"></select>
+                    <span style="font-size:10.5px;color:var(--dim)">选预设自动填地址与模型, 也可全部手填(任意 OpenAI 兼容多模态接口)</span>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px 16px; margin-bottom:14px;">
+                    <div class="ctl-field" style="display:block">
+                        <label>API 地址 (OpenAI 兼容)</label>
+                        <input type="text" id="aiVisionBase" class="form-input" style="width:100%" placeholder="https://api.openai.com/v1" oninput="aiVisionOnManualEdit()">
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>模型名</label>
+                        <input type="text" id="aiVisionModel" class="form-input" style="width:100%" placeholder="gpt-4o / doubao/vision-express / glm-4v-plus ..." oninput="aiVisionOnManualEdit()">
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>API Key</label>
+                        <input type="password" id="aiVisionKey" class="form-input" style="width:100%" placeholder="sk-... / DoubaoAPI" oninput="aiVisionOnManualEdit()">
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>状态栏 ROI 模板 (视觉工坊框位来源)</label>
+                        <select id="aiVisionTemplate" class="form-select" style="width:100%"></select>
+                    </div>
+                </div>
+
+                <div class="ctl-field" style="display:block; margin-bottom:14px;">
+                    <label>识图提示词 (留空用内置: 要求返回 statuses/marks JSON)</label>
+                    <textarea id="aiVisionPrompt" class="form-input" style="width:100%;min-height:64px;font-size:11.5px" placeholder="留空使用内置提示词"></textarea>
+                </div>
+
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="aiVisionSave()">保存设置</button>
+                    <button class="btn" id="btnAiVisionTest" onclick="aiVisionTest()">▶ 测试识别(截状态栏)</button>
+                    <span id="aiVisionStatus" style="font-size:11.5px;color:var(--dim)"></span>
+                </div>
+            </div>
+
+            <div class="card card-pad" id="aiVisionResultCard" style="max-width:860px; display:none">
+                <div class="card-title" style="margin-bottom:10px;">最近一次识别结果 <span class="card-sub" id="aiVisionMeta"></span></div>
+                <div id="aiVisionCrops" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;"></div>
+                <pre id="aiVisionText" style="white-space:pre-wrap;font-size:12px;line-height:1.6;color:var(--text);margin:0"></pre>
+            </div>
+
+            <div class="engine-note" style="max-width:860px">
+                <b>工作方式</b>:启动 PVP 识别后, 按上方模板的框位截取状态栏, 发给多模态模型读出
+                燃烧/冻结/中毒/印记等。支持任意 OpenAI 兼容多模态接口(选预设或自定义手填)。
+                <b>前置条件</b>:先在视觉工坊框好状态栏(模板「pvp状态」), 所选服务商的 Key 有效
+                (用本地豆包桥时先启动桥 127.0.0.1:7868)。
+            </div>
+            </div>
+
+            <!-- AI 陪玩伙伴(对局弹幕伙伴) -->
+            <div class="page-tab-pane" data-tab="aibuddy">
+            <div class="page-head">
+                <div>
+                    <h2>AI 陪玩伙伴 <span class="fhb-tag">对局弹幕</span></h2>
+                    <p>对局事件驱动 → LLM 生成弹幕 → 悬浮窗聊天气泡 · 三种内置人设或自定义</p>
+                </div>
+            </div>
+
+            <div class="card card-pad" style="max-width:860px">
+                <div class="card-title" style="margin-bottom:12px;">伙伴设置
+                    <span class="card-sub">· 保存即生效, 无需重启</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px;">
+                    <label class="chk"><input type="checkbox" id="aiBuddyEnabled"> 启用 AI 伙伴</label>
+                    <div class="ctl-field">
+                        <label>弹幕间隔(秒)</label>
+                        <input type="number" id="aiBuddyInterval" class="form-input" style="width:70px" min="5" max="600" step="1" value="20">
+                    </div>
+                    <span style="font-size:10.5px;color:var(--dim)">两条弹幕间最小间隔, 防刷屏</span>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px 16px; margin-bottom:14px;">
+                    <div class="ctl-field" style="display:block">
+                        <label>API 地址 (OpenAI 兼容)</label>
+                        <input type="text" id="aiBuddyBase" class="form-input" style="width:100%" placeholder="https://api.deepseek.com/v1">
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>模型名</label>
+                        <input type="text" id="aiBuddyModel" class="form-input" style="width:100%" placeholder="deepseek-chat / gpt-4o-mini">
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>API Key</label>
+                        <input type="password" id="aiBuddyKey" class="form-input" style="width:100%" placeholder="sk-...">
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>人设</label>
+                        <select id="aiBuddyPersona" class="form-select" style="width:100%" onchange="aiBuddyPersonaPreview()">
+                            <option value="tsundere">傲娇伙伴</option>
+                            <option value="salty">毒舌主播</option>
+                            <option value="gentle">温柔鼓励</option>
+                            <option value="__custom__">自定义...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="ctl-field" style="display:block; margin-bottom:12px;" id="aiBuddyPersonaCustomWrap">
+                    <label>自定义人设提示词 (选中"自定义..."时生效, 自由描述角色风格)</label>
+                    <textarea id="aiBuddyCustomPrompt" class="form-input" style="width:100%;min-height:72px;font-size:11.5px" placeholder="例: 你是洛克王国里一只高冷的冰系精灵, 话少但每次开口都切中要害, 从不说废话…"></textarea>
+                </div>
+
+                <div style="background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;max-width:600px">
+                    <div style="font-size:11px;color:var(--dim);margin-bottom:4px">人设风格预览 · 对局触发事件 → 弹幕风格:</div>
+                    <div id="aiBuddyPreview" style="font-size:12px;line-height:1.7;color:var(--text-secondary);min-height:20px">选择人设后自动生成预览</div>
+                </div>
+
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="aiBuddySave()">保存设置</button>
+                    <span id="aiBuddyStatus" style="font-size:11.5px;color:var(--dim)"></span>
+                </div>
+            </div>
+
+            <div class="engine-note" style="max-width:860px">
+                <b>工作方式</b>:PVP 识别启动后自动在后台运行, 检测对局事件(斩杀/被威胁/换宠/大伤害/进出场)
+                并发一条符合人设的弹幕到悬浮窗。API 不可达静默跳过, 不影响游戏与识别引擎。
+                内置三种人设也可自写提示词。兼容任何 OpenAI 格式的文本模型。
+</div>
+        </div>
         </section>
 
-        <!-- ===== 日志抽屉 ===== -->
+        <!-- ===== 页面: AI 设置 ===== -->
+        <section class="page" id="page-ai">
+            <div class="page-head">
+                <div>
+                    <h2>AI 服务设置 <span class="fhb-tag">密钥/模型</span></h2>
+                    <p>配置 AI 功能共用的 API 密钥与模型，保存后全局生效</p>
+                </div>
+            </div>
+
+            <div class="card card-pad" style="max-width:720px">
+                <div class="card-title" style="margin-bottom:12px;">通用 AI 密钥
+                    <span class="card-sub">· AI 对战/AI 伙伴/AI 视觉识别共用</span>
+                </div>
+                <div class="ctl-field" style="margin-bottom:12px;">
+                    <label>服务商预设</label>
+                    <select id="aiGlobalPreset" class="form-select" style="width:auto" onchange="aiGlobalPresetChange()"></select>
+                    <span style="font-size:10.5px;color:var(--dim)">选预设自动填地址与模型, 也可全部手填</span>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px 16px; margin-bottom:14px;">
+                    <div class="ctl-field" style="display:block">
+                        <label>API 地址 (OpenAI 兼容)</label>
+                        <input type="text" id="aiGlobalBase" class="form-input" style="width:100%" placeholder="https://api.openai.com/v1" oninput="aiGlobalOnManualEdit()">
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>默认模型</label>
+                        <input type="text" id="aiGlobalModel" class="form-input" style="width:100%" placeholder="gpt-4o / deepseek-chat / glm-4v-plus ..." oninput="aiGlobalOnManualEdit()">
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>API Key</label>
+                        <input type="password" id="aiGlobalKey" class="form-input" style="width:100%" placeholder="sk-..." oninput="aiGlobalOnManualEdit()">
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>多模态模型 (视觉识别用, 不同则单独填)</label>
+                        <input type="text" id="aiGlobalVisionModel" class="form-input" style="width:100%" placeholder="gpt-4o / doubao/vision-express / qwen-vl-max">
+                    </div>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="aiGlobalSave()">保存</button>
+                    <span id="aiGlobalStatus" style="font-size:11.5px;color:var(--dim)"></span>
+                </div>
+            </div>
+
+            <div class="engine-note" style="max-width:720px">
+                <b>使用说明</b>: 各 AI 子功能独立开关(见 AI 对战页), 但共享此页的密钥与模型。
+                任一子功能勾选"启用"后自动使用本页配置。多模态模型只在 AI 识别中生效,
+                不填则使用默认模型。
+            </div>
+        </section>
+
+        <!-- ===== 页面: AI 对战 ===== -->
+        <section class="page" id="page-aipvp">
+            <div class="page-tabs">
+                <button class="page-tab-btn active" data-tab="overview" onclick="switchPage('aipvp')">总览</button>
+                <button class="page-tab-btn" data-tab="vision" onclick="switchPage('aivision')">视觉识别</button>
+                <button class="page-tab-btn" data-tab="buddy" onclick="switchPage('aibuddy')">AI 伙伴</button>
+                <button class="page-tab-btn" data-tab="mcp" onclick="switchPage('mcp')">MCP 自玩</button>
+            </div>
+
+            <!-- 总览 -->
+            <div class="page-tab-pane active" data-tab="overview">
+            <div class="page-head">
+                <div>
+                    <h2>AI 对战 <span class="fhb-tag">总览</span></h2>
+                    <p>PVP 识别引擎 + AI 辅助功能 · 按需启用，互不干扰</p>
+                </div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; max-width:860px; margin-bottom:16px">
+                <!-- 卡片: AI 视觉识别 -->
+                <div class="card card-pad" style="margin:0">
+                    <div class="card-title" style="margin-bottom:6px;">👁️ 视觉识别</div>
+                    <p style="font-size:11px;color:var(--text-secondary);margin:0 0 10px 0">多模态 AI 读状态栏印记</p>
+                    <div style="font-size:11px;color:var(--dim)">
+                        <div>✔ 按 ROI 裁状态栏</div>
+                        <div>✔ 多模态模型识别</div>
+                        <div>✔ 不干扰识别管线</div>
+                    </div>
+                    <button class="btn" style="margin-top:10px;width:100%" onclick="switchPage('aivision')">配置 →</button>
+                </div>
+                <!-- 卡片: AI 伙伴 -->
+                <div class="card card-pad" style="margin:0">
+                    <div class="card-title" style="margin-bottom:6px;">💬 AI 伙伴</div>
+                    <p style="font-size:11px;color:var(--text-secondary);margin:0 0 10px 0">对局弹幕 + 情绪价值</p>
+                    <div style="font-size:11px;color:var(--dim)">
+                        <div>✔ 事件驱动弹幕</div>
+                        <div>✔ 三种人设/自定义</div>
+                        <div>✔ 悬浮窗气泡显示</div>
+                    </div>
+                    <button class="btn" style="margin-top:10px;width:100%" onclick="switchPage('aibuddy')">配置 →</button>
+                </div>
+                <!-- 卡片: MCP 自玩 -->
+                <div class="card card-pad" style="margin:0">
+                    <div class="card-title" style="margin-bottom:6px;">🤖 MCP 自玩</div>
+                    <p style="font-size:11px;color:var(--text-secondary);margin:0 0 10px 0">AI 客户端看局势+操作游戏</p>
+                    <div style="font-size:11px;color:var(--dim)">
+                        <div>✔ 7 个只读工具</div>
+                        <div>✔ pvp_act 按键注入</div>
+                        <div>✔ 需配置 MCP 客户端</div>
+                    </div>
+                    <button class="btn" style="margin-top:10px;width:100%" onclick="switchPage('mcp')">使用说明 →</button>
+                </div>
+            </div>
+            <div class="engine-note" style="max-width:860px">
+                <b>前置条件</b>:AI 功能需要先在「AI 设置」页配置好 API 密钥与模型。
+                PVP 识别引擎(PVP对战页启动)是视觉识别与 AI 伙伴的数据源, MCP 自玩
+                通过 localhost API 读取引擎数据+按键操作, 三者互不阻塞。
+            </div>
+            </div>
+
+            <!-- 视觉识别（复用之前的面板但移到新页） -->
+            <div class="page-tab-pane" data-tab="vision">
+            <div class="page-head">
+                <div>
+                    <h2>AI 视觉识别 <span class="fhb-tag">多模态识图</span></h2>
+                    <p>把状态栏截图发给多模态 AI 直接读状态/印记 · 模板匹配识别前的过渡方案</p>
+                </div>
+            </div>
+
+            <div class="card card-pad" style="max-width:860px">
+                <div class="card-title" style="margin-bottom:12px;">识别设置
+                    <span class="card-sub">· 保存即生效</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px;">
+                    <label class="chk"><input type="checkbox" id="aiVisionEnabled"> 启用 AI 识别状态栏</label>
+                    <div class="ctl-field">
+                        <label>识别间隔(秒)</label>
+                        <input type="number" id="aiVisionInterval" class="form-input" style="width:70px" min="3" max="600" step="1" value="10">
+                    </div>
+                    <span style="font-size:10.5px;color:var(--dim)">同一状态栏在间隔内不重复调用</span>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px 16px; margin-bottom:14px;">
+                    <div class="ctl-field" style="display:block">
+                        <label>状态栏 ROI 模板 (视觉工坊框位来源)</label>
+                        <select id="aiVisionTemplate" class="form-select" style="width:100%"></select>
+                    </div>
+                    <div class="ctl-field" style="display:block">
+                        <label>多模态模型 (留空用 AI 设置页的默认模型)</label>
+                        <input type="text" id="aiVisionModelOverride" class="form-input" style="width:100%" placeholder="留空则使用 AI 设置页的默认模型">
+                    </div>
+                </div>
+
+                <div class="ctl-field" style="display:block; margin-bottom:14px;">
+                    <label>识图提示词 (留空用内置)</label>
+                    <textarea id="aiVisionPrompt" class="form-input" style="width:100%;min-height:64px;font-size:11.5px" placeholder="留空使用内置提示词"></textarea>
+                </div>
+
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="aiVisionSave()">保存设置</button>
+                    <button class="btn" id="btnAiVisionTest" onclick="aiVisionTest()">▶ 测试识别(截状态栏)</button>
+                    <span id="aiVisionStatus" style="font-size:11.5px;color:var(--dim)"></span>
+                </div>
+            </div>
+
+            <div class="card card-pad" id="aiVisionResultCard" style="max-width:860px; display:none">
+                <div class="card-title" style="margin-bottom:10px;">最近一次识别结果 <span class="card-sub" id="aiVisionMeta"></span></div>
+                <div id="aiVisionCrops" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;"></div>
+                <pre id="aiVisionText" style="white-space:pre-wrap;font-size:12px;line-height:1.6;color:var(--text);margin:0"></pre>
+            </div>
+
+            <div class="engine-note" style="max-width:860px">
+                <b>工作方式</b>:按 ROI 模板裁状态栏发给多模态模型读状态/印记。支持任意
+                OpenAI 兼容多模态接口。API 地址/Key/默认模型在「AI 设置」页配置。
+            </div>
+            </div>
+
+            <!-- AI 伙伴 -->
+            <div class="page-tab-pane" data-tab="buddy">
+            <div class="page-head">
+                <div>
+                    <h2>AI 陪玩伙伴 <span class="fhb-tag">对局弹幕</span></h2>
+                    <p>对局事件驱动 → LLM 生成弹幕 → 悬浮窗聊天气泡</p>
+                </div>
+            </div>
+
+            <div class="card card-pad" style="max-width:860px">
+                <div class="card-title" style="margin-bottom:12px;">伙伴设置
+                    <span class="card-sub">· 保存即生效</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:14px;">
+                    <label class="chk"><input type="checkbox" id="aiBuddyEnabled"> 启用 AI 伙伴</label>
+                    <div class="ctl-field">
+                        <label>弹幕间隔(秒)</label>
+                        <input type="number" id="aiBuddyInterval" class="form-input" style="width:70px" min="5" max="600" step="1" value="20">
+                    </div>
+                </div>
+
+                <div class="ctl-field" style="display:block; margin-bottom:12px;">
+                    <label>人设</label>
+                    <select id="aiBuddyPersona" class="form-select" style="width:100%;max-width:400px" onchange="aiBuddyPersonaPreview()">
+                        <option value="tsundere">傲娇伙伴</option>
+                        <option value="salty">毒舌主播</option>
+                        <option value="gentle">温柔鼓励</option>
+                        <option value="__custom__">自定义...</option>
+                    </select>
+                </div>
+
+                <div class="ctl-field" style="display:block; margin-bottom:12px;" id="aiBuddyPersonaCustomWrap">
+                    <label>自定义人设提示词</label>
+                    <textarea id="aiBuddyCustomPrompt" class="form-input" style="width:100%;min-height:72px;font-size:11.5px" placeholder="自由描述角色风格..."></textarea>
+                </div>
+
+                <div style="background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;max-width:600px">
+                    <div style="font-size:11px;color:var(--dim);margin-bottom:4px">人设风格预览:</div>
+                    <div id="aiBuddyPreview" style="font-size:12px;line-height:1.7;color:var(--text-secondary);min-height:20px">选择人设后自动生成预览</div>
+                </div>
+
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="aiBuddySave()">保存设置</button>
+                    <span id="aiBuddyStatus" style="font-size:11.5px;color:var(--dim)"></span>
+                </div>
+            </div>
+
+            <div class="engine-note" style="max-width:860px">
+                API 地址/Key/模型在「AI 设置」页统一配置。AI 伙伴只使用文本对话模型,
+                不要求多模态能力。PVP 识别启动后自动运行, 不影响游戏与识别引擎。
+            </div>
+            </div>
+
+            <!-- MCP 自玩说明 -->
+            <div class="page-tab-pane" data-tab="mcp">
+            <div class="page-head">
+                <div>
+                    <h2>MCP 自玩 <span class="fhb-tag">AI 操作游戏</span></h2>
+                    <p>让 AI 客户端读局势 + 自主按键操作 · 需额外配置</p>
+                </div>
+            </div>
+
+            <div class="card card-pad" style="max-width:720px">
+                <div class="card-title" style="margin-bottom:10px;">原理</div>
+                <p style="font-size:12px;line-height:1.8;color:var(--text-secondary);margin:0">
+                    AI 客户端(ZCode/Claude Desktop/Cline 等)通过 MCP 协议连接到本程序,
+                    可以读取实时对局快照、规则、伤害推演, 然后用 <code>pvp_act</code> 工具
+                    直接按键操作游戏(技能/聚能/换宠/愿力冲击)。
+                </p>
+                <div style="margin:14px 0;padding:10px 14px;background:var(--panel-hover);border:1px solid var(--border);border-radius:8px;font-size:12px;line-height:1.7">
+                    <div style="font-size:11px;color:var(--dim);margin-bottom:6px">MCP 工具一览（共 8 个）:</div>
+                    <div>📷 <b>pvp_snapshot</b> — 实时战况(双方精灵/血量/能量/伤害推演)</div>
+                    <div>📖 <b>pvp_rules</b> — PVP 规则知识包(克制表/伤害公式/先手规则)</div>
+                    <div>⚔️ <b>pvp_analyze_matchup</b> — 精算指定精灵对局推演</div>
+                    <div>🔍 <b>pvp_search</b> — 模糊搜索精灵/技能</div>
+                    <div>📜 <b>pvp_rounds_list / pvp_round_log</b> — 回合日志复盘</div>
+                    <div>🏆 <b>pvp_history</b> — 战报历史(手动录入)</div>
+                    <div>⚡ <b>pvp_act</b> — 按键操作(skill1~4 / energize / switch_1~6 / resonance)</div>
+                </div>
+
+                <div class="card-title" style="margin-bottom:10px;margin-top:16px;">接入步骤</div>
+                <ol style="font-size:12px;line-height:1.8;color:var(--text-secondary);padding-left:18px;margin:0">
+                    <li>启动本程序(保持后台运行, 端口 17365)</li>
+                    <li>在 AI 客户端(ZCode/Claude Desktop/Cline)的 MCP 配置中添加：</li>
+                </ol>
+                <pre style="background:#2d2d2d;color:#ccc;padding:12px;border-radius:8px;font-size:11px;line-height:1.5;margin-top:8px;overflow-x:auto;white-space:pre-wrap">{
+  "mcpServers": {
+    "lkw-pvp": {
+      "command": "D:/anaconda/python.exe",
+      "args": ["D:/洛克王国ai/lkwgai_pvp_assistant/tools/pvp_mcp_server.py"]
+    }
+  }
+}</pre>
+                <p style="font-size:12px;line-height:1.8;color:var(--text-secondary);margin:8px 0 0 0">
+                    ③ 重启 AI 客户端 → 连接后向 AI 提问"帮我打一场 PVP"，AI 会
+                    通过 MCP 读局势 → 决策 → 用 <code>pvp_act</code> 按键操作。
+                </p>
+            </div>
+            </div>
+        </section>
         <div class="log-drawer" id="logDrawer">
             <div class="log-head">
                 <span>运行日志</span>

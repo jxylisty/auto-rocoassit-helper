@@ -278,9 +278,11 @@ def pyinstaller_pack(name: str) -> None:
     if interceptor.exists():
         shutil.copy2(interceptor, staging / "interception" / "install-interception.exe")
 
+    icon_file = PROJECT_ROOT / "data" / "assets" / "icons" / "app_icon.ico"
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", name, "--noconfirm", "--noconsole", "--onedir",
+        *(["--icon", str(icon_file)] if icon_file.exists() else []),
         "--distpath", str(PROJECT_ROOT / "dist"),
         "--workpath", str(PROJECT_ROOT / "build"),
         "--specpath", str(PROJECT_ROOT / "build"),

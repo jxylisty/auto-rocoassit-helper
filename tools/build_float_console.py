@@ -35,22 +35,23 @@ def main() -> None:
                    ".fold-btn", ".badge")
     kept_rules: list[str] = []
 
-    # 先摘出 @keyframes(嵌套大括号,单独保留)
-    kf_spans = []
-    for m in re.finditer(r"@keyframes\s+[\w-]+\s*\{", css):
-        depth, j = 1, m.end()
-        while depth and j < len(css):
-            depth += (css[j] == "{") or -(css[j] == "}")
-            j += 1
-        kf_spans.append((m.start(), j))
+    # 先剥离 CSS 注释: 否则 /* ... */ 会被下面的选择器正则吞进选择器,
+    # 产出 ".pv-root /* 顶部拖拽栏 */\n.head {...}" 这类非法规则
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
-    pieces, cursor = [], 0
-    for a, b in kf_spans:
-        pieces.append(css[cursor:a])
-        pieces.append(css[a:b])  # keyframes 原样保留
-        cursor = b
-    pieces.append(css[cursor:])
-    flat = "".join(pieces)
+    # 再摘出 @keyframes: 直接从 css 中整块删除, 循环处理完其余规则后
+    # 追加到 pv_css 末尾。keyframes 与声明顺序无关, 放末尾完全合法。
+    # 不能把 keyframes 用占位符留在原处: 下面的选择器正则 [^{}]+ 会把
+    # 占位符与紧随其后的选择器粘成一段, 导致 keyframes 被错误加前缀,
+    # 并拆碎 @keyframes killGlow / aiFadeIn 的内部关键帧。
+    kf_blocks: list[str] = []
+
+    def _stash(m: re.Match) -> str:
+        kf_blocks.append(m.group(0))
+        return "\n"
+
+    flat = re.sub(r"@keyframes\s+[\w-]+\s*\{(?:[^{}]|\{[^{}]*\})*\}",
+                  _stash, css, flags=re.S)
 
     for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", flat):
         sel, body = m.group(1).strip(), m.group(2)
@@ -61,6 +62,9 @@ def main() -> None:
         scoped = ", ".join(".pv-root " + part.strip() for part in sel.split(","))
         kept_rules.append(f"{scoped} {{{body}}}")
     pv_css = "\n".join(kept_rules)
+    # keyframes 原样补回(去掉前缀 scoping, 保持 @keyframes 全局语义)
+    for block in kf_blocks:
+        pv_css += "\n" + block
 
     # ================= 2. PVP JS: 抽取并去壳 =================
     js = extract(overlay, "<script>", "</script>")

@@ -9,6 +9,7 @@ Usage:
 
 import sys
 import argparse
+import signal
 import webview
 from pathlib import Path
 
@@ -28,7 +29,12 @@ def start_gui():
     """启动大前端控制台 + 悬浮状态窗"""
     from src.gui.window_sizing import (prewarm_c_extensions,
                                        compute_main_window_size,
-                                       apply_window_size_physical)
+                                       apply_window_size_physical,
+                                       setup_app_user_model_id,
+                                       apply_window_icon)
+
+    # 1. 显式 AppUserModelID: 将任务栏图标从默认 python.exe 剥离为专属独立应用
+    setup_app_user_model_id("lkwg.pvp.assistant")
 
     # 预热 C 扩展: 必须在桥接层启动后台线程之前(消除启动随机闪退竞态)
     prewarm_c_extensions(verbose=True)
@@ -97,17 +103,17 @@ def start_gui():
     # 卡密登录态: 后台静默校验(用户版; 开发者版直接放行)
     bridge.start_auth_verify()
 
-    # 启动看门狗: WebView2 偶发挂起(残留进程占用用户数据目录等)表现为
+# 启动看门狗: WebView2 偶发挂起(残留进程占用用户数据目录等)表现为
     # "无报错但窗口永不出现"。20s 未 shown → 写诊断日志 + 弹窗, 不再无声卡死。
     def _boot_watchdog():
         import time as _t
         for _ in range(40):          # 20s 内每 0.5s 查一次
             _t.sleep(0.5)
             try:
-                if window.events.shown.is_set():
+                if window.width > 10 and window.height > 10:
                     return
             except Exception:
-                return
+                pass
         try:
             detail = ("窗口 20 秒未就绪 — 多为 WebView2 运行时挂起。\n"
                       "常见原因: 上次实例/WebView2 进程残留。\n"
@@ -122,6 +128,26 @@ def start_gui():
             pass
     import threading as _th
     _th.Thread(target=_boot_watchdog, daemon=True).start()
+
+    # 信号处理: VSCode 终端终止 → 强制杀进程(webview 消息循环吞 Ctrl+C)
+    _cleanup_once = [False]
+    def _force_exit(sig=None, frame=None):
+        if _cleanup_once[0]:
+            return
+        _cleanup_once[0] = True
+        try:
+            global _mutex_handle
+            import ctypes
+            if _mutex_handle:
+                ctypes.windll.kernel32.CloseHandle(_mutex_handle)
+                _mutex_handle = None
+        except Exception:
+            pass
+        print("\n正在退出...")
+        import os as _os
+        _os._exit(0)
+    signal.signal(signal.SIGINT, _force_exit)
+    signal.signal(signal.SIGTERM, _force_exit)
 
     webview.start()
 
@@ -182,14 +208,23 @@ def main():
     """主入口"""
     parser = argparse.ArgumentParser(description='洛克王国 PVP 助手')
     parser.add_argument('--throw', action='store_true', help='启动自动丢球工具（无界面）')
+    parser.add_argument('--kill-ghosts', action='store_true', help='强制终止所有残留进程后退出')
 
     args = parser.parse_args()
+
+    if args.kill_ghosts:
+        import subprocess
+        for name in ('python.exe', 'pythonw.exe', 'msedgewebview2.exe'):
+            subprocess.run(['taskkill', '/F', '/IM', name], capture_output=True)
+        print("已清理所有残留进程, 重新启动即可。")
+        sys.exit(0)
 
     if not args.throw:
         _init_startup_log()
         if not _acquire_single_instance():
             print("⚠ 检测到已有实例在运行——如果上一窗口已关闭但还报此错,"
-                  "请到任务管理器结束残留的 python.exe 后重试")
+                  "请到任务管理器结束残留的 python.exe 后重试\n"
+                  "  快捷清理: python main.py --kill-ghosts")
             sys.exit(1)
 
     if args.throw:

@@ -9,6 +9,7 @@ MCP server (tools/pvp_mcp_server.py) 通过 urllib 调用这些端点。
     GET  /snapshot              实时对局快照(识别+伤害推演全字段)
     GET  /rules                 PVP 规则知识包(常量/克制表/公式说明)
     POST /analyze  {atk,def}    指定双方精灵 seq 的完整推演(pvp_calc_all_skills)
+    POST /act     {action}      AI 自玩操作注入: skill1~4 / energize / switch_1~6 / resonance
     GET  /search?q=&kind=       精灵/技能模糊搜索(kind=pet|skill|all)
     GET  /history?limit=        战报历史(只读)
     POST /comment  {text,mood}  AI 陪玩评论 → 推送悬浮窗弹幕条
@@ -101,8 +102,12 @@ class LocalApiServer(threading.Thread):
                 try:
                     if path == "/analyze":
                         return self._send(200, handle_analyze(bridge, body))
+                    if path == "/act":
+                        return self._send(200, handle_act(bridge, body))
                     if path == "/comment":
                         return self._send(200, handle_comment(bridge, body))
+                    if path == "/recommend":
+                        return self._send(200, handle_recommend(bridge))
                     return self._send(404, {"error": f"未知端点 {path}"})
                 except Exception as e:
                     return self._send(500, {"error": str(e)})
@@ -256,6 +261,23 @@ def handle_round_detail(params: dict) -> dict:
     return RoundLogger.read_match(Path(f))
 
 
+def handle_act(bridge, body: dict) -> dict:
+    """AI 自玩操作注入: 按一条操作命令
+
+    支持的 action:
+      skill1/2/3/4   → 按数字键出招
+      energize        → 按 X 聚能
+      switch_1~6      → E → 数字 → Space 换宠
+      resonance       → Q → 1 → 1 愿力冲击
+    delay: 动作间隔(秒, 默认 0.3)
+    """
+    action = str(body.get("action") or "").strip()
+    delay = body.get("delay")
+    if not action:
+        return {"ok": False, "error": "需要 action 参数"}
+    return bridge.pvp_act(action, delay=delay)
+
+
 def handle_comment(bridge, body: dict) -> dict:
     """AI 陪玩评论 → 推送悬浮窗弹幕条"""
     text = str(body.get("text") or "").strip()
@@ -264,3 +286,22 @@ def handle_comment(bridge, body: dict) -> dict:
         return {"ok": False, "message": "text 为空"}
     ok = bridge.push_ai_comment(text, mood)
     return {"ok": bool(ok)}
+
+
+def handle_recommend(bridge) -> dict:
+    """AI 战术建议: 读取实时快照 → LLM 决策 → 缓存到 bridge"""
+    snap = bridge.local_pvp_snapshot()
+    if not snap.get("in_battle"):
+        return {"in_battle": False, "message": "未在对战中"}
+    from src.gui.ai_decision import get_decision
+    decision = get_decision(snap)
+    # 缓存建议到 bridge
+    try:
+        from threading import Lock
+        lock = getattr(bridge, "_ai_decision_lock", None)
+        if lock:
+            with lock:
+                bridge._ai_recommendation = decision
+    except Exception:
+        pass
+    return decision

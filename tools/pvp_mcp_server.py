@@ -118,19 +118,47 @@ TOOLS = [
             "required": [],
         },
     },
-    {
-        "name": "pvp_round_log",
-        "description": (
-            "读取一份对局的完整回合事件流(match_start/switch/enemy_hp_change/"
-            "player_hp_change/skills_seen/match_end), 用于复盘与对手习惯分析。"
-            "file 参数来自 pvp_rounds_list。"
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {"file": {"type": "string", "description": "日志文件路径"}},
-            "required": ["file"],
+{
+            "name": "pvp_round_log",
+            "description": (
+                "读取一份对局的完整回合事件流(match_start/switch/enemy_hp_change/"
+                "player_hp_change/skills_seen/match_end), 用于复盘与对手习惯分析。"
+                "file 参数来自 pvp_rounds_list。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {"file": {"type": "string", "description": "日志文件路径"}},
+                "required": ["file"],
+            },
         },
-    },
+        {
+            "name": "pvp_act",
+            "description": (
+                "⚡ 向游戏发送一条 PVP 操作命令 (AI 自玩 / 自动执行动作)。"
+                "支持的 action 值:\n"
+                "  skill1/2/3/4  — 按数字键 1~4 出招\n"
+                "  energize       — 按 X 聚能(本回合不攻击, +5 能量)\n"
+                "  switch_1~6     — 换宠: 按 E → 数字1~6选宠 → Space确认\n"
+                "  resonance      — 共鸣愿力冲击: Q打开背包 → 1选中 → 1释放\n\n"
+                "示例: {\"action\": \"skill2\"} 或 {\"action\": \"switch_3\", \"delay\": 0.5}\n"
+                "delay 可选(秒), 控制动作间间隔, 默认 0.3。\n"
+                "注意: 操作前请先读取 pvp_snapshot 确认场上局势, 操作后再读一次确认效果。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "操作命令: skill1-4 / energize / switch_1-6 / resonance",
+                    },
+                    "delay": {
+                        "type": "number",
+                        "description": "可选, 动作间基础间隔秒数(默认0.3)",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
     {
         "name": "pvp_history",
         "description": (
@@ -163,6 +191,8 @@ def tool_call(name: str, args: dict) -> dict:
     if name == "pvp_round_log":
         from urllib.parse import quote
         return api_get(f"/round?file={quote(args.get('file', ''))}")
+    if name == "pvp_act":
+        return api_post("/act", args)
     return {"error": f"未知工具: {name}"}
 
 

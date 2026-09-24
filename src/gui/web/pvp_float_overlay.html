@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>PVP 对决实时推演</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
 <script src="assets/pet_asset_map.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -454,6 +455,56 @@ body {
     .ai-chat .ai-line.mood-care .ai-tag { background: rgba(74, 222, 128, 0.2); color: #3f6212; }
     .ai-chat .ai-line.mood-salt .ai-tag { background: rgba(248, 113, 113, 0.2); color: #b91c1c; }
     .ai-chat .ai-empty { font-size: 10px; color: var(--ink-3); padding: 6px 2px; }
+
+    /* ===== AI 战术决策面板 ===== */
+    .ai-decision-box {
+        margin-top: 8px; padding: 8px 10px; border-radius: 10px;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(59, 130, 246, 0.06));
+        border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+    .ai-decision-box .ai-d-head {
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;
+    }
+    .ai-decision-box .ai-d-title {
+        font-size: 11px; font-weight: 700; color: #a5b4fc; display: flex; align-items: center; gap: 4px;
+    }
+    .ai-d-action {
+        font-size: 14px; font-weight: 800; color: #38bdf8;
+        padding: 4px 0 2px;
+    }
+    .ai-d-action .ai-d-target {
+        color: #fbbf24;
+    }
+    .ai-d-reason {
+        font-size: 10.5px; color: var(--ink-2); line-height: 1.55; margin: 3px 0;
+    }
+    .ai-d-risk {
+        font-size: 10px; color: #f87171; margin-top: 3px; padding: 3px 6px;
+        border-radius: 5px; background: rgba(248, 113, 113, 0.1);
+    }
+    .ai-d-conf {
+        font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+    }
+    .ai-d-conf.high { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+    .ai-d-conf.medium { background: rgba(250, 204, 21, 0.2); color: #eab308; }
+    .ai-d-conf.low { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+    .ai-d-alts {
+        margin-top: 4px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.08);
+        font-size: 9.5px; color: var(--dim);
+    }
+    .ai-d-alt-item {
+        padding: 2px 0; display: flex; align-items: center; gap: 4px;
+        cursor: pointer;
+    }
+    .ai-d-alt-item:hover { color: var(--text); }
+    .ai-d-spinner {
+        display: inline-block; width: 12px; height: 12px;
+        border: 2px solid var(--dim); border-top-color: #a5b4fc;
+        border-radius: 50%; animation: aiSpin 0.8s linear infinite;
+        margin-right: 4px;
+    }
+    @keyframes aiSpin { to { transform: rotate(360deg); } }
+    .ai-d-empty { font-size: 10px; color: var(--dim); padding: 6px 8px; text-align: center; }
     @keyframes aiFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
@@ -576,7 +627,14 @@ function syncPvpSize() {
 // 星陨层数下拉: 选择后进入手动模式(不再自动跟随致死层数)
 
 // ===== AI 陪玩弹幕条 (由主程序 /comment 端点推送) =====
-let _aiChatLines = [];   // {text, mood, ts}
+let _aiChatLines = [];
+// 按主程序推送的 state 开关 AI 对话框
+window.onStateUpdate = window.onStateUpdate || function(st) {
+    const box = document.getElementById('aiChat');
+    if (!box) return;
+    const show = st && st.companion_enabled;
+    box.style.display = show ? '' : 'none';
+};
 function pushAiComment(text, mood) {
     mood = mood || 'normal';
     _aiChatLines.push({ text: String(text || '').slice(0, 120), mood: String(mood), ts: Date.now() });
@@ -802,6 +860,32 @@ function updatePVPData(data) {
         `;
     }
 
+    // AI 战术建议解析
+    const rawAdvice = data.ai_advice;
+    let advice = { actionLabel: '分析中…', reasoning: '', risk: '', confidence: 'medium', altsHtml: '' };
+    if (rawAdvice && rawAdvice.recommendation) {
+        const r = rawAdvice.recommendation;
+        const actionMap = { 'skill': '⚔️ 出招', 'switch': '🔄 换宠', 'energize': '⚡ 聚能', 'resonance': '🔮 愿力冲击' };
+        const actionIcon = actionMap[r.action] || ('➡️ ' + r.action);
+        const targetHtml = r.target ? `<span class="ai-d-target">${r.target}</span>` : '';
+        advice = {
+            actionLabel: `${actionIcon} ${targetHtml}`,
+            reasoning: r.reasoning || '',
+            risk: r.risk || '',
+            confidence: r.confidence || 'medium',
+            altsHtml: ''
+        };
+        if (rawAdvice.alternatives && rawAdvice.alternatives.length) {
+            advice.altsHtml = rawAdvice.alternatives.map(a =>
+                ` <span style="font-size:9px;color:var(--dim);display:block;padding:1px 0;">↳ ${a.action}: ${a.target} — ${(a.reasoning || '').slice(0, 40)}</span>`
+            ).join('');
+        }
+    } else if (!rawAdvice) {
+        advice = { actionLabel: '等待推演…', reasoning: '', risk: '', confidence: 'medium', altsHtml: '' };
+    } else if (rawAdvice.error) {
+        advice = { actionLabel: '推演异常', reasoning: rawAdvice.error, risk: '', confidence: 'low', altsHtml: '' };
+    }
+
     bodyEl.innerHTML = `
         <!-- VS 看板 -->
         <div class="vs-banner">
@@ -861,6 +945,20 @@ function updatePVPData(data) {
 
         <!-- 愿力冲击暗手推演 -->
         ${resonanceHtml}
+
+        <!-- AI 战术决策面板 -->
+        <div class="ai-decision-box" id="aiDecisionBox">
+            <div class="ai-d-head">
+                <span class="ai-d-title">🧠 AI 战术建议</span>
+                <span class="ai-d-conf ${advice.confidence || 'medium'}">${(advice.confidence === 'high' ? '高' : advice.confidence === 'low' ? '低' : '中') || '中'}</span>
+            </div>
+            <div class="ai-d-action">
+                ${advice.actionLabel}
+            </div>
+            <div class="ai-d-reason">${advice.reasoning}</div>
+            ${advice.risk ? `<div class="ai-d-risk">⚠️ ${advice.risk}</div>` : ''}
+            ${advice.altsHtml ? `<div class="ai-d-alts">备选方案:${advice.altsHtml}</div>` : ''}
+        </div>
 
         <!-- 我方技能推演 -->
         <div class="sec-title">🎯 我方技能即时伤害推演</div>

@@ -143,9 +143,53 @@ def compute_main_window_size(cap_w: int | None = None, cap_h: int | None = None,
 # 3. 显示后按物理像素精确定尺并居中
 # ============================================================
 
+def setup_app_user_model_id(app_id: str = "lkwg.pvp.assistant") -> None:
+    """设置显式 AppUserModelID，使 Windows 任务栏将本窗口视为独立应用而非通用 python.exe"""
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(str(app_id))
+    except Exception:
+        pass
+
+
+def apply_window_icon(hwnd: int, icon_path: str | None = None) -> None:
+    """向指定 HWND 发送 WM_SETICON 消息设置大图标与小图标 (任务栏 + Alt-Tab + 窗口左上角)"""
+    if not hwnd:
+        return
+    try:
+        from pathlib import Path
+        if not icon_path:
+            p = Path(__file__).resolve().parents[2] / "data" / "assets" / "icons" / "app_icon.ico"
+            if not p.exists():
+                return
+            icon_path = str(p)
+        else:
+            p = Path(icon_path)
+            if not p.exists():
+                return
+            icon_path = str(p)
+
+        u32 = _u32()
+        LR_LOADFROMFILE = 0x0010
+        IMAGE_ICON = 1
+        WM_SETICON = 0x0080
+        ICON_SMALL = 0
+        ICON_BIG = 1
+
+        # 载入 16x16 (小图标/标题栏/任务栏小视图) 和 32x32/48x48 (大图标/Alt-Tab/任务栏缩略图)
+        h_icon_sm = u32.LoadImageW(None, icon_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        h_icon_lg = u32.LoadImageW(None, icon_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+
+        if h_icon_sm:
+            u32.SendMessageW(ctypes.c_void_p(hwnd), WM_SETICON, ICON_SMALL, ctypes.c_void_p(h_icon_sm))
+        if h_icon_lg:
+            u32.SendMessageW(ctypes.c_void_p(hwnd), WM_SETICON, ICON_BIG, ctypes.c_void_p(h_icon_lg))
+    except Exception:
+        pass
+
+
 def apply_window_size_physical(window, phys_w: int, phys_h: int,
                               workarea=None, delay: float = 0.15) -> None:
-    """等窗口就绪后按物理像素定尺居中, 然后显示(不闪)。
+    """等窗口就绪后按物理像素定尺居中, 并设置独立 App 图标, 然后显示(不闪)。
 
     关键: 建窗时必须传 hidden=True。pywebview 创建期的 width/height 会被 WinForms
     按当前 DPI 做一次倍率换算(实测 1.39~1.47, 且取决于进程何时变成 DPI 感知),
@@ -175,6 +219,10 @@ def apply_window_size_physical(window, phys_w: int, phys_h: int,
             except Exception:
                 pass
             return
+
+        # 为窗口应用原生应用图标 (任务栏 + Alt-Tab + 窗口管理)
+        apply_window_icon(hwnd)
+
         if delay > 0:
             time.sleep(delay)
         try:
@@ -194,3 +242,4 @@ def apply_window_size_physical(window, phys_w: int, phys_h: int,
             pass
 
     threading.Thread(target=_job, daemon=True, name="WinSize").start()
+

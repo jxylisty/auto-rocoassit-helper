@@ -74,10 +74,11 @@ def main() -> None:
 
     # ---- 2. PyInstaller 构建 ----
     exe_src = PROJECT_ROOT / "tools" / "pvp_data_collector.py"
-    name = "PVP数据采集器"
+    icon_file = PROJECT_ROOT / "data" / "assets" / "icons" / "app_icon.ico"
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", name,
+        *(["--icon", str(icon_file)] if icon_file.exists() else []),
         "--noconfirm",
         "--console",
         "--onedir",

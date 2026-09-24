@@ -35,6 +35,7 @@ import json
 import os
 import pickle
 import sys
+import threading
 import time
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -137,6 +138,7 @@ class PvpTemplateLibrary:
         self.entries: List[Dict] = []
         self._feat: Optional[List[Optional[np.ndarray]]] = None
         self._hues: Optional[List[Optional[np.ndarray]]] = None
+        self._lock = threading.Lock()   # 后台自动入库与主线程 match 并发保护
 
     # ---------- 元数据 ----------
     def load(self):
@@ -146,9 +148,11 @@ class PvpTemplateLibrary:
         return self
 
     def _save_meta(self):
-        self.data["entries"] = self.entries
-        self.meta_path.write_text(
-            json.dumps(self.data, ensure_ascii=False, indent=1), encoding="utf-8")
+        with self._lock:
+            self.data["entries"] = self.entries
+            self.meta_path.write_text(
+                json.dumps(self.data, ensure_ascii=False, indent=1),
+                encoding="utf-8")
 
     # ---------- 特征缓存 ----------
     def _feat_version(self) -> str:
@@ -248,6 +252,42 @@ class PvpTemplateLibrary:
             self.features(force_rebuild=True)
         return {"files": len(files), "new_templates": n_new,
                 "skipped_files": n_skip, "unmatched_rows": n_unmatched}
+
+    # ---------- 单帧入库 (战斗画面自动丰富模板库) ----------
+    def add_template(self, name: str, crop_bgr: np.ndarray,
+                     src: str = "auto") -> bool:
+        """战斗帧头像 ROI 直接入库 (OCR 高置信验名后调用, 无需整屏布局解析).
+
+        质量闸 std≥35/动态范围≥120 (与管线头像匹配同一定界) 防低对比碎片入库;
+        md5 去重防同一头像反复入库。返回是否新增。
+        """
+        if crop_bgr is None or crop_bgr.size == 0:
+            return False
+        if crop_bgr.shape[0] < 16 or crop_bgr.shape[1] < 16:
+            return False
+        g = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+        if float(g.std()) < 35 or (int(g.max()) - int(g.min())) < 120:
+            return False
+        md5 = hashlib.md5(crop_bgr.tobytes()).hexdigest()
+        for e in self.entries:
+            if e.get("name") == name and e.get("src_md5", "").startswith("auto"):
+                old = imread_unicode(self.img_dir / e["file"])
+                if old is not None and hashlib.md5(
+                        old.tobytes()).hexdigest() == md5:
+                    return False
+        m = best_match(name, load_titles())
+        if not m:
+            return False
+        title, seq = m[0], m[1]
+        fname = f"{seq:03d}_{title}__auto_{md5[:8]}.png"
+        imwrite_unicode(str(self.img_dir / fname), crop_bgr)
+        self.entries.append({
+            "id": len(self.entries), "seq": int(seq), "name": str(title),
+            "file": fname, "src": src, "src_md5": f"auto_{md5}", "row": -1,
+        })
+        self._save_meta()
+        self.features(force_rebuild=True)
+        return True
 
     # ---------- 匹配 (图像链) ----------
     def match(self, crop_bgr: np.ndarray, n_top: int = 5) -> List[Dict]:

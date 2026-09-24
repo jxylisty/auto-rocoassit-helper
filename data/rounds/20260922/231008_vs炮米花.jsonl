@@ -1,0 +1,7 @@
+{"t": "2026-09-22 23:10:08", "event": "match_start", "player": "霹雳迪迪", "enemy": "炮米花"}
+{"t": "2026-09-22 23:10:10", "event": "switch_mine", "from": "霹雳迪迪", "to": "公平鸽"}
+{"t": "2026-09-22 23:10:10", "event": "switch_enemy", "from": "炮米花", "to": "霹雳迪迪"}
+{"t": "2026-09-22 23:10:12", "event": "switch_mine", "from": "公平鸽", "to": "霹雳迪迪"}
+{"t": "2026-09-22 23:10:13", "event": "switch_mine", "from": "霹雳迪迪", "to": "黑猫巫师"}
+{"t": "2026-09-22 23:10:13", "event": "switch_enemy", "from": "霹雳迪迪", "to": "彩蝶鲨"}
+{"t": "2026-09-22 23:10:14", "event": "match_end", "duration_sec": 5}

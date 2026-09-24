@@ -222,7 +222,15 @@ class PvpResult:
     energy: str = ""
     energy_val: int = 0
     in_battle: bool = False
+    # 状态沿标记(单次投递, 缓存命中时自动清零): 供上层做一次性动作(截图/入库)
+    battle_start: bool = False   # 进战斗沿: 非战斗 → 战斗
+    battle_end: bool = False     # 脱战斗沿: 战斗 → 非战斗
+    lineup_new: bool = False     # 新阵容识别沿: 本次完整识别出新阵容
     errors: list[str] = field(default_factory=list)
+    # 战前阵容: 开局识别后填充, 战斗中不变
+    player_lineup: list = field(default_factory=list)   # 6 元素(未知为 None)
+    enemy_lineup: list = field(default_factory=list)     # 6 元素
+    lineup_done: bool = False
 
 
 class PvpPipeline:
@@ -243,6 +251,14 @@ class PvpPipeline:
         # 聚能图标模板(in_battle 判定用): 战斗界面左下角聚能按钮, PVP/PVE 都有
         self._charge_tmpl: np.ndarray | None = None
         self._charge_tried = False
+        # 战前阵容识别器(懒加载)
+        self._lineup_recognizer: object | None = None
+        self._lineup_loaded = False
+        # 状态沿: 上一帧战斗态(边沿检测用)
+        self._prev_in_battle: bool = False
+        # 阵容会话缓存: 同一陈列屏(画面 hash 相近)不重复跑 12 槽 ORB+OCR
+        self._lineup_sess: tuple | None = None
+        self._lineup_sess_hash: float | None = None
 
     def _charge_icon_present(self, frame: np.ndarray) -> bool:
         """战斗界面标志判定: 左下角聚能按钮模板匹配(PVP/PVE 都有该按钮)。
@@ -311,6 +327,34 @@ class PvpPipeline:
             if hits and hits[0].get("confidence") in ("high", "medium")                     and float(hits[0].get("margin", 0)) >= 0.25:
                 out[side] = hits[0]
         return out
+
+    def _try_lineup_recognition(self, frame: np.ndarray) -> tuple[list, list, bool]:
+        """尝试在战前阵容陈列屏识别双方完整阵容。
+        
+        调用 LineupRecognizer, 先判断画面是否为阵容屏, 是则识别并缓存。
+        返回 (player_lineup, enemy_lineup, done)。
+        """
+        if not self._lineup_loaded:
+            self._lineup_loaded = True
+            try:
+                from src.pvp.lineup_recognizer import LineupRecognizer
+                self._lineup_recognizer = LineupRecognizer()
+            except Exception:
+                pass
+        rec = self._lineup_recognizer
+        if rec is None:
+            return [], [], False
+        try:
+            if not rec.is_lineup_screen(frame):
+                return [], [], False
+            linedata = rec.recognize(frame)
+            if linedata.get("done"):
+                return (linedata.get("player_lineup", []),
+                        linedata.get("enemy_lineup", []),
+                        True)
+        except Exception:
+            pass
+        return [], [], False
 
     @staticmethod
     def _calc_hash(img: np.ndarray) -> float:
@@ -403,6 +447,10 @@ class PvpPipeline:
             # 更新色彩积分（只有这个不受 OCR 缓存影响）
             cached = self._cached_result
             cached.enemy_hp_color = result.enemy_hp_color
+            # 沿标记只投递一次: 缓存命中时清零, 防静态画面反复触发截图/入库
+            cached.battle_start = False
+            cached.battle_end = False
+            cached.lineup_new = False
             return cached
 
         self._last_combined_hash = current_hash
@@ -428,9 +476,9 @@ class PvpPipeline:
                     result.enemy_name = matched or cleaned
                     result.enemy_name_conf = 0.9 if matched else 0.3
 
-        # ---- 3.4 头像交叉验证(防恶意改名): 部分玩家把精灵命名成别的精灵的名字,
-        # OCR 会自信读出假名(conf 0.9)。头像不会说谎 — 名字与头像冲突时头像赢。
-        # 头像 unavailable(未收录/低质/低margin) 时保留 OCR 结果(此时无从证伪)。
+        # ---- 3.4 头像交叉验证: 名字OCR清晰可读, 且模糊匹配到已知精灵时一律
+        # 采信OCR。头像ORB匹配受背景/徽章/缩放干扰噪声大, 高margin也可能是假命中,
+        # 仅当OCR与头像命中不一致时记一条日志便于排查(不改名)。
         avatar_hits = self._match_avatars(frame)
         for side in ("player", "enemy"):
             hit = avatar_hits.get(side)
@@ -439,18 +487,9 @@ class PvpPipeline:
             r = result.player_name if side == "player" else result.enemy_name
             conf = result.player_name_conf if side == "player" else result.enemy_name_conf
             if r and conf >= 0.9 and r != hit["name"]:
-                # OCR 高置信名 vs 头像命中名冲突 → 改名欺诈嫌疑, 头像优先
-                if side == "player":
-                    result.player_name = hit["name"]
-                    result.player_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
-                    result.player_name_via_avatar = True
-                else:
-                    result.enemy_name = hit["name"]
-                    result.enemy_name_conf = 0.75 if hit["confidence"] == "high" else 0.5
-                    result.enemy_name_via_avatar = True
                 result.errors.append(
-                    f"{'我方' if side == 'player' else '敌方'}名字与头像冲突 "
-                    f"(OCR'{r}' → 头像'{hit['name']}', 疑似改名)")
+                    f"{'我方' if side == 'player' else '敌方'}头像与名字不一致 "
+                    f"(OCR'{r}' vs 头像'{hit['name']}', 以名字为准)")
 
         # ---- 3.5 头像兜底: 名字 OCR 失败/低置信时用精灵头像模板匹配 ----
         # (3.4 已跑过匹配, 此处直接复用结果)
@@ -506,6 +545,24 @@ class PvpPipeline:
         self_hud = (result.player_hp != "" and result.player_name_conf >= 0.9)
         enemy_hud = (result.enemy_hp_color > 0.0 and bool(result.enemy_name))
         result.in_battle = charge_seen or self_hud or enemy_hud
+
+        # ---- 状态沿检测(边沿触发): 上层据此做一次性动作 ----
+        result.battle_start = result.in_battle and not self._prev_in_battle
+        result.battle_end = (not result.in_battle) and self._prev_in_battle
+        if result.battle_start or result.battle_end:
+            # 场景切换 → 旧阵容会话失效(新对局的阵容屏需重新识别)
+            self._lineup_sess = None
+            self._lineup_sess_hash = None
+
+        # 战斗态: 沿用缓存的战前阵容(开局识别一次, 战斗中不重跑)
+        # 修复: 此前每帧新建 PvpResult 导致战斗中 lineup_done=False, 阵容丢失
+        if result.in_battle:
+            prev = self._cached_result
+            if prev is not None and prev.lineup_done:
+                result.player_lineup = prev.player_lineup
+                result.enemy_lineup = prev.enemy_lineup
+                result.lineup_done = True
+
         if not result.in_battle:
             # 非战斗态: 清空精灵名/技能识别 — 防地图/菜单 UI 文字被当成精灵名
             # 混进换宠检测与推演("乱识别精灵名"的根治)
@@ -514,6 +571,26 @@ class PvpPipeline:
             result.player_name_conf = 0.0
             result.enemy_name_conf = 0.0
             result.skills = ["", "", "", ""]
+
+            # 非战斗态但可能是战前阵容陈列屏: 走阵容识别(带会话缓存)
+            if not result.lineup_done:
+                sess_hit = (self._lineup_sess is not None
+                            and self._lineup_sess_hash is not None
+                            and abs(current_hash - self._lineup_sess_hash) < 3.0)
+                if sess_hit:
+                    result.player_lineup, result.enemy_lineup, result.lineup_done = \
+                        self._lineup_sess
+                else:
+                    result.player_lineup, result.enemy_lineup, result.lineup_done = \
+                        self._try_lineup_recognition(frame)
+                    if result.lineup_done:
+                        self._lineup_sess = (result.player_lineup,
+                                             result.enemy_lineup, True)
+                        self._lineup_sess_hash = current_hash
+                        result.lineup_new = True
+
+        # 记录战斗态供下一帧边沿检测
+        self._prev_in_battle = result.in_battle
 
         # 缓存结果
         self._cached_result = result
@@ -546,6 +623,10 @@ class PvpPipeline:
             },
             "in_battle": result.in_battle,
             "errors": result.errors,
+            # 战前阵容(开局识别, 战斗中不变)
+            "player_lineup": result.player_lineup if result.lineup_done else [],
+            "enemy_lineup": result.enemy_lineup if result.lineup_done else [],
+            "lineup_done": result.lineup_done,
         }
 
 

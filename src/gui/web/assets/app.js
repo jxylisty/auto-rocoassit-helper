@@ -541,6 +541,11 @@ const MERGED_PAGE_MAP = {
     pvp:     ['pvp', 'battle'],
     battle:  ['pvp', 'battle'],
     history: ['pvp', 'history'],
+    ai:      ['ai', null],
+    aipvp:   ['aipvp', 'overview'],
+    aivision: ['aipvp', 'vision'],
+    aibuddy:  ['aipvp', 'buddy'],
+    mcp:      ['aipvp', 'mcp'],
 };
 
 function switchPage(name) {
@@ -551,7 +556,19 @@ function switchPage(name) {
     const merged = MERGED_PAGE_MAP[name];
     if (merged) {
         activateNavPage(merged[0]);
-        activatePageTab(merged[0], merged[1]);
+        // ai 和 aipvp 是独立侧栏页(无子 tab 或有子 tab 的 section)
+        if (merged[1] !== null) {
+            activatePageTab(merged[0], merged[1]);
+        }
+        // 懒加载初始化
+        if (merged[0] === 'aipvp') {
+            if ((merged[1] === 'vision' || merged[1] === null) && typeof initAiVisionSettings === 'function') {
+                setTimeout(() => { initAiVisionPresetDropdown(); initAiVisionSettings(); }, 100);
+            }
+            if ((merged[1] === 'buddy' || merged[1] === null) && typeof initAiBuddySettings === 'function') {
+                setTimeout(initAiBuddySettings, 100);
+            }
+        }
         // 切到赛季战报子页时刷新数据
         if (merged[0] === 'pvp' && merged[1] === 'history' && typeof loadMatchHistory === 'function') {
             setTimeout(loadMatchHistory, 50);
@@ -564,6 +581,10 @@ function switchPage(name) {
     // 切换到视觉调试台时刷新模板列表
     if (name === 'vision' && typeof tmplRefreshList === 'function') {
         setTimeout(tmplRefreshList, 200);
+    }
+    // AI 设置页: 初始化全局预设
+    if (name === 'ai' && typeof initAiGlobalSettings === 'function') {
+        setTimeout(initAiGlobalSettings, 50);
     }
 }
 
@@ -1820,6 +1841,328 @@ async function refreshState() {
 }
 
 // ========================================
+// AI 全局设置 (密钥/模型, 各AI子功能共用)
+// ========================================
+
+// 全局预设表(复用 AI_VISION_PRESETS 的地址映射, 加一个 vision_model 字段)
+const AI_GLOBAL_PRESETS = [
+    { id: 'doubao',   label: '豆包桥(本地 127.0.0.1:7868)', base: 'http://127.0.0.1:7868/v1', key: 'DoubaoAPI', model: 'deepseek-chat', vision: 'doubao/vision-express' },
+    { id: 'openai',   label: 'OpenAI',        base: 'https://api.openai.com/v1',                          key: '', model: 'gpt-4o', vision: 'gpt-4o' },
+    { id: 'zhipu',    label: '智谱 GLM',      base: 'https://open.bigmodel.cn/api/paas/v4',               key: '', model: 'glm-4-plus', vision: 'glm-4v-plus' },
+    { id: 'moonshot', label: 'Kimi(月之暗面)', base: 'https://api.moonshot.cn/v1',                        key: '', model: 'moonshot-v1-8k', vision: 'moonshot-v1-8k-vision-preview' },
+    { id: 'qwen',     label: '通义千问',      base: 'https://dashscope.aliyuncs.com/compatible-mode/v1',  key: '', model: 'qwen-plus', vision: 'qwen-vl-max' },
+    { id: 'custom',   label: '自定义…',       base: '', key: '', model: '', vision: '' },
+];
+
+// AI 视觉识别的服务商预设表(专用于 aiVisionPreset 下拉)
+const AI_VISION_PRESETS = AI_GLOBAL_PRESETS.map(p => ({
+    id: p.id, label: p.label, base: p.base, key: p.key, vision: p.vision
+}));
+
+function initAiGlobalSettings() {
+    const sel = $('aiGlobalPreset');
+    if (!sel || sel.options.length) return;   // 已初始化
+    AI_GLOBAL_PRESETS.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id; opt.textContent = p.label;
+        sel.appendChild(opt);
+    });
+    sel.value = 'doubao';
+    aiGlobalPresetChange();
+}
+
+function aiGlobalPresetChange() {
+    const sel = $('aiGlobalPreset');
+    const p = AI_GLOBAL_PRESETS.find(x => x.id === sel.value);
+    if (!p || p.id === 'custom') return;
+    if ($('aiGlobalBase')) $('aiGlobalBase').value = p.base;
+    if ($('aiGlobalModel')) $('aiGlobalModel').value = p.model;
+    if ($('aiGlobalVisionModel')) $('aiGlobalVisionModel').value = p.vision || '';
+    if (p.key && $('aiGlobalKey')) $('aiGlobalKey').value = p.key;
+}
+
+function aiGlobalOnManualEdit() {
+    const sel = $('aiGlobalPreset');
+    if (!sel || sel.value === 'custom') return;
+    const p = AI_GLOBAL_PRESETS.find(x => x.id === sel.value);
+    if (p && $('aiGlobalBase') && $('aiGlobalBase').value.trim() !== p.base) {
+        sel.value = 'custom';
+    }
+}
+
+async function aiGlobalSave() {
+    const st = $('aiGlobalStatus');
+    // 保存到 settings.yaml 的 ai.* 段
+    const params = {
+        ai_base_url: ($('aiGlobalBase').value || '').trim(),
+        ai_api_key: ($('aiGlobalKey').value || '').trim(),
+        ai_model: ($('aiGlobalModel').value || '').trim(),
+        ai_vision_model: ($('aiGlobalVisionModel').value || '').trim(),
+    };
+    try {
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.engine_save_settings) {
+            await pywebview.api.engine_save_settings(params);
+            if (st) st.textContent = '已保存 ✓';
+            setTimeout(() => { if (st) st.textContent = ''; }, 2500);
+        }
+    } catch (e) {
+        if (st) st.textContent = '保存失败: ' + e;
+    }
+}
+
+// 从全局 AI 设置读取 API 字段(用于 aiVision/aiBuddy 保存时合并)
+async function _loadGlobalAiParams() {
+    try {
+        if (!window.pywebview || !window.pywebview.api) return {};
+        const r = await window.pywebview.api.engine_get_settings();
+        if (r && r.success && r.settings) {
+            const s = r.settings;
+            return {
+                base_url: s.ai_base_url || '',
+                api_key: s.ai_api_key || '',
+                model: s.ai_model || '',
+                vision_model: s.ai_vision_model || '',
+            };
+        }
+    } catch (e) { /* ignore */ }
+    return {};
+}
+
+// ========================================
+// AI 视觉识别设置 (状态栏识图)
+// ========================================
+
+let aiVisionLoaded = false;
+
+// AI 视觉服务商预设下拉填充+变更
+function initAiVisionPresetDropdown() {
+    const sel = $('aiVisionPreset');
+    if (!sel || sel.options.length) return;
+    AI_VISION_PRESETS.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id; opt.textContent = p.label;
+        sel.appendChild(opt);
+    });
+    sel.value = 'doubao';
+    aiVisionPresetChange();
+}
+function aiVisionPresetChange() {
+    const sel = $('aiVisionPreset');
+    if (!sel) return;
+    const p = AI_VISION_PRESETS.find(x => x.id === sel.value);
+    if (!p || p.id === 'custom') return;
+    if ($('aiVisionBase')) $('aiVisionBase').value = p.base;
+    if ($('aiVisionModel')) $('aiVisionModel').value = p.vision || '';
+    if (p.key && $('aiVisionKey')) $('aiVisionKey').value = p.key;
+}
+function aiVisionOnManualEdit() {
+    const sel = $('aiVisionPreset');
+    if (!sel || sel.value === 'custom') return;
+    if ($('aiVisionBase') && $('aiVisionPreset')) {
+        const p = AI_VISION_PRESETS.find(x => x.id === sel.value);
+        if (p && $('aiVisionBase').value.trim() !== p.base) {
+            sel.value = 'custom';
+        }
+    }
+}
+
+async function initAiVisionSettings() {
+    if (aiVisionLoaded) return;
+    try {
+        const r = await pywebview.api.ai_vision_get_settings();
+        if (!(r && r.success && r.settings)) return;   // 后端未就绪/失败, 下次进页重试
+        aiVisionLoaded = true;
+        const s = r.settings;
+        if ($('aiVisionEnabled')) $('aiVisionEnabled').checked = Boolean(s.enabled);
+        if ($('aiVisionInterval')) $('aiVisionInterval').value = s.interval_s;
+        if ($('aiVisionPrompt')) $('aiVisionPrompt').value = s.prompt || '';
+        // ROI 模板下拉: 先拉模板列表, 再选中配置里的模板
+        const sel = $('aiVisionTemplate');
+        if (sel) {
+            sel.innerHTML = '';
+            try {
+                const tl = await pywebview.api.roi_template_list();
+                (tl && tl.templates ? tl.templates : []).forEach(t => {
+                    const name = typeof t === 'string' ? t : (t.name || '');
+                    if (!name) return;
+                    const opt = document.createElement('option');
+                    opt.value = name; opt.textContent = name;
+                    sel.appendChild(opt);
+                });
+            } catch (e) { /* ignore */ }
+            if (s.template && ![...sel.options].some(o => o.value === s.template)) {
+                const opt = document.createElement('option');
+                opt.value = s.template; opt.textContent = s.template + ' (未找到)';
+                sel.appendChild(opt);
+            }
+            if (s.template) sel.value = s.template;
+        }
+    } catch (e) { /* 后端未就绪 */ }
+}
+
+function collectAiVisionSettings() {
+    const modelOverride = ($('aiVisionModelOverride') ? $('aiVisionModelOverride').value.trim() : '');
+    return {
+        enabled: $('aiVisionEnabled') ? $('aiVisionEnabled').checked : false,
+        interval_s: $('aiVisionInterval') ? Number($('aiVisionInterval').value) || 10 : 10,
+        prompt: $('aiVisionPrompt') ? $('aiVisionPrompt').value : '',
+        template: $('aiVisionTemplate') ? $('aiVisionTemplate').value : 'pvp状态',
+        model: modelOverride || undefined,  // 只传覆盖值
+    };
+}
+
+async function aiVisionSave() {
+    const st = $('aiVisionStatus');
+    try {
+        // 合并全局 AI 设置
+        const global = await _loadGlobalAiParams();
+        const params = collectAiVisionSettings();
+        if (!params.base_url && global.base_url) params.base_url = global.base_url;
+        if (!params.api_key && global.api_key) params.api_key = global.api_key;
+        if (!params.model && (global.vision_model || global.model)) params.model = global.vision_model || global.model;
+        const r = await pywebview.api.ai_vision_save_settings(params);
+        if (st) { st.textContent = r && r.success ? '已保存 ✓' : ('保存失败: ' + (r.message || '')); }
+        setTimeout(() => { if (st) st.textContent = ''; }, 2500);
+    } catch (e) {
+        if (st) st.textContent = '保存失败: ' + e;
+    }
+}
+
+async function aiVisionTest() {
+    const btn = $('btnAiVisionTest'), st = $('aiVisionStatus');
+    const card = $('aiVisionResultCard');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = '⏳ 识别中…';
+    if (st) st.textContent = '正在截图并发送给 AI…';
+    try {
+        await aiVisionSave();   // 先存当前填的配置, 保证测试与运行一致
+        const r = await pywebview.api.ai_vision_test();
+        if (r && r.success) {
+            if (st) st.textContent = '识别完成';
+            if (card) {
+                card.style.display = '';
+                const crops = $('aiVisionCrops');
+                crops.innerHTML = '';
+                (r.crops || []).forEach(c => {
+                    const wrap = document.createElement('div');
+                    wrap.style.cssText = 'text-align:center';
+                    const img = document.createElement('img');
+                    img.src = c.image;
+                    img.style.cssText = 'max-width:220px;max-height:56px;border:1px solid var(--line);border-radius:6px;display:block';
+                    const cap = document.createElement('div');
+                    cap.style.cssText = 'font-size:10.5px;color:var(--dim);margin-top:2px';
+                    cap.textContent = c.id;
+                    wrap.appendChild(img); wrap.appendChild(cap);
+                    crops.appendChild(wrap);
+                });
+                $('aiVisionMeta').textContent = r.elapsed ? ('· 耗时 ' + r.elapsed + 's') : '';
+                $('aiVisionText').textContent = r.text || '';
+            }
+        } else {
+            if (st) st.textContent = '失败: ' + ((r && r.message) || '未知错误');
+        }
+    } catch (e) {
+        if (st) st.textContent = '失败: ' + e;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = oldText;
+    }
+}
+
+// ========================================
+// AI 陪玩伙伴设置 (对局弹幕伙伴)
+// ========================================
+
+let aiBuddyLoaded = false;
+
+// 内置人设的弹幕风格示例(用于前端预览, 不翻译英文)
+const AI_BUDDY_PERSONA_SAMPLES = {
+    salty:   { label: '毒舌主播', sample: '斩杀时 → "收了收了！这波不亏"；失误时 → "这波啊, 这波是送温暖"' },
+    tsundere: { label: '傲娇伙伴', sample: '斩杀时 → "哼、也、也就一般般厉害啦"；挨打时 → "才不是担心你呢, 只是提醒血量…"' },
+    gentle:  { label: '温柔鼓励', sample: '斩杀时 → "太棒了！"；劣势时 → "不怪你, 对面速度线确实顶, 找机会换回来"' },
+};
+
+function aiBuddyPersonaPreview() {
+    const sel = $('aiBuddyPersona');
+    const pid = sel ? sel.value : 'tsundere';
+    const cw = $('aiBuddyCustomPrompt');
+    const customWrap = $('aiBuddyPersonaCustomWrap');
+    if (customWrap) customWrap.style.display = pid === '__custom__' ? '' : 'none';
+    const preview = $('aiBuddyPreview');
+    if (!preview) return;
+    if (pid === '__custom__') {
+        preview.textContent = cw && cw.value.trim()
+            ? '自定义: ' + cw.value.slice(0, 60) + (cw.value.length > 60 ? '…' : '')
+            : '请输入自定义人设提示词...';
+        return;
+    }
+    const sample = AI_BUDDY_PERSONA_SAMPLES[pid];
+    preview.textContent = sample ? sample.sample : '';
+}
+
+async function initAiBuddySettings() {
+    if (aiBuddyLoaded) return;
+    try {
+        const r = await pywebview.api.ai_companion_get_settings();
+        if (!(r && r.success && r.settings)) return;
+        aiBuddyLoaded = true;
+        const s = r.settings;
+        if ($('aiBuddyEnabled')) $('aiBuddyEnabled').checked = Boolean(s.enabled);
+        if ($('aiBuddyInterval')) $('aiBuddyInterval').value = s.interval_min || 20;
+        if ($('aiBuddyBase')) $('aiBuddyBase').value = s.base_url || '';
+        if ($('aiBuddyModel')) $('aiBuddyModel').value = s.model || '';
+        if ($('aiBuddyKey')) $('aiBuddyKey').value = s.api_key || '';
+        const personaSel = $('aiBuddyPersona');
+        if (personaSel) {
+            const pid = s.persona || 'tsundere';
+            const inbuilt = ['salty', 'tsundere', 'gentle'];
+            personaSel.value = inbuilt.includes(pid) ? pid : '__custom__';
+            if (!inbuilt.includes(pid) && $('aiBuddyCustomPrompt')) {
+                $('aiBuddyCustomPrompt').value = s.custom_persona || '';
+            }
+        }
+        if ($('aiBuddyCustomPrompt')) {
+            if (!s.custom_persona && personaSel && personaSel.value === '__custom__') {
+                // 只读了内置人设但下拉在自定义 → 清空
+            } else {
+                $('aiBuddyCustomPrompt').value = s.custom_persona || '';
+            }
+        }
+        aiBuddyPersonaPreview();
+    } catch (e) { /* 后端未就绪 */ }
+}
+
+function collectAiBuddySettings() {
+    const personaSel = $('aiBuddyPersona');
+    const pid = personaSel ? personaSel.value : 'tsundere';
+    return {
+        enabled: $('aiBuddyEnabled') ? $('aiBuddyEnabled').checked : false,
+        interval_min: $('aiBuddyInterval') ? Number($('aiBuddyInterval').value) || 20 : 20,
+        persona: pid === '__custom__' ? 'tsundere' : pid,
+        custom_persona: pid === '__custom__' ? ($('aiBuddyCustomPrompt').value || '') : '',
+    };
+}
+
+async function aiBuddySave() {
+    const st = $('aiBuddyStatus');
+    try {
+        // 合并全局 AI 设置
+        const global = await _loadGlobalAiParams();
+        let params = collectAiBuddySettings();
+        if (global.base_url) params.base_url = global.base_url;
+        if (global.api_key) params.api_key = global.api_key;
+        if (global.model) params.model = global.model;
+        const r = await pywebview.api.ai_companion_save_settings(params);
+        if (st) { st.textContent = r && r.success ? '已保存 ✓' : ('保存失败: ' + (r.message || '')); }
+        setTimeout(() => { if (st) st.textContent = ''; }, 2500);
+    } catch (e) {
+        if (st) st.textContent = '保存失败: ' + e;
+    }
+}
+
+// ========================================
 // 初始化
 // ========================================
 
@@ -1827,6 +2170,7 @@ window.addEventListener('pywebviewready', async () => {
     addLog('后端已连接', 'success');
     await applyAppMode();
     initEngineSettings();
+    initAiVisionSettings();
     refreshState();
     refreshTools();
     if (!isUserMode()) {

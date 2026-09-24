@@ -1,166 +1,1453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>挂机悬浮战情</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<script src="assets/pet_asset_map.js"></script>
+<style>
+    html, body { background: #0a0e1a !important; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* ============ 魔法绘本皮肤 V4.5 (换肤不换骨: DOM/JS 合约原样) ============ */
+    :root {
+        --paper: #f6efdc;          /* 书页黄 */
+        --card-bg: rgba(252, 247, 234, 0.97);
+        --card-edge: #c8b482;      /* 金棕描边 */
+        --line: #dccfa8;
+        --ink-1: #3f3428;          /* 棕墨主字 */
+        --ink-2: #655741;
+        --ink-3: #8a7a5e;
+        --gold: #8a6420;           /* 鎏金强调 */
+        --gold-soft: rgba(138, 100, 32, 0.12);
+        --cover: #332a1d;          /* 书脊深棕 */
+        --foil: #e6c46a;
+        --leaf: #4f7a4a;           /* 叶绿 = 正常/成功 */
+        --wax: #a8402f;            /* 火漆红 = 战斗/危险 */
+        --wax-soft: rgba(168, 64, 47, 0.12);
+        --teal: #3d6b5c;
+        --num-font: Consolas, 'Cascadia Mono', monospace;
+        --text: #3f3428;          /* 主文字 */
+        --bg: rgba(252, 247, 234, 0.97);    /* 卡片背景 */
+        --border: #dccfa8;         /* 边框 */
+        --radius: 12px;            /* 圆角 */
+        --dim: #8a7a5e;            /* 暗色文字 */
+        --accent: #8a6420;         /* 强调色 */
+        --ok: #4f7a4a;             /* 成功/正常 */
+        --warn: #b07d1e;           /* 警告 */
+        --err: #a8402f;            /* 错误 */
+    }
+    html, body {
+        background: transparent;
+        width: 100%; height: 100%;
+        overflow: hidden;
+    }
+    body {
+        font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        color: var(--text); user-select: none; font-size: 12px;
+    }
+    .card {
+        width: 100%;
+        background: var(--bg); border: 1px solid var(--border);
+        border-radius: 12px; backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+        overflow: hidden;
+    }
+    .head {
+        display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        cursor: move;
+        height: 42px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+    .dot.run { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: pulse 1.5s infinite; }
+    .dot.throwing { background: var(--warn); box-shadow: 0 0 10px var(--warn); animation: pulse 0.8s infinite; }
+    .dot.fleeing { background: var(--err); box-shadow: 0 0 10px var(--err); animation: pulse 0.5s infinite; }
+    .dot.fled { background: #38bdf8; box-shadow: 0 0 8px #38bdf8; }
+    .dot.paused { background: var(--warn); }
+    @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.15); } }
+
+    .title { font-size: 13px; font-weight: 700; flex: 1; letter-spacing: 0.3px; }
+    .title small { font-size: 10.5px; color: var(--warn); font-weight: 400; margin-left: 4px; }
+    .fold-btn {
+        background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border);
+        color: var(--dim); width: 22px; height: 22px;
+        border-radius: 6px; cursor: pointer; font-size: 11px;
+        line-height: 1; display: flex; align-items: center;
+        justify-content: center;
+    }
+    .fold-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    .body { padding: 10px 12px; }
+    .row {
+        display: flex; justify-content: space-between;
+        align-items: center; margin-bottom: 6px;
+        font-size: 12px;
+    }
+    .row:last-child { margin-bottom: 0; }
+    .k { color: var(--dim); }
+    .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .v.ok { color: var(--ok); }
+    .v.warn { color: var(--warn); }
+    .v.err { color: var(--err); }
+    .v.accent { color: #818cf8; }
+
+    .divider { height: 1px; background: var(--border); margin: 8px 0; }
+
+    /* 敌方战情卡片 */
+    .enemy-card {
+        display: flex; align-items: center; gap: 8px;
+        padding: 7px 10px; border-radius: 8px;
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(99, 102, 241, 0.06));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 8px;
+    }
+    .enemy-card.in-battle {
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(245, 158, 11, 0.1));
+        border-color: rgba(239, 68, 68, 0.35);
+    }
+    .enemy-avatar-box {
+        position: relative; width: 34px; height: 34px; flex-shrink: 0;
+        border-radius: 8px; overflow: hidden; background: rgba(0,0,0,0.3);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        display: flex; align-items: center; justify-content: center;
+    }
+    .idle-badge {
+        font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center;
+    }
+    .enemy-avatar {
+        width: 100%; height: 100%; object-fit: cover;
+    }
+    .enemy-attr-icon {
+        position: absolute; bottom: 0; right: 0; width: 13px; height: 13px;
+        background: rgba(0,0,0,0.6); border-radius: 3px;
+    }
+    .enemy-detail {
+        flex: 1; min-width: 0;
+    }
+    .enemy-name-row {
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;
+    }
+    .enemy-name {
+        font-size: 12px; font-weight: 700; color: var(--text);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .enemy-name.none { color: var(--dim); font-weight: 500; }
+    .enemy-tag {
+        font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+        background: rgba(255, 255, 255, 0.08); color: var(--dim);
+    }
+    .enemy-tag.battle {
+        background: rgba(239, 68, 68, 0.2); color: #fca5a5;
+    }
+
+    .hpbar-wrap {
+        display: flex; align-items: center; gap: 6px;
+    }
+    .hpbar { height: 6px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #22c55e, #eab308 55%, #ef4444); }
+    .hpbar-fill { height: 100%; border-radius: 0 999px 999px 0; margin-left: auto; background: rgba(8, 12, 22, 0.82); transition: width 0.45s ease; }
+    .hpbar-fill.mid { background: linear-gradient(90deg, #eab308, #facc15); }
+    .hpbar-fill.low ~ .hp-num { background: linear-gradient(90deg, #ef4444, #f87171); }
+    .hp-num {
+        font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+        color: #38bdf8; min-width: 32px; text-align: right;
+    }
+    .hp-num span { font-size: 8.5px; color: var(--dim); font-weight: 400; margin-left: 1px; }
+
+    .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+    .chip {
+        font-size: 10px; padding: 2px 6px; border-radius: 4px;
+        background: rgba(99, 102, 241, 0.15); color: #c7cdf9;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+    .chip.none {
+        background: rgba(255, 255, 255, 0.03); color: var(--dim);
+        border-color: rgba(255, 255, 255, 0.06);
+    }
+
+    .game {
+        display: flex; align-items: center; gap: 5px;
+        font-size: 10.5px; color: var(--dim); margin-top: 6px;
+        padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    }
+    .game i {
+        width: 6px; height: 6px; border-radius: 50%; background: #64748b;
+    }
+    .game.on {
+        color: var(--ok);
+    }
+    .game.on i { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+    /* ---------- 悬浮战情卡 · 绘本化 ---------- */
+    .card {
+        background: var(--card-bg);
+        border: 1px solid var(--card-edge);
+        box-shadow: 0 6px 24px rgba(70, 52, 24, 0.35), 0 0 0 3px rgba(51, 42, 29, 0.85);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+    }
+    .head {
+        background: linear-gradient(180deg, #3a3021, #2e2618);
+        border-bottom: 2px solid #211a10;
+        border-radius: 10px 10px 0 0;
+    }
+    .title { color: #f4e8c8; font-family: 'KaiTi','STKaiti','楷体',serif; font-size: 13px; letter-spacing: 0.05em; }
+    .title small { color: #b3a175; }
+    .fold-btn { background: rgba(230,196,106,0.1); border: 1px solid rgba(230,196,106,0.25); color: #e6c46a; }
+    .fold-btn:hover { background: rgba(230,196,106,0.22); }
+    .dot { background: #8a7a5e; }
+    .dot.run { background: var(--leaf); box-shadow: 0 0 6px rgba(79,122,74,0.7); }
+    .dot.throwing { background: var(--gold); box-shadow: 0 0 6px rgba(176,125,30,0.7); }
+    .dot.fleeing { background: var(--wax); box-shadow: 0 0 6px rgba(168,64,47,0.7); }
+    .dot.fled { background: var(--teal); }
+    .dot.paused { background: #b07d1e; }
+
+    .tabs-bar { background: #f3ead0; border-bottom: 1px solid var(--line); }
+    .tab-btn { color: var(--ink-2); background: transparent; border: 1px solid transparent; }
+    .tab-btn:hover { color: var(--ink-1); background: rgba(138,100,32,0.08); }
+    .tab-btn.active { background: #5a4426; color: #f9f1da; border-color: transparent; }
+
+    .body { padding: 9px 12px; }
+    .row .k { color: var(--ink-2); }
+    .row .v { color: var(--ink-1); font-family: var(--num-font); font-variant-numeric: tabular-nums; }
+    .row .v.accent { color: var(--gold); }
+    .row .v.ok { color: var(--leaf); }
+    .row .v.warn { color: #b07d1e; }
+    .divider { border-top: 1px dashed var(--line); }
+
+    .enemy-card {
+        background: linear-gradient(180deg, #fbf4de, #f5ecd0);
+        border: 1px solid var(--card-edge);
+        box-shadow: inset 0 0 0 2px rgba(252, 247, 234, 0.6);
+    }
+    .enemy-card.in-battle { border-color: rgba(168, 64, 47, 0.55); }
+    .idle-badge { background: #efe5c8; border: 1px solid var(--line); color: var(--ink-3); }
+    .enemy-name { color: var(--ink-1); font-weight: 700; }
+    .enemy-name.none { color: var(--ink-3); }
+    .enemy-tag { background: #efe5c8; border: 1px solid var(--line); color: var(--ink-2); }
+    .enemy-tag.battle { background: var(--wax-soft); border-color: rgba(168,64,47,0.4); color: var(--wax); }
+    .hpbar { background: #e7dbba; border: 1px solid var(--line); }
+    .hpbar-fill { background: var(--wax); }
+    .hpbar-fill.mid { background: #b07d1e; }
+    .hpbar-fill.low { background: var(--wax); }
+    .hp-num { color: var(--ink-1); font-family: var(--num-font); font-variant-numeric: tabular-nums; }
+    .hp-num span { color: var(--ink-3); }
+
+    .chip { background: #f3ead0; border: 1px solid var(--line); color: var(--ink-2); }
+    .chip.none { color: var(--ink-3); }
+    .game { color: var(--ink-3); }
+    .game i { background: #b3a175; }
+    .game.on { color: var(--leaf); }
+    .game.on i { background: var(--leaf); box-shadow: 0 0 5px rgba(79,122,74,0.6); }
+
+    /* ---------- PVP tab · 绘本化 ---------- */
+    .pv-root .pv-status-row { color: var(--ink-2); }
+    .pv-root .pv-dot { background: #b3a175; }
+    .pv-root .pv-dot.on { background: var(--leaf); box-shadow: 0 0 5px rgba(79,122,74,0.6); }
+    .pv-root .pv-dot.off { background: #b3a175; }
+    .speed-badge { background: var(--gold-soft); border: 1px solid var(--card-edge); color: var(--gold); font-family: var(--num-font); }
+    .pv-engine-btn { background: linear-gradient(135deg, #6d5430, #5a4426); color: #f9f1da; border: none; }
+    .pv-engine-btn:hover { background: linear-gradient(135deg, #7a5f38, #6d5430); }
+    .pv-engine-btn.stop { background: linear-gradient(135deg, #a8402f, #8c3626); }
+    .pv-root .empty-state { color: var(--ink-3); }
+
+    .pv-root .stat-nums { color: var(--ink-1); }
+    .pv-root .hp-val { font-family: var(--num-font); }
+    .pv-root .bar-track { border: 1px solid var(--line); }
+    .pv-root .bar-fill { background: rgba(63, 52, 40, 0.55); }
+    .pv-root .sec-title { color: var(--ink-3); letter-spacing: 0.08em; }
+    .pv-root .skill-card { background: #f7f0da; border: 1px solid var(--line); }
+    .pv-root .skill-card:hover { background: #fdf9ee; border-color: var(--card-edge); }
+    .pv-root .skill-card.kill { background: linear-gradient(90deg, rgba(168,64,47,0.14), rgba(176,125,30,0.10)); border-color: rgba(168,64,47,0.5); box-shadow: none; }
+    .pv-root .skill-icon { background: #fffdf6; border: 1px solid var(--line); }
+    .pv-root .skill-name { color: var(--ink-1); }
+    .pv-root .skill-type-tag { background: #efe5c8; color: var(--ink-2); }
+    .pv-root .skill-dmg-num { color: var(--teal); }
+    .pv-root .skill-dmg-num.kill { color: var(--wax); }
+    .pv-root .skill-mult { color: var(--leaf); }
+    .kill-tag { background: var(--wax); }
+    .pv-root .energy-crystals { color: var(--teal); }
+
+    .pv-root .resonance-box { background: rgba(138, 100, 32, 0.07); border: 1px solid rgba(138, 100, 32, 0.3); }
+    .pv-root .resonance-title { color: var(--gold); }
+    .pv-root .resonance-inferred { background: #f3ead0; color: var(--ink-2); }
+    .pv-root .attr-pill { background: #fffdf6; border: 1px solid var(--line); color: var(--ink-1); }
+    .pv-root .res-case-card { background: #f7f0da; border: 1px solid var(--line); }
+    .pv-root .res-case-card.lethal { background: rgba(168,64,47,0.12); border-color: rgba(168,64,47,0.45); }
+    .pv-root .res-name { color: var(--ink-1); }
+    .pv-root .res-tag { background: var(--gold-soft); color: var(--gold); }
+    .pv-root .res-tag.warn { background: rgba(176,125,30,0.18); color: #8a6410; }
+    .pv-root .res-tag.extreme { background: rgba(168,64,47,0.2); color: var(--wax); }
+    .pv-root .res-dmg { color: var(--teal); }
+    .pv-root .res-dmg.lethal { color: var(--wax); }
+    .pv-root .threat-card { background: rgba(168,64,47,0.06); border: 1px solid rgba(168,64,47,0.2); }
+    .pv-root .threat-card.lethal { border-color: rgba(168,64,47,0.5); background: rgba(168,64,47,0.14); }
+    .pv-root .threat-name { color: var(--wax); }
+    .pv-root .threat-dmg { color: var(--wax); }
+
+    /* 旧版精简窗同步 */
+
+        /* ===== 合并版: 标签页 + PVP 引擎开关 ===== */
+        .tabs { display: flex; gap: 4px; margin-left: 2px; }
+        .tab-btn {
+            border: 1px solid rgba(255,255,255,0.10); background: transparent;
+            color: #8b93a7; font-size: 10px; font-family: inherit;
+            padding: 3px 9px; border-radius: 999px; cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .tab-btn.active {
+            color: #fff; background: linear-gradient(135deg, #6366f1, #22d3ee);
+            border-color: transparent; font-weight: 700;
+        }
+        .drag-underlay {
+            position: absolute; inset: 0; z-index: 0;
+        }
+        .head { position: relative; }
+        .head .tabs, .head .fold-btn, .head .title, .head .dot {
+            position: relative; z-index: 1;
+        }
+        .pv-status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .pv-dot {
+            width: 9px; height: 9px; border-radius: 50%;
+            background: #4ade80; box-shadow: 0 0 8px #4ade80;
+        }
+        .pv-dot.off { background: #555c6e; box-shadow: none; }
+        .pv-engine-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .pv-engine-btn {
+            border: none; cursor: pointer; border-radius: 8px;
+            font-size: 11px; font-weight: 700; font-family: inherit;
+            padding: 5px 12px; color: #fff;
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+        }
+        .pv-engine-btn.on { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+.pv-root .card:hover {
+    box-shadow: 0 12px 48px rgba(0,0,0,0.75), 0 0 0 1px rgba(99, 102, 241, 0.3);
+}
+.pv-root .head .pv-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px #22c55e; flex-shrink: 0; }
+.pv-root .head .pv-dot.off { background: #64748b; box-shadow: none; }
+.pv-root .head .title { font-size: 13px; font-weight: 700; flex: 1; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
+.pv-root .head .title .badge { font-size: 9.5px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
+.pv-root .head .speed-badge {
+    font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border);
+}
+.pv-root .head .speed-badge.fast { background: rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.4); color: #4ade80; }
+.pv-root .head .speed-badge.slow { background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.4); color: #f87171; }
+.pv-root .fold-btn:hover { color: var(--text); border-color: var(--accent); background: rgba(99, 102, 241, 0.2); }
+.pv-root .body {
+    padding: 10px 12px 14px;
+    max-height: 490px;
+    overflow-y: auto;
+}
+.pv-root .body::-webkit-scrollbar { width: 4px; }
+.pv-root .body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
+.pv-root .vs-banner {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 8px;
+    align-items: center;
+    padding: 10px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(239, 68, 68, 0.1));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 8px;
+}
+.pv-root .pet-side {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.pv-root .pet-side.enemy {
+    align-items: flex-end;
+    text-align: right;
+}
+.pv-root .pet-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.pv-root .pet-side.enemy .pet-header {
+    flex-direction: row-reverse;
+}
+.pv-root .pet-avatar {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1.5px solid rgba(59, 130, 246, 0.5);
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.pv-root .pet-side.enemy .pet-avatar {
+    border-color: rgba(239, 68, 68, 0.5);
+}
+.pv-root .pet-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.pv-root .pet-name {
+    font-size: 13px; font-weight: 700;
+    color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 4px;
+}
+.pv-root .pet-attrs {
+    display: flex; align-items: center; gap: 3px; margin-top: 2px;
+}
+.pv-root .pet-side.enemy .pet-attrs {
+    justify-content: flex-end;
+}
+.pv-root .attr-badge-img {
+    width: 15px; height: 15px; object-fit: contain;
+}
+.pv-root .vs-divider {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.pv-root .vs-tag {
+    font-size: 12px; font-weight: 900; font-style: italic;
+    background: linear-gradient(135deg, #60a5fa, #f87171);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.pv-root .stat-bar-box {
+    width: 100%;
+    margin-top: 4px;
+}
+.pv-root .stat-nums {
+    display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 2px; font-variant-numeric: tabular-nums;
+}
+.pv-root .stat-nums .hp-val { font-weight: 700; }
+.pv-root .bar-track { height: 6px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #22c55e, #eab308 55%, #ef4444); }
+.pv-root .bar-fill { height: 100%; border-radius: 0 999px 999px 0; margin-left: auto; background: rgba(8, 12, 22, 0.82); transition: width 0.45s ease; }
+.pv-root .energy-row {
+    display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); margin-top: 2px;
+}
+.pv-root .energy-crystals {
+    color: #38bdf8; font-weight: 700; font-size: 12px;
+}
+.pv-root .sec-title {
+    font-size: 11px; font-weight: 700; color: var(--dim);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin: 8px 0 5px; display: flex; align-items: center; gap: 5px;
+}
+.pv-root .skills-grid {
+    display: flex; flex-direction: column; gap: 5px;
+}
+.pv-root .skill-card {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: all 0.2s ease;
+}
+.pv-root .skill-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+.pv-root .skill-card.kill {
+    background: linear-gradient(90deg, rgba(239, 68, 68, 0.12), rgba(245, 158, 11, 0.08));
+    border-color: rgba(239, 68, 68, 0.45);
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.15);
+    animation: killGlow 1.8s infinite;
+}
+.pv-root .skill-icon {
+    width: 26px; height: 26px; border-radius: 6px;
+    background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1);
+    object-fit: cover; flex-shrink: 0;
+}
+.pv-root .skill-main {
+    flex: 1; min-width: 0;
+}
+.pv-root .skill-name-row {
+    display: flex; align-items: center; gap: 5px;
+}
+.pv-root .skill-name {
+    font-size: 12px; font-weight: 700; color: var(--text);
+}
+.pv-root .skill-type-tag {
+    font-size: 9.5px; padding: 1px 5px; border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06); color: var(--dim);
+}
+.pv-root .skill-dmg-box {
+    text-align: right;
+    display: flex; flex-direction: column; align-items: flex-end;
+}
+.pv-root .skill-dmg-num {
+    font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums;
+    color: #38bdf8;
+}
+.pv-root .skill-dmg-num.kill {
+    color: #f87171; font-size: 12.5px;
+}
+.pv-root .skill-mult {
+    font-size: 9.5px; color: #4ade80; font-weight: 600;
+}
+.pv-root .kill-tag {
+    font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 3px;
+    background: #ef4444; color: #fff; margin-top: 1px;
+}
+.pv-root .skill-dyn-tag {
+    font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px;
+    background: rgba(56, 189, 248, 0.18); color: #38bdf8;
+}
+.pv-root .starfall-box {
+    margin-top: 8px; padding: 8px 10px; border-radius: 10px;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(59, 130, 246, 0.06));
+    border: 1px solid rgba(139, 92, 246, 0.3);
+}
+.pv-root .starfall-head {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+}
+.pv-root .starfall-title {
+    font-size: 12px; font-weight: 700; color: #c4b5fd; display: flex; align-items: center; gap: 5px;
+}
+.pv-root .starfall-select {
+    font-size: 11px; padding: 2px 6px; border-radius: 6px;
+    background: rgba(139, 92, 246, 0.15); color: #ddd6fe;
+    border: 1px solid rgba(139, 92, 246, 0.4); outline: none; cursor: pointer;
+    font-family: var(--num-font); font-weight: 700;
+}
+.pv-root .starfall-select option { background: #1e1b2e; color: #ddd6fe; }
+.pv-root .starfall-row {
+    display: flex; align-items: center; gap: 8px;
+}
+.pv-root .starfall-dmg {
+    font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; color: #a78bfa;
+    flex: 1;
+}
+.pv-root .starfall-dmg.lethal { color: #f87171; }
+.pv-root .starfall-sub {
+    font-size: 9.5px; color: var(--dim); font-variant-numeric: tabular-nums;
+}
+.pv-root .resonance-box {
+    margin-top: 8px; padding: 8px 10px; border-radius: 10px;
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(99, 102, 241, 0.06));
+    border: 1px solid rgba(168, 85, 247, 0.25);
+}
+.pv-root .resonance-head {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+}
+.pv-root .resonance-title {
+    font-size: 12px; font-weight: 700; color: #d8b4fe; display: flex; align-items: center; gap: 5px;
+}
+.pv-root .resonance-inferred {
+    display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--dim);
+    flex-wrap: wrap; margin-bottom: 6px; padding: 3px 6px; border-radius: 6px; background: rgba(0,0,0,0.25);
+}
+.pv-root .resonance-cases-grid {
+    display: flex; flex-direction: column; gap: 4px;
+}
+.pv-root .attr-pill {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 2px 6px; border-radius: 4px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 10.5px; font-weight: 600; color: #f1f5f9;
+}
+.pv-root .attr-pill-img {
+    width: 14px; height: 14px; object-fit: contain; flex-shrink: 0;
+}
+.pv-root .res-case-card {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 8px; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.pv-root .res-case-card.lethal {
+    background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.4);
+}
+.pv-root .res-left {
+    display: flex; align-items: center; gap: 6px;
+}
+.pv-root .res-name {
+    font-size: 11px; font-weight: 700; color: var(--text);
+}
+.pv-root .res-tag {
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: rgba(168, 85, 247, 0.2); color: #c084fc; font-weight: 600;
+}
+.pv-root .res-tag.warn {
+    background: rgba(245, 158, 11, 0.2); color: #fbbf24;
+}
+.pv-root .res-tag.extreme {
+    background: rgba(239, 68, 68, 0.25); color: #fca5a5;
+}
+.pv-root .res-right {
+    display: flex; align-items: center; gap: 6px;
+}
+.pv-root .res-dmg {
+    font-size: 11.5px; font-weight: 800; font-variant-numeric: tabular-nums; color: #38bdf8;
+}
+.pv-root .res-dmg.lethal {
+    color: #f87171;
+}
+.pv-root .threat-card {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 8px; border-radius: 6px;
+    background: rgba(239, 68, 68, 0.06); border: 1px solid rgba(239, 68, 68, 0.15);
+    margin-bottom: 4px;
+}
+.pv-root .threat-card.lethal {
+    border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.15);
+}
+.pv-root .threat-name {
+    flex: 1; font-size: 11px; font-weight: 600; color: #fca5a5;
+    display: flex; align-items: center; gap: 4px;
+}
+.pv-root .threat-dmg {
+    font-size: 11.5px; font-weight: 700; color: #f87171; font-variant-numeric: tabular-nums;
+}
+.pv-root .empty-state {
+    text-align: center; padding: 32px 10px; color: var(--dim); font-size: 12px;
+}
+.pv-root .pv-dot { background: #8a7a5e; }
+.pv-root .pv-dot.on, .pv-root .pv-dot[style*="22c55e"] { background: var(--leaf); }
+.pv-root .speed-badge { background: var(--gold-soft); border: 1px solid var(--card-edge); color: var(--gold); }
+.pv-root .body { color: var(--ink-1); }
+.pv-root .sec-title { color: var(--ink-3); }
+.pv-root .pet-header, .pv-root .pet-info { color: var(--ink-1); }
+.pv-root .pet-name { color: var(--ink-1); }
+.pv-root .pet-side.player { color: var(--leaf); }
+.pv-root .pet-side.enemy { color: var(--wax); }
+.pv-root .vs-banner { background: linear-gradient(90deg, rgba(138,100,32,0.15), rgba(168,64,47,0.15)); border: 1px solid var(--card-edge); color: var(--ink-1); }
+.pv-root .vs-tag { background: #5a4426; color: #f9f1da; }
+.pv-root .bar-track { background: #e7dbba; border: 1px solid var(--line); }
+.pv-root .bar-fill { background: rgba(63,52,40,0.55); }
+.pv-root .stat-nums, .pv-root .hp-val { color: var(--ink-1); font-family: var(--num-font); }
+.pv-root .attr-pill { background: #fffdf6; border: 1px solid var(--line); color: var(--ink-1); }
+.pv-root .attr-badge-img, .pv-root .attr-pill-img { filter: none; }
+.pv-root .skills-grid .skill-card { background: #f7f0da; border: 1px solid var(--line); }
+.pv-root .skill-name { color: var(--ink-1); }
+.pv-root .skill-type-tag { background: #efe5c8; color: var(--ink-2); }
+.pv-root .skill-dmg-box .skill-dmg-num { color: var(--teal); }
+.pv-root .kill-tag { background: var(--wax); }
+.pv-root .skill-mult { color: var(--leaf); }
+.pv-root .skill-icon { background: #fffdf6; border: 1px solid var(--line); }
+.pv-root .resonance-box { background: rgba(138,100,32,0.07); border: 1px solid rgba(138,100,32,0.3); }
+.pv-root .resonance-title { color: var(--gold); }
+.pv-root .resonance-inferred { background: #f3ead0; color: var(--ink-2); }
+.pv-root .res-case-card { background: #f7f0da; border: 1px solid var(--line); }
+.pv-root .res-case-card.lethal { background: rgba(168,64,47,0.12); border-color: rgba(168,64,47,0.45); }
+.pv-root .res-name { color: var(--ink-1); }
+.pv-root .res-tag { background: var(--gold-soft); color: var(--gold); }
+.pv-root .res-tag.warn { background: rgba(176,125,30,0.18); color: #8a6410; }
+.pv-root .res-tag.extreme { background: rgba(168,64,47,0.2); color: var(--wax); }
+.pv-root .res-dmg { color: var(--teal); }
+.pv-root .res-dmg.lethal { color: var(--wax); }
+.pv-root .threat-card { background: rgba(168,64,47,0.06); border: 1px solid rgba(168,64,47,0.2); }
+.pv-root .threat-card.lethal { background: rgba(168,64,47,0.14); border-color: rgba(168,64,47,0.5); }
+.pv-root .threat-name { color: var(--wax); }
+.pv-root .threat-dmg { color: var(--wax); }
+.pv-root .empty-state { color: var(--ink-3); }
+.pv-root .energy-crystals { color: var(--teal); }
+.pv-root .energy-row { color: var(--ink-2); }
+.pv-root .skill-dyn-tag { background: var(--gold-soft); color: var(--teal); }
+.pv-root .starfall-box { background: rgba(139, 92, 246, 0.07); border: 1px solid rgba(139, 92, 246, 0.3); }
+.pv-root .starfall-title { color: #6d5aa8; }
+.pv-root .starfall-select { background: #f3eaff; color: #5b4a94; border: 1px solid rgba(139, 92, 246, 0.4); }
+.pv-root .starfall-select option { background: #f6efdc; color: #5b4a94; }
+.pv-root .starfall-dmg { color: #7c5cd6; }
+.pv-root .starfall-dmg.lethal { color: var(--wax); }
+.pv-root .starfall-sub { color: var(--ink-3); }
+.pv-root .ai-chat {
+        border-top: 1px dashed rgba(139, 92, 246, 0.35);
+        margin-top: 8px; padding: 5px 2px 2px;
+        min-height: 46px; max-height: 64px; overflow: hidden;
+        display: flex; flex-direction: column; gap: 3px;
+    }
+.pv-root .ai-chat .ai-line {
+        display: flex; align-items: flex-start; gap: 5px;
+        font-size: 11px; line-height: 1.45;
+        color: var(--ink-2);
+        animation: aiFadeIn 0.25s ease-out;
+    }
+.pv-root .ai-chat .ai-line .ai-tag {
+        flex: 0 0 auto; font-size: 9px; font-weight: 800;
+        padding: 1px 5px; border-radius: 999px; margin-top: 1px;
+        background: rgba(139, 92, 246, 0.16); color: #6d5aa8;
+    }
+.pv-root .ai-chat .ai-line.mood-hype .ai-tag { background: rgba(250, 204, 21, 0.25); color: #a16207; }
+.pv-root .ai-chat .ai-line.mood-care .ai-tag { background: rgba(74, 222, 128, 0.2); color: #3f6212; }
+.pv-root .ai-chat .ai-line.mood-salt .ai-tag { background: rgba(248, 113, 113, 0.2); color: #b91c1c; }
+.pv-root .ai-chat .ai-empty { font-size: 10px; color: var(--ink-3); padding: 6px 2px; }
+.pv-root .ai-decision-box {
+        margin-top: 8px; padding: 8px 10px; border-radius: 10px;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(59, 130, 246, 0.06));
+        border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+.pv-root .ai-decision-box .ai-d-head {
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;
+    }
+.pv-root .ai-decision-box .ai-d-title {
+        font-size: 11px; font-weight: 700; color: #a5b4fc; display: flex; align-items: center; gap: 4px;
+    }
+.pv-root .ai-d-action {
+        font-size: 14px; font-weight: 800; color: #38bdf8;
+        padding: 4px 0 2px;
+    }
+.pv-root .ai-d-action .ai-d-target {
+        color: #fbbf24;
+    }
+.pv-root .ai-d-reason {
+        font-size: 10.5px; color: var(--ink-2); line-height: 1.55; margin: 3px 0;
+    }
+.pv-root .ai-d-risk {
+        font-size: 10px; color: #f87171; margin-top: 3px; padding: 3px 6px;
+        border-radius: 5px; background: rgba(248, 113, 113, 0.1);
+    }
+.pv-root .ai-d-conf {
+        font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+    }
+.pv-root .ai-d-conf.high { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+.pv-root .ai-d-conf.medium { background: rgba(250, 204, 21, 0.2); color: #eab308; }
+.pv-root .ai-d-conf.low { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.pv-root .ai-d-alts {
+        margin-top: 4px; padding-top: 4px; border-top: 1px dashed rgba(255,255,255,0.08);
+        font-size: 9.5px; color: var(--dim);
+    }
+.pv-root .ai-d-alt-item {
+        padding: 2px 0; display: flex; align-items: center; gap: 4px;
+        cursor: pointer;
+    }
+.pv-root .ai-d-alt-item:hover { color: var(--text); }
+.pv-root .ai-d-spinner {
+        display: inline-block; width: 12px; height: 12px;
+        border: 2px solid var(--dim); border-top-color: #a5b4fc;
+        border-radius: 50%; animation: aiSpin 0.8s linear infinite;
+        margin-right: 4px;
+    }
+.pv-root .ai-d-empty { font-size: 10px; color: var(--dim); padding: 6px 8px; text-align: center; }
+@keyframes killGlow {
+    0%,100% { border-color: rgba(239, 68, 68, 0.45); box-shadow: 0 0 10px rgba(239, 68, 68, 0.15); }
+    50% { border-color: rgba(239, 68, 68, 0.85); box-shadow: 0 0 18px rgba(239, 68, 68, 0.35); }
+}
+@keyframes aiSpin { to { transform: rotate(360deg); } }
+@keyframes aiFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+    <div class="head" id="head">
+        <span class="dot" id="dot"></span>
+        <span class="title" id="title">待机<small id="subtitle"></small></span>
+        
+        <div class="drag-underlay pywebview-drag-region"></div>
+        <div class="tabs">
+            <button class="tab-btn active" id="tabAfk" onclick="switchTab('afk')">🎯 挂机</button>
+            <button class="tab-btn" id="tabPvp" onclick="switchTab('pvp')">⚔️ PVP</button>
+        </div>
+        <button class="fold-btn" id="foldBtn" onclick="toggleFold()" title="折叠/展开">▾</button>
+    </div>
+    <div class="body" id="wBody">
+        <div class="row"><span class="k">运行状态</span><span class="v accent" id="wState">停止</span></div>
+        <div class="row"><span class="k">实时详情</span><span class="v" id="wDetail" style="font-weight:400;color:#94a3b8;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span></div>
+        <div class="divider"></div>
+
+        <!-- 敌方战情卡片 -->
+        <div class="enemy-card" id="wEnemyCard">
+            <div class="enemy-avatar-box">
+                <div class="idle-badge" id="wIdleBadge">🎯</div>
+                <img class="enemy-avatar" id="wEnemyAvatar" style="display:none;" src="" alt="" onerror="this.style.display='none'">
+            </div>
+            <div class="enemy-detail">
+                <div class="enemy-name-row">
+                    <span class="enemy-name none" id="wEnemyName">未在战斗</span>
+                    <span class="enemy-tag" id="wEnemyTag">待命中</span>
+                </div>
+                <div class="hpbar-wrap">
+                    <div class="hpbar"><div class="hpbar-fill" id="wEnemyHpBar"></div></div>
+                    <div class="hp-num" id="wEnemyHpNum">--<span>%</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row"><span class="k">战斗 / 逃跑</span><span class="v ok" id="wBattles">0</span></div>
+        <div class="row"><span class="k">丢球 / 捕获</span><span class="v warn" id="wBalls">0 / 0</span></div>
+        <div class="divider"></div>
+        <div class="chips" id="wChips"><span class="chip none">全部空闲</span></div>
+        <div class="game" id="wGame"><i></i><span>游戏窗口后台</span></div>
+    </div>
+
+        <div id="pvRoot" style="display:none" class="pv-root">
+            <div class="pv-status-row">
+                <div class="pv-dot off" id="statusDot"></div>
+                <span style="font-size:11px;color:var(--dim);flex:1;">PVP 实时推演</span>
+                <div class="speed-badge" id="speedBadge">--</div>
+            </div>
+            <div class="pv-engine-row">
+                <button class="pv-engine-btn" id="pvEngineBtn" onclick="pvEngineToggle()">▶ 启动识别</button>
+                <span style="font-size:10px;color:#555c6e;" id="pvEngineHint">需先在主控台 PVP 页确认配置</span>
+            </div>
+            <div id="pvpBody">
+                <div class="empty-state">
+                    <div style="font-size: 24px; margin-bottom: 8px;">⚔️</div>
+                    <div>等待进入 PVP 对战画面…</div>
+                    <div style="font-size: 10px; color: var(--dim); margin-top: 4px;">点上方「启动识别」开始监视</div>
+                </div>
+            </div>
+            <div class="ai-chat" id="aiChat">
+                <div class="ai-empty">💬 AI 伙伴待命中…</div>
+            </div>
+        </div>
+</div>
+<script>
+    const $ = id => document.getElementById(id);
+    let folded = false;
+    const W_WIDTH = 340, H_EXPANDED = 350, H_FOLDED = 42;
+
+    const STATE_TXT = {
+        stopped: '停止',
+        waiting: '巡逻找怪',
+        fighting: '战斗中',
+        throwing: '丢球中',
+        fleeing: '遭遇战斗·逃跑中',
+        fled: '已脱离战斗',
+        paused: '暂停'
+    };
+
+    function getPetAvatar(name) {
+        if (!name || name === '?' || name === '未在战斗' || name === '遭遇精灵') return '';
+        const map = window.PET_ASSET_MAP;
+        if (!map) return '';
+
+        const raw = String(name).trim();
+        // 1. 直接精准匹配
+        if (map[raw]) return `assets/img/pets/${map[raw]}`;
+
+        // 2. 去除括号形态修饰（如 "白金独角兽（变体形态）" -> "白金独角兽"）
+        const clean = raw.replace(/[\(（].*?[\)）]/g, '').trim();
+        if (clean && map[clean]) return `assets/img/pets/${map[clean]}`;
+
+        // 3. 数字编号匹配（如 117 或 #117）
+        const numMatch = raw.match(/\d+/);
+        if (numMatch) {
+            const num = parseInt(numMatch[0], 10);
+            const pad3 = String(num).padStart(3, '0');
+            for (const [k, v] of Object.entries(map)) {
+                if (v.startsWith(`${pad3}_`) || v.startsWith(`${num}_`)) {
+                    return `assets/img/pets/${v}`;
+                }
+            }
+        }
+
+        // 4. 模糊包含匹配
+        for (const [k, v] of Object.entries(map)) {
+            if (clean && (k.includes(clean) || clean.includes(k))) {
+                return `assets/img/pets/${v}`;
+            }
+        }
+
+        return '';
+    }
+
+    // 按内容真实高度同步窗口尺寸(乘 devicePixelRatio 换算物理像素,修复 DPI 缩放下折叠变形)
+    function syncSize() {
+        const card = document.getElementById('card');
+        if (!card || !window.pywebview || !pywebview.api.widget_resize) return;
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.ceil(Math.max(card.offsetWidth, document.body.scrollWidth) * dpr);
+        const h = Math.ceil(Math.max(card.offsetHeight, document.body.scrollHeight) * dpr);
+        pywebview.api.widget_resize(w, h);
+    }
+
+    async function toggleFold() {
+        folded = !folded;
+        $('wBody').style.display = folded ? 'none' : '';
+        $('foldBtn').textContent = folded ? '▴' : '▾';
+        try { await pywebview.api.widget_set_folded(folded); } catch (e) {}
+        // 等布局完成再量尺寸
+        requestAnimationFrame(() => setTimeout(syncSize, 30));
+    }
+
+    function setHp(pct) {
+        const bar = $('wEnemyHpBar'), num = $('wEnemyHpNum');
+        if (pct == null) {
+            bar.style.width = '0%';
+            bar.className = 'hpbar-fill';
+            num.innerHTML = '--<span>%</span>';
+            return;
+        }
+        const v = Math.max(0, Math.min(100, pct));
+        bar.style.width = (100 - v) + '%';
+        bar.className = 'hpbar-fill' + (v <= 20 ? ' low' : v <= 50 ? ' mid' : '');
+        num.innerHTML = v + '<span>%</span>';
+    }
+
+    async function tick() {
+        try {
+            if (!window.pywebview || !pywebview.api) return;
+            const s = await pywebview.api.get_state();
+            const e = await pywebview.api.engine_status();
+
+            const isRunning = !!e.running;
+            const stateKey = isRunning ? (e.state || 'running') : 'stopped';
+            const dot = $('dot');
+
+            let dotClass = 'dot';
+            if (isRunning) {
+                if (stateKey === 'fleeing') dotClass += ' fleeing';
+                else if (stateKey === 'throwing') dotClass += ' throwing';
+                else if (stateKey === 'fled') dotClass += ' fled';
+                else if (stateKey === 'paused') dotClass += ' paused';
+                else dotClass += ' run';
+            }
+            dot.className = dotClass;
+
+            $('title').childNodes[0].textContent = isRunning ? (STATE_TXT[stateKey] || stateKey) : '待机';
+            $('subtitle').textContent = e.dry_run ? ' (模拟)' : '';
+
+            $('wState').textContent = STATE_TXT[stateKey] || stateKey;
+            $('wDetail').textContent = e.detail || '—';
+            $('wDetail').title = e.detail || '';
+            $('wBattles').textContent = e.battles_done ?? 0;
+            
+            if (e.mode_type === 'tool') {
+                $('wBalls').textContent = `${e.catch_attempts ?? 0} 球`;
+            } else {
+                $('wBalls').textContent = `${e.catch_attempts ?? 0} / ${e.catches ?? 0}`;
+            }
+
+            // 敌方战情卡片展示
+            const enemyName = e.enemy_name;
+            const watching = !!e.watching;  // 观察模式: 引擎没跑也监视到了战斗
+            const inBattle = !!(enemyName && enemyName !== '?' && enemyName !== 'None') || watching;
+            const enemyCard = $('wEnemyCard');
+            const idleBadge = $('wIdleBadge');
+            const enemyAvatar = $('wEnemyAvatar');
+            const enemyTag = $('wEnemyTag');
+
+            if (inBattle) {
+                enemyCard.className = 'enemy-card in-battle';
+                $('wEnemyName').className = 'enemy-name';
+                $('wEnemyName').textContent = enemyName;
+                enemyTag.className = 'enemy-tag battle';
+                enemyTag.textContent = stateKey === 'fleeing' ? '遭遇对战' : '战斗中';
+
+                const avatarUrl = getPetAvatar(enemyName);
+                if (avatarUrl) {
+                    enemyAvatar.src = avatarUrl;
+                    enemyAvatar.style.display = 'block';
+                    idleBadge.style.display = 'none';
+                } else {
+                    enemyAvatar.style.display = 'none';
+                    idleBadge.textContent = '⚔️';
+                    idleBadge.style.display = 'flex';
+                }
+                setHp(e.enemy_hp != null ? e.enemy_hp : (watching ? 100 : null));
+            } else {
+                enemyCard.className = 'enemy-card';
+                $('wEnemyName').className = 'enemy-name none';
+                $('wEnemyName').textContent = watching ? '战斗识别中…'
+                    : (isRunning ? (stateKey === 'fled' ? '战斗已脱离' : '巡逻/丢球中') : '未在战斗');
+                enemyTag.className = 'enemy-tag';
+                enemyTag.textContent = watching ? '观察中' : (isRunning ? '待命中' : '空闲');
+
+                enemyAvatar.style.display = 'none';
+                idleBadge.textContent = watching ? '👁' : (isRunning ? (stateKey === 'fled' ? '✨' : '🎯') : '💤');
+                idleBadge.style.display = 'flex';
+                setHp(null);
+            }
+
+            // 任务列表
+            const chips = [];
+            (s.tasks || []).forEach(t => chips.push(`<span class="chip">${t.name}</span>`));
+            $('wChips').innerHTML = chips.length ? chips.join('') : '<span class="chip none">全部空闲</span>';
+
+            // 游戏前台/后台状态
+            $('wGame').className = 'game' + (s.game_active ? ' on' : '');
+            $('wGame').querySelector('span').textContent = s.game_active ? '游戏窗口前台' : '游戏窗口后台';
+        } catch (err) { /* 后端未就绪，静默 */ }
+    }
+
+    window.addEventListener('pywebviewready', async () => {
+        // 应用上次记住的折叠偏好
+        try {
+            const st = await pywebview.api.widget_get_state();
+            if (st.folded && !folded) await toggleFold();
+        } catch (e) {}
+        syncSize();  // 初始就按内容真实尺寸校准(修 DPI 缩放偏差)
+        tick();
+        setInterval(tick, 400);
+    });
+</script>
+<script>
+let starfallMode = 'auto';          // 'auto' | 'manual'
+let starfallManualStacks = 0;
 let _lastStarfallTable = null;      // 缓存最近一次推送的速查表, 供下拉重渲染
 let _lastEnemyHp = 0;               // 缓存敌方估算 HP, 供本地重绘致死判定
 let _lastPayload = null;            // 缓存最近一次完整推送, 供下拉变更后本地重绘
-let _pvpDomBuilt = false;           // 首次完整构建 DOM 后置 true
-var _pvEl = {};                     // 增量更新节点引用缓存
-var _pvSizes = {};                  // 上次尺寸(防无谓 resize)
-var _prevThreatsSnap = '';          // 敌方威胁快照
-var _prevStarfallSnap = '';         // 星陨速查快照
-var _prevResonanceSnap = '';        // 愿力冲击快照
 
-function updatePVPData(data) {
-    if (window.__widgetDragging) return;
-    var statusDot = document.getElementById('statusDot');
-    var speedBadge = document.getElementById('speedBadge');
-    var bodyEl = document.getElementById('pvpBody');
-    if (!data || !data.in_battle) {
-        if (statusDot) statusDot.className = 'pv-dot off';
-        if (speedBadge) { speedBadge.textContent = '--'; speedBadge.className = 'speed-badge'; }
+// 属性映射
+const ATTR_MAP = {
+    "火": "fire.webp", "水": "water.webp", "草": "grass.webp", "电": "electric.webp", "冰": "ice.webp",
+    "虫": "bug.webp", "翼": "flying.webp", "地": "ground.webp", "萌": "fairy.webp", "武": "fighting.webp",
+    "毒": "poison.webp", "龙": "dragon.webp", "幽": "ghost.webp", "恶": "dark.webp", "光": "light.webp",
+    "普通": "normal.webp", "机械": "steel.webp", "幻": "psychic.webp"
+};
+
+function getAttrIcon(attr) {
+    if (!attr) return '';
+    const clean = String(attr).replace('系', '').trim();
+    const file = ATTR_MAP[clean] || ATTR_MAP[clean.toLowerCase()];
+    return file ? `assets/img/icons/${file}` : '';
+}
+
+function pvGetPetAvatar(name) {
+    if (!name) return 'assets/img/icons/normal.webp';
+    const map = window.PET_ASSET_MAP;
+    if (!map) return 'assets/img/icons/normal.webp';
+
+    const raw = String(name).trim();
+    // 1. 直接精准匹配
+    if (map[raw]) return `assets/img/pets/${map[raw]}`;
+
+    // 2. 去除括号形态修饰（如 "白金独角兽（变体形态）" -> "白金独角兽"）
+    const clean = raw.replace(/[\(（].*?[\)）]/g, '').trim();
+    if (clean && map[clean]) return `assets/img/pets/${map[clean]}`;
+
+    // 3. 数字编号匹配（如 117 或 #117）
+    const numMatch = raw.match(/\d+/);
+    if (numMatch) {
+        const num = parseInt(numMatch[0], 10);
+        const pad3 = String(num).padStart(3, '0');
+        for (const [k, v] of Object.entries(map)) {
+            if (v.startsWith(`${pad3}_`) || v.startsWith(`${num}_`)) {
+                return `assets/img/pets/${v}`;
+            }
+        }
+    }
+
+    // 4. 模糊包含匹配
+    for (const [k, v] of Object.entries(map)) {
+        if (clean && (k.includes(clean) || clean.includes(k))) {
+            return `assets/img/pets/${v}`;
+        }
+    }
+
+    return 'assets/img/icons/normal.webp';
+}
+
+function getSkillIcon(name) {
+    if (!name) return '';
+    return `assets/img/skills/${encodeURIComponent(name.trim())}.webp`;
+}
+
+// ===== AI 陪玩弹幕条 (由主程序 /comment 端点推送) =====
+let _aiChatLines = [];
+// 按主程序推送的 state 开关 AI 对话框
+window.onStateUpdate = window.onStateUpdate || function(st) {
+    const box = document.getElementById('aiChat');
+    if (!box) return;
+    const show = st && st.companion_enabled;
+    box.style.display = show ? '' : 'none';
+};
+function pushAiComment(text, mood) {
+    mood = mood || 'normal';
+    _aiChatLines.push({ text: String(text || '').slice(0, 120), mood: String(mood), ts: Date.now() });
+    if (_aiChatLines.length > 3) _aiChatLines = _aiChatLines.slice(-3);
+    renderAiChat();
+}
+function renderAiChat() {
+    const box = document.getElementById('aiChat');
+    if (!box) return;
+    if (!_aiChatLines.length) {
+        box.innerHTML = '<div class="ai-empty">💬 AI 伙伴待命中…</div>';
         return;
     }
-    // ---- 首次完整构建 DOM 骨架 ----
-    if (!_pvpDomBuilt) {
-        buildPvpDom(bodyEl, data);
-        _pvpDomBuilt = true;
-        _prevThreatsSnap = _prevStarfallSnap = _prevResonanceSnap = '';
+    const TAGS = { hype: '🔥', care: '💚', salt: '🌶', normal: '✨' };
+    box.innerHTML = _aiChatLines.map(l => {
+        const tag = TAGS[l.mood] || '✨';
+        return '<div class="ai-line mood-' + l.mood + '">'
+            + '<span class="ai-tag">' + tag + ' AI</span>'
+            + '<span>' + l.text + '</span></div>';
+    }).join('');
+}
+function onStarfallSelect(value) {
+    starfallMode = 'manual';
+    starfallManualStacks = parseInt(value, 10) || 1;
+    // 用缓存数据本地重绘(不等待下一次 500ms 推送), 反馈立即生效
+    if (_lastPayload) updatePVPData(_lastPayload);
+}
+
+function updatePVPData(data) {
+    // 内容高度随数据变化,渲染后自动校准窗口尺寸
+    requestAnimationFrame(() => setTimeout(syncSize, 50));
+    const statusDot = document.getElementById('statusDot');
+    const speedBadge = document.getElementById('speedBadge');
+    const bodyEl = document.getElementById('pvpBody');
+
+    // 下拉框若正被用户操作(展开/聚焦), 跳过本轮重绘, 防止选择被打断
+    const sfSelect = document.getElementById('starfallStacksSelect');
+    if (sfSelect && (document.activeElement === sfSelect || sfSelect._open)) {
+        setTimeout(() => updatePVPData(data), 400);
+        return;
     }
-    // ---- 汇集数据 ----
+
+    if (!data || !data.in_battle) {
+        statusDot.className = 'pv-dot off';
+        speedBadge.textContent = '--';
+        speedBadge.className = 'speed-badge';
+        return; // 保留上一次的推演内容不清空
+    }
+
+    statusDot.className = 'pv-dot';
+    const p = data.player || {}, e = data.enemy || {};
     _lastPayload = data;
-    var p = data.player || {}, e = data.enemy || {};
-    if (statusDot) statusDot.className = 'pv-dot';
-    var sd = data.speed_diff;
-    var esr = data.enemy_speed_range;
+
+    // 速度判定
+    const sd = data.speed_diff;
+    const esr = data.enemy_speed_range;
     if (esr && esr.min && esr.max) {
-        speedBadge.title = '\u654C\u65B9\u300A\u6D1B\u514B\u738B\u56FD\uFF1A\u4E16\u754C\u300B\u901F\u5EA6\u533A\u95F4: ' + esr.range_str + ' (\u6EE1\u914D\u6781\u901F: ' + esr.max + ', \u51CF\u901F0\u70B9: ' + esr.min + ')';
+        speedBadge.title = `敌方《洛克王国：世界》速度区间: ${esr.range_str} (满配极速: ${esr.max}, 减速0点: ${esr.min})`;
         if (sd !== undefined && sd !== null) {
             speedBadge.className = 'speed-badge ' + (sd > 0 ? 'fast' : sd < 0 ? 'slow' : '');
-            speedBadge.textContent = (sd > 0 ? '\u26A1 \u5148\u624B +' + sd : '\uD83D\uDC22 \u540E\u624B ' + sd) + ' [' + esr.range_str + ']';
+            speedBadge.textContent = (sd > 0 ? `⚡ 先手 +${sd}` : `🐢 后手 ${sd}`) + ` [${esr.range_str}]`;
         } else {
-            speedBadge.textContent = '\u654C\u901F ' + esr.range_str;
+            speedBadge.textContent = `敌速 ${esr.range_str}`;
             speedBadge.className = 'speed-badge';
         }
     } else if (sd !== undefined && sd !== null) {
-        speedBadge.textContent = sd > 0 ? '\u26A1 \u5148\u624B +' + sd : sd < 0 ? '\uD83D\uDC22 \u540E\u624B ' + sd : '= \u5E73\u901F';
+        speedBadge.textContent = sd > 0 ? `⚡ 先手 +${sd}` : sd < 0 ? `🐢 后手 ${sd}` : '= 平速';
         speedBadge.className = 'speed-badge ' + (sd > 0 ? 'fast' : sd < 0 ? 'slow' : '');
     } else {
         speedBadge.textContent = '--';
         speedBadge.className = 'speed-badge';
     }
-    // ---- 增量更新: VS 看板节点 ----
-    var enemyOccluded = !!e.occluded;
-    var enemyHpPct = enemyOccluded ? null : Math.round((e.hp_pct !== undefined ? e.hp_pct : 1.0) * 100);
-    var playerPct = typeof p.hp_val === 'number' ? Math.min(100, Math.round((p.hp_val / (p.hp_max || 450)) * 100)) : 100;
-    var enemyBarW = enemyOccluded ? 0 : (100 - enemyHpPct);
-    if (_pvEl.nameP) _pvEl.nameP.innerHTML = (p.name || '\u6211\u65B9\u7CBE\u7075') + (p.name_via_avatar ? ' <span style="font-size:9.5px;color:#7dd3fc" title="\u6309\u5934\u50CF\u5224\u5B9A\uFF08\u53EF\u80FD\u4E0E\u53D6\u540D\u4E0D\u540C\uFF09">[A]</span>' : '');
-    if (_pvEl.nameE) {
-        var en = e.name || '\u654C\u65B9\u7CBE\u7075';
-        if (e.name_via_avatar) en += ' <span style="font-size:9.5px;color:#7dd3fc" title="OCR\u540D\u5B57\u4E0E\u5934\u50CF\u51B2\u7A81\uFF0C\u5DF2\u6309\u5934\u50CF\u5224\u5B9A">[A\u5934\u50CF\u5224\u5B9A]</span>';
-        if (enemyOccluded) en += ' <span style="font-size:9.5px;color:#fbbf24" title="\u654C\u65B9\u540D\u5B57\u6761/\u8840\u6761\u88AB\u6321\u4F4F\u4E86"> [?]</span>';
-        _pvEl.nameE.innerHTML = en;
+
+    // 双方血量与属性
+    const enemyHpPct = Math.round((e.hp_pct !== undefined ? e.hp_pct : 1.0) * 100);
+    const enemyHpColor = enemyHpPct > 50 ? 'green' : enemyHpPct > 20 ? 'yellow' : 'red';
+
+    const playerHp = p.hp || '?';
+    const playerHpMax = p.hp_max || 450;
+    const playerHpPct = typeof playerHp === 'number' ? Math.min(100, Math.round((playerHp / playerHpMax) * 100)) : 100;
+    const playerHpColor = playerHpPct > 50 ? 'green' : playerHpPct > 20 ? 'yellow' : 'red';
+
+    const playerAvatar = pvGetPetAvatar(p.name);
+    const enemyAvatar = pvGetPetAvatar(e.name);
+
+    const playerAttrIcons = (p.types || []).map(t => `<img class="attr-badge-img" src="${getAttrIcon(t)}" title="${t}">`).join('');
+    const enemyAttrIcons = (e.types || []).map(t => `<img class="attr-badge-img" src="${getAttrIcon(t)}" title="${t}">`).join('');
+
+    // 我方技能伤害推演
+    let skillsHtml = '';
+    if (data.calc_skills && data.calc_skills.length) {
+        skillsHtml = data.calc_skills.map(s => {
+            const isKill = s.is_kill;
+            const dmgText = s.dmg_min > 0 ? `${s.dmg_min} ~ ${s.dmg_max}` : '状态/无伤';
+            const multText = s.mult && s.mult > 1 ? `×${s.mult.toFixed(1)} 克制` : (s.mult && s.mult < 1 ? `×${s.mult.toFixed(1)} 抵抗` : '');
+            const iconUrl = getSkillIcon(s.name);
+            const typeBadge = s.type || '技能';
+            // 动态威力技能: 展示查档依据(物防差+31 → 档3)
+            const dynTag = s.dynamic
+                ? `<span class="skill-dyn-tag">${s.dynamic.statLabel}${s.dynamic.diff >= 0 ? '+' : ''}${s.dynamic.diff} · 档${s.dynamic.tierIndex + 1}</span>`
+                : '';
+
+            return `
+            <div class="skill-card ${isKill ? 'kill' : ''}">
+                <img class="skill-icon" src="${iconUrl}" onerror="this.src='assets/img/icons/normal.webp'">
+                <div class="skill-main">
+                    <div class="skill-name-row">
+                        <span class="skill-name">${s.name}</span>
+                        <span class="skill-type-tag">${typeBadge}</span>
+                        ${dynTag}
+                    </div>
+                </div>
+                <div class="skill-dmg-box">
+                    <div class="skill-dmg-num ${isKill ? 'kill' : ''}">${dmgText}</div>
+                    ${multText ? `<div class="skill-mult">${multText}</div>` : ''}
+                    ${isKill ? `<span class="kill-tag">必杀斩杀</span>` : ''}
+                </div>
+            </div>`;
+        }).join('');
     }
-    if (_pvEl.hpP) _pvEl.hpP.textContent = p.hp || '?';
-    if (_pvEl.hpBarP) _pvEl.hpBarP.style.width = (100 - playerPct) + '%';
-    if (_pvEl.hpE) _pvEl.hpE.textContent = enemyOccluded ? '?%' : (enemyHpPct + '%');
-    if (_pvEl.hpBarE) { _pvEl.hpBarE.style.width = enemyBarW + '%'; _pvEl.hpBarE.style.opacity = enemyOccluded ? '0.25' : '1'; }
-    if (_pvEl.energyP) _pvEl.energyP.innerHTML = 'DB ' + (p.energy !== undefined ? p.energy : '?');
-    if (_pvEl.avatarP) _pvEl.avatarP.src = pvGetPetAvatar(p.name);
-    if (_pvEl.avatarE) _pvEl.avatarE.src = pvGetPetAvatar(e.name);
-    var ehFromPanel = (e.hp && e.hp_max) ? Math.round(e.hp) : 0;
-    _lastEnemyHp = data.enemy_est_hp || ehFromPanel || (data.enemy_panel_hp ? Math.round(data.enemy_panel_hp * (e.hp_pct !== undefined ? e.hp_pct : 1.0)) : 0);
-    // ---- 我方技能推演 ----
-    var cs = data.calc_skills;
-    if (_pvEl.skillsGrid) {
-        var snap = cs ? cs.map(function(s){return s.name+'|'+(s.dmg_min||0)+'|'+(s.dmg_max||0)+'|'+(s.is_kill?'1':'0');}).join(';') : '';
-        if (snap !== _pvEl.skillsGrid.getAttribute('data-snap')) {
-            _pvEl.skillsGrid.setAttribute('data-snap', snap);
-            _pvEl.skillsGrid.innerHTML = cs && cs.length ? cs.map(function(s) {
-                var ik = s.is_kill, dt = s.dmg_min > 0 ? (s.dmg_min+' ~ '+s.dmg_max) : '\u72B6\u6001/\u65E0\u4F24';
-                var mt = s.mult && s.mult > 1 ? 'x'+s.mult.toFixed(1)+' \u514B\u5236' : (s.mult && s.mult < 1 ? 'x'+s.mult.toFixed(1)+' \u62B5\u6297' : '');
-                var iu = getSkillIcon(s.name), tb = s.type || '\u6280\u80FD';
-                var dn = s.dynamic ? '<span class="skill-dyn-tag">'+s.dynamic.statLabel+(s.dynamic.diff>=0?'+':'')+s.dynamic.diff+' \u00B7 \u6863'+(s.dynamic.tierIndex+1)+'</span>' : '';
-                return '<div class="skill-card'+(ik?' kill':'')+'"><img class="skill-icon" src="'+iu+'" onerror="this.src=\'assets/img/icons/normal.webp\'"><div class="skill-main"><div class="skill-name-row"><span class="skill-name">'+s.name+'</span><span class="skill-type-tag">'+tb+'</span>'+dn+'</div></div><div class="skill-dmg-box"><div class="skill-dmg-num'+(ik?' kill':'')+'">'+dt+'</div>'+(mt?'<div class="skill-mult">'+mt+'</div>':'')+(ik?'<span class="kill-tag">\u5FC5\u6740</span>':'')+'</div></div>';
-            }).join('') : '<div style="color:var(--dim);font-size:11px;padding:8px 0;text-align:center;">\u6682\u65E0\u6570\u636E</div>';
+
+    // 星陨印记引爆速查(层数²+24×层数−24)
+    if (data.starfall_table && data.starfall_table.length) {
+        _lastStarfallTable = data.starfall_table;
+    }
+    // 敌方估算 HP: 优先用后端直接给的, 否则按面板 HP × 血条百分比估
+    const enemyHpFromPanel = (e.hp && e.hp_max) ? Math.round(e.hp) : 0;
+    _lastEnemyHp = data.enemy_est_hp || enemyHpFromPanel
+        || (data.enemy_panel_hp ? Math.round(data.enemy_panel_hp * (e.hp_pct !== undefined ? e.hp_pct : 1.0)) : 0);
+    let starfallHtml = '';
+    if (_lastStarfallTable && _lastStarfallTable.length) {
+        const sfTable = _lastStarfallTable;
+        // auto 模式: 跟随"最小致死层数"; 手动模式: 用用户选的层数
+        const enemyHp = _lastEnemyHp;
+        const autoStacks = (enemyHp > 0 && (sfTable.find(t => t.damage >= enemyHp) || sfTable[sfTable.length - 1]).stacks) || 1;
+        const sel = starfallMode === 'manual'
+            ? Math.min(starfallManualStacks, sfTable.length)
+            : autoStacks;
+        const row = sfTable.find(t => t.stacks === sel) || sfTable[0];
+        const isLethal = enemyHp > 0 && row.damage >= enemyHp;
+        const optionsHtml = sfTable.map(t =>
+            `<option value="${t.stacks}" ${t.stacks === sel ? 'selected' : ''}>${t.stacks} 层 · 威力${t.power}</option>`
+        ).join('');
+        const subText = enemyHp > 0
+            ? (starfallMode === 'auto' ? `当前致死至少 ${autoStacks} 层 (敌HP ${enemyHp})` : `敌HP ${enemyHp}`)
+            : `威力 = 层数² + 24×层数 − 24`;
+
+        starfallHtml = `
+        <div class="starfall-box">
+            <div class="starfall-head">
+                <span class="starfall-title">✨ 星陨印记引爆</span>
+                <select class="starfall-select" id="starfallStacksSelect"
+                        onchange="onStarfallSelect(this.value)" title="选择当前敌方身上的星陨层数">
+                    ${optionsHtml}
+                </select>
+            </div>
+            <div class="starfall-row">
+                <span class="starfall-dmg ${isLethal ? 'lethal' : ''}" id="starfallDmg">${row.damage}</span>
+                <span class="starfall-sub">${subText}</span>
+            </div>
+        </div>`;
+    }
+
+    // 愿力冲击暗手伤害推演
+    let resonanceHtml = '';
+    if (data.resonance_impact && data.resonance_impact.cases) {
+        const res = data.resonance_impact;
+        const likelyIcons = (res.likely_counter_attrs || []).map(t => 
+            `<span class="attr-pill"><img class="attr-pill-img" src="${getAttrIcon(t)}" alt="${t}"><span>${t}</span></span>`
+        ).join(' ');
+
+        const casesHtml = res.cases.map(c => {
+            const isLethal = c.is_lethal;
+            const badgeClass = c.id === '3x_no_counter' ? 'extreme' : (c.counter_mult > 1.0 ? 'warn' : '');
+            const attrIconHtml = c.attr ? `<img class="attr-badge-img" src="${getAttrIcon(c.attr)}" title="${c.attr}" onerror="this.style.display='none'">` : '';
+            return `
+            <div class="res-case-card ${isLethal ? 'lethal' : ''}" title="${c.desc}">
+                <div class="res-left">
+                    ${attrIconHtml}
+                    <span class="res-name">${c.name}</span>
+                    <span class="res-tag ${badgeClass}">${c.badge}</span>
+                </div>
+                <div class="res-right">
+                    <span class="res-dmg ${isLethal ? 'lethal' : ''}">${c.dmg_min} ~ ${c.dmg_max}</span>
+                    ${isLethal ? `<span class="kill-tag" style="font-size:8.5px;">致死</span>` : ''}
+                </div>
+            </div>`;
+        }).join('');
+
+        resonanceHtml = `
+        <div class="resonance-box">
+            <div class="resonance-head">
+                <span class="resonance-title">🔮 敌方暗手 · 愿力冲击推演 (80威力)</span>
+                <span style="font-size:9.5px;color:var(--dim);">${res.atk_stat_name || '主攻'}</span>
+            </div>
+            ${likelyIcons ? `<div class="resonance-inferred"><span>🎯 预测反制愿力:</span> ${likelyIcons}</div>` : ''}
+            <div class="resonance-cases-grid">
+                ${casesHtml}
+            </div>
+        </div>`;
+    }
+
+    // 敌方常规威胁雷达与官方机制标签
+    let threatsHtml = '';
+    if (data.enemy_threats && data.enemy_threats.length) {
+        threatsHtml = `
+            <div class="sec-title">🎯 敌方预测伤害 (按其种族高项筛选)</div>
+            ${data.enemy_threats.map(t => {
+                const isLethal = t.is_lethal;
+                const iconUrl = getSkillIcon(t.name);
+                const tagsHtml = (t.tags || []).map(tg => `<span class="res-tag" style="font-size:8.5px;padding:1px 4px;">${tg}</span>`).join(' ');
+                return `
+                <div class="threat-card ${isLethal ? 'lethal' : ''}">
+                    <img class="skill-icon" style="width:20px;height:20px;" src="${iconUrl}" onerror="this.src='assets/img/icons/normal.webp'">
+                    <div style="flex:1;display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                        <span class="threat-name">${t.name}</span>
+                        ${tagsHtml}
+                    </div>
+                    <div class="threat-dmg">${t.dmg_min} ~ ${t.dmg_max}</div>
+                    ${isLethal ? `<span class="kill-tag">致死预警</span>` : ''}
+                </div>`;
+            }).join('')}
+        `;
+    }
+
+    // AI 战术建议解析
+    const rawAdvice = data.ai_advice;
+    let advice = { actionLabel: '分析中…', reasoning: '', risk: '', confidence: 'medium', altsHtml: '' };
+    if (rawAdvice && rawAdvice.recommendation) {
+        const r = rawAdvice.recommendation;
+        const actionMap = { 'skill': '⚔️ 出招', 'switch': '🔄 换宠', 'energize': '⚡ 聚能', 'resonance': '🔮 愿力冲击' };
+        const actionIcon = actionMap[r.action] || ('➡️ ' + r.action);
+        const targetHtml = r.target ? `<span class="ai-d-target">${r.target}</span>` : '';
+        advice = {
+            actionLabel: `${actionIcon} ${targetHtml}`,
+            reasoning: r.reasoning || '',
+            risk: r.risk || '',
+            confidence: r.confidence || 'medium',
+            altsHtml: ''
+        };
+        if (rawAdvice.alternatives && rawAdvice.alternatives.length) {
+            advice.altsHtml = rawAdvice.alternatives.map(a =>
+                ` <span style="font-size:9px;color:var(--dim);display:block;padding:1px 0;">↳ ${a.action}: ${a.target} — ${(a.reasoning || '').slice(0, 40)}</span>`
+            ).join('');
         }
+    } else if (!rawAdvice) {
+        advice = { actionLabel: '等待推演…', reasoning: '', risk: '', confidence: 'medium', altsHtml: '' };
+    } else if (rawAdvice.error) {
+        advice = { actionLabel: '推演异常', reasoning: rawAdvice.error, risk: '', confidence: 'low', altsHtml: '' };
     }
-    // ---- 星陨 ----
-    if (data.starfall_table && data.starfall_table.length) _lastStarfallTable = data.starfall_table;
-    var sfSnap = _lastStarfallTable ? JSON.stringify(_lastStarfallTable) + '|' + starfallMode + '|' + _lastEnemyHp : '';
-    if (_pvEl.starfallZone && sfSnap !== _prevStarfallSnap) {
-        _prevStarfallSnap = sfSnap;
-        if (_lastStarfallTable && _lastStarfallTable.length) {
-            var sfT = _lastStarfallTable, ehp = _lastEnemyHp;
-            var autoS = (ehp > 0 && (sfT.find(function(t){return t.damage >= ehp;}) || sfT[sfT.length-1]).stacks) || 1;
-            var sel = starfallMode === 'manual' ? Math.min(starfallManualStacks, sfT.length) : autoS;
-            var row = sfT.find(function(t){return t.stacks === sel;}) || sfT[0];
-            var iL = ehp > 0 && row.damage >= ehp;
-            var opt = sfT.map(function(t){return '<option value="'+t.stacks+'" '+(t.stacks===sel?'selected':'')+'>'+t.stacks+' '+t.power+'</option>';}).join('');
-            var sub = ehp > 0 ? (starfallMode === 'auto' ? autoS+' ('+ehp+')' : 'HP '+ehp) : '= ^2+24-24';
-            _pvEl.starfallZone.innerHTML = '<div class="starfall-box"><div class="starfall-head"><span class="starfall-title">* \u661F\u9668</span><select class="starfall-select" id="starfallStacksSelect" onchange="onStarfallSelect(this.value)">'+opt+'</select></div><div class="starfall-row"><span class="starfall-dmg'+(iL?' lethal':'')+'" id="starfallDmg">'+row.damage+'</span><span class="starfall-sub">'+sub+'</span></div></div>';
-        } else { _pvEl.starfallZone.innerHTML = ''; }
+
+    bodyEl.innerHTML = `
+        <!-- VS 看板 -->
+        <div class="vs-banner">
+            <div class="pet-side player">
+                <div class="pet-header">
+                    <img class="pet-avatar" src="${playerAvatar}" onerror="this.src='assets/img/icons/normal.webp'">
+                    <div class="pet-info">
+                        <div class="pet-name">${p.name || '我方精灵'}</div>
+                        <div class="pet-attrs">${playerAttrIcons || '<span style="font-size:9.5px;color:var(--dim)">常规</span>'}</div>
+                    </div>
+                </div>
+                <div class="stat-bar-box">
+                    <div class="stat-nums">
+                        <span style="color:var(--dim)">HP</span>
+                        <span class="hp-val">${playerHp}</span>
+                    </div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: ${100 - playerHpPct}%"></div>
+                    </div>
+                </div>
+                <div class="energy-row">
+                    <span>能量</span>
+                    <span class="energy-crystals">🔷 ${p.energy !== undefined ? p.energy : '?'}</span>
+                </div>
+            </div>
+
+            <div class="vs-divider">
+                <div class="vs-tag">VS</div>
+            </div>
+
+            <div class="pet-side enemy">
+                <div class="pet-header">
+                    <img class="pet-avatar" src="${enemyAvatar}" onerror="this.src='assets/img/icons/normal.webp'">
+                    <div class="pet-info">
+                        <div class="pet-name">${e.name || '敌方精灵'}</div>
+                        <div class="pet-attrs">${enemyAttrIcons || '<span style="font-size:9.5px;color:var(--dim)">常规</span>'}</div>
+                    </div>
+                </div>
+                <div class="stat-bar-box">
+                    <div class="stat-nums">
+                        <span class="hp-val">${enemyHpPct}%</span>
+                        <span style="color:var(--dim)">HP</span>
+                    </div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width: ${100 - enemyHpPct}%"></div>
+                    </div>
+                </div>
+                <div class="energy-row" style="justify-content: flex-end;">
+                    <span>目标</span>
+                    <span style="color: #f87171; font-weight:700;">锁定中</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 星陨印记引爆速查 -->
+        ${starfallHtml}
+
+        <!-- 愿力冲击暗手推演 -->
+        ${resonanceHtml}
+
+        <!-- AI 战术决策面板 -->
+        <div class="ai-decision-box" id="aiDecisionBox">
+            <div class="ai-d-head">
+                <span class="ai-d-title">🧠 AI 战术建议</span>
+                <span class="ai-d-conf ${advice.confidence || 'medium'}">${(advice.confidence === 'high' ? '高' : advice.confidence === 'low' ? '低' : '中') || '中'}</span>
+            </div>
+            <div class="ai-d-action">
+                ${advice.actionLabel}
+            </div>
+            <div class="ai-d-reason">${advice.reasoning}</div>
+            ${advice.risk ? `<div class="ai-d-risk">⚠️ ${advice.risk}</div>` : ''}
+            ${advice.altsHtml ? `<div class="ai-d-alts">备选方案:${advice.altsHtml}</div>` : ''}
+        </div>
+
+        <!-- 我方技能推演 -->
+        <div class="sec-title">🎯 我方技能即时伤害推演</div>
+        <div class="skills-grid">
+            ${skillsHtml || '<div style="color:var(--dim);font-size:11px;padding:8px 0;text-align:center;">暂无技能推演数据</div>'}
+        </div>
+
+        <!-- 敌方常规威胁雷达 -->
+        ${threatsHtml}
+    `;
+
+    // 下拉展开期标记(mousedown→change 之间), 配合 updatePVPData 开头的跳过逻辑防打断
+    const newSelect = document.getElementById('starfallStacksSelect');
+    if (newSelect) {
+        newSelect.addEventListener('mousedown', () => { newSelect._open = true; });
+        newSelect.addEventListener('blur', () => { newSelect._open = false; });
     }
-    // ---- \u613F\u529B ----
-    var rSnap = data.resonance_impact ? JSON.stringify(data.resonance_impact.cases) : '';
-    if (_pvEl.resonanceZone && rSnap !== _prevResonanceSnap) {
-        _prevResonanceSnap = rSnap;
-        if (data.resonance_impact && data.resonance_impact.cases) {
-            var res = data.resonance_impact;
-            var li = (res.likely_counter_attrs || []).map(function(t){return '<span class="attr-pill"><img class="attr-pill-img" src="'+getAttrIcon(t)+'" alt="'+t+'"><span>'+t+'</span></span>';}).join(' ');
-            var ch = res.cases.map(function(c){
-                var iL = c.is_lethal, bc = c.id === '3x_no_counter' ? 'extreme' : (c.counter_mult > 1.0 ? 'warn' : '');
-                var ai = c.attr ? '<img class="attr-badge-img" src="'+getAttrIcon(c.attr)+'" title="'+c.attr+'" onerror="this.style.display=\'none\'">' : '';
-                return '<div class="res-case-card'+(iL?' lethal':'')+'" title="'+c.desc+'"><div class="res-left">'+ai+'<span class="res-name">'+c.name+'</span><span class="res-tag '+bc+'">'+c.badge+'</span></div><div class="res-right"><span class="res-dmg'+(iL?' lethal':'')+'">'+c.dmg_min+' ~ '+c.dmg_max+'</span>'+(iL?'<span class="kill-tag">\u81F4\u6B7B</span>':'')+'</div></div>';
-            }).join('');
-            _pvEl.resonanceZone.innerHTML = '<div class="resonance-box"><div class="resonance-head"><span class="resonance-title">\u613F\u529B\u51B2\u51FB (80)</span><span style="font-size:9.5px;color:var(--dim);">'+(res.atk_stat_name||'')+'</span></div>'+(li?'<div class="resonance-inferred"><span>\u9884\u6D4B:</span> '+li+'</div>':'')+'<div class="resonance-cases-grid">'+ch+'</div></div>';
-        } else { _pvEl.resonanceZone.innerHTML = ''; }
+}
+
+    // ===== 合并版: 标签切换 =====
+    let activeTab = 'afk';
+    function switchTab(tab) {
+        activeTab = tab;
+        $('wBody').style.display = tab === 'afk' ? '' : 'none';
+        $('pvRoot').style.display = tab === 'pvp' ? '' : 'none';
+        $('tabAfk').classList.toggle('active', tab === 'afk');
+        $('tabPvp').classList.toggle('active', tab === 'pvp');
+        requestAnimationFrame(() => setTimeout(syncSize, 30));
     }
-    // ---- \u654C\u65B9\u5A01\u80C1 ----
-    var tSnap = data.enemy_threats ? data.enemy_threats.map(function(t){return t.name+'|'+t.dmg_min+'|'+(t.is_lethal?'1':'0');}).join(';') : '';
-    if (_pvEl.threatsZone && tSnap !== _prevThreatsSnap) {
-        _prevThreatsSnap = tSnap;
-        if (data.enemy_threats && data.enemy_threats.length) {
-            _pvEl.threatsZone.innerHTML = '<div class="sec-title">\u654C\u65B9\u9884\u6D4B\u4F24\u5BB3</div>' + data.enemy_threats.map(function(t){
-                var iL = t.is_lethal, iu = getSkillIcon(t.name);
-                var th = (t.tags||[]).map(function(tg){return '<span class="res-tag" style="font-size:8.5px;padding:1px 4px;">'+tg+'</span>';}).join(' ');
-                return '<div class="threat-card'+(iL?' lethal':'')+'"><img class="skill-icon" style="width:20px;height:20px;" src="'+iu+'" onerror="this.src=\'assets/img/icons/normal.webp\'"><div style="flex:1;"><span class="threat-name">'+t.name+'</span>'+th+'</div><div class="threat-dmg">'+t.dmg_min+' ~ '+t.dmg_max+'</div>'+(iL?'<span class="kill-tag">\u81F4\u6B7B</span>':'')+'</div>';
-            }).join('');
-        } else { _pvEl.threatsZone.innerHTML = ''; }
+
+    // ===== PVP 识别引擎开关(悬浮窗直达) =====
+    let pvEngineOn = false;
+    async function pvEngineToggle() {
+        try {
+            if (pvEngineOn) await pywebview.api.pvp_engine_stop();
+            else await pywebview.api.pvp_engine_start();
+        } catch (e) {}
+        refreshPvEngine();
     }
-    // ---- resize ----
-    requestAnimationFrame(function() {
-        if (window.__widgetDragging) return;
-        setTimeout(function() {
-            var card = document.getElementById('card');
-            if (!card) return;
-            var dpr = window.devicePixelRatio || 1;
-            var w = Math.ceil(Math.max(card.offsetWidth, document.body.scrollWidth) * dpr);
-            var h = Math.ceil(Math.max(card.offsetHeight, document.body.scrollHeight) * dpr);
-            if (Math.abs(w - (_pvSizes.w || 0)) > 1 || Math.abs(h - (_pvSizes.h || 0)) > 1) {
-                _pvSizes.w = w; _pvSizes.h = h;
-                if (window.pywebview && pywebview.api.widget_resize) pywebview.api.widget_resize(w, h);
+    async function refreshPvEngine() {
+        if (!window.pywebview || !pywebview.api.pvp_engine_status) return;
+        try {
+            const s = await pywebview.api.pvp_engine_status();
+            pvEngineOn = !!s.running;
+            const btn = $('pvEngineBtn');
+            if (btn) {
+                btn.textContent = pvEngineOn ? '■ 停止识别' : '▶ 启动识别';
+                btn.classList.toggle('on', pvEngineOn);
             }
-        }, 30);
-    });
-}
-function buildPvpDom(bodyEl, data) {
-    var p = data.player || {}, e = data.enemy || {};
-    var pai = (p.types||[]).map(function(t){return '<img class="attr-badge-img" src="'+getAttrIcon(t)+'" title="'+t+'">';}).join('') || '<span style="font-size:9.5px;color:var(--dim)">-</span>';
-    var eai = (e.types||[]).map(function(t){return '<img class="attr-badge-img" src="'+getAttrIcon(t)+'" title="'+t+'">';}).join('') || '<span style="font-size:9.5px;color:var(--dim)">-</span>';
-    bodyEl.innerHTML = '<div class="vs-banner"><div class="pet-side player"><div class="pet-header"><img class="pet-avatar" id="pvPlayerAvatar" src="'+pvGetPetAvatar(p.name)+'" onerror="this.src=\'assets/img/icons/normal.webp\'"><div class="pet-info"><div class="pet-name" id="pvPlayerName">'+(p.name||'\u6211\u65B9')+'</div><div class="pet-attrs">'+pai+'</div></div></div><div class="stat-bar-box"><div class="stat-nums"><span>HP</span><span class="hp-val" id="pvPlayerHp">?</span></div><div class="bar-track"><div class="bar-fill" id="pvPlayerHpBar"></div></div></div><div class="energy-row"><span>\u80FD\u91CF</span><span class="energy-crystals" id="pvPlayerEnergy">?</span></div></div><div class="vs-divider"><div class="vs-tag">VS</div></div><div class="pet-side enemy"><div class="pet-header"><img class="pet-avatar" id="pvEnemyAvatar" src="'+pvGetPetAvatar(e.name)+'" onerror="this.src=\'assets/img/icons/normal.webp\'"><div class="pet-info"><div class="pet-name" id="pvEnemyName">'+(e.name||'\u654C\u65B9')+'</div><div class="pet-attrs">'+eai+'</div></div></div><div class="stat-bar-box"><div class="stat-nums"><span class="hp-val" id="pvEnemyHp">?%</span><span>HP</span></div><div class="bar-track"><div class="bar-fill" id="pvEnemyHpBar"></div></div></div><div class="energy-row"><span>\u76EE\u6807</span><span>\u9501\u5B9A</span></div></div></div><div id="pvStarfallZone"></div><div id="pvResonanceZone"></div><div class="sec-title">\u6211\u65B9\u6280\u80FD\u63A8\u6F14</div><div class="skills-grid" id="pvSkillsGrid"></div><div id="pvThreatsZone"></div>';
-    _pvEl = {
-        avatarP: document.getElementById('pvPlayerAvatar'),
-        avatarE: document.getElementById('pvEnemyAvatar'),
-        nameP: document.getElementById('pvPlayerName'),
-        nameE: document.getElementById('pvEnemyName'),
-        attrsP: document.getElementById('pvPlayerAttrs'),
-        attrsE: document.getElementById('pvEnemyAttrs'),
-        hpP: document.getElementById('pvPlayerHp'),
-        hpBarP: document.getElementById('pvPlayerHpBar'),
-        hpE: document.getElementById('pvEnemyHp'),
-        hpBarE: document.getElementById('pvEnemyHpBar'),
-        energyP: document.getElementById('pvPlayerEnergy'),
-        skillsGrid: document.getElementById('pvSkillsGrid'),
-        starfallZone: document.getElementById('pvStarfallZone'),
-        resonanceZone: document.getElementById('pvResonanceZone'),
-        threatsZone: document.getElementById('pvThreatsZone'),
-    };
-}
+        } catch (e) {}
+    }
+    setInterval(refreshPvEngine, 2000);
+
+    // ===== 自研拖拽: 标题条按下拖动,不依赖 pywebview 拖拽区/窗口焦点 =====
+    (function initDrag() {
+        let dragging = false, lx = 0, ly = 0, px = 0, py = 0, raf = 0;
+        function bind() {
+            const el = document.querySelector('.drag-underlay');
+            if (!el) { setTimeout(bind, 300); return; }
+            el.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                dragging = true;
+                lx = e.screenX; ly = e.screenY; px = py = 0;
+                e.preventDefault();
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!dragging) return;
+                px += e.screenX - lx; py += e.screenY - ly;
+                lx = e.screenX; ly = e.screenY;
+                if (!raf) raf = requestAnimationFrame(flush);
+            });
+            window.addEventListener('mouseup', () => {
+                if (dragging) { flush(); dragging = false; }
+            });
+        }
+        function flush() {
+            raf = 0;
+            if ((px || py) && window.pywebview && pywebview.api.move_window_by) {
+                pywebview.api.move_window_by(Math.round(px), Math.round(py));
+                px = py = 0;
+            }
+        }
+        bind();
+    })();
+</script>
+</body>
+</html>

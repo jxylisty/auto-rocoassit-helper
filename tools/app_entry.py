@@ -174,7 +174,9 @@ def _run_frozen(smoke: bool) -> None:
         # 窗口尺寸自适应（与 main.py 一致: 物理像素计算 + 定尺后显示）
         from src.gui.window_sizing import (prewarm_c_extensions,
                                           compute_main_window_size,
-                                          apply_window_size_physical)
+                                          apply_window_size_physical,
+                                          setup_app_user_model_id)
+        setup_app_user_model_id("lkwg.pvp.assistant")
         prewarm_c_extensions()   # 必须早于后面任何线程启动(防启动竞态闪退)
         phys_w, phys_h, _wa = compute_main_window_size()
 

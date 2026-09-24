@@ -1,0 +1,9 @@
+{
+ "enabled": false,
+ "base_url": "http://127.0.0.1:7868/v1",
+ "api_key": "DoubaoAPI",
+ "model": "doubao/vision-express",
+ "prompt": "",
+ "interval_s": 10,
+ "template": "pvp状态"
+}

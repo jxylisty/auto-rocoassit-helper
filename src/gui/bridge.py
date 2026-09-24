@@ -56,20 +56,42 @@ CONFIG_FILES = {
         ]
     },
     "ai_vision.json": {
-        "title": "AI 视觉识别 (状态栏识图)",
+        "title": "AI 视觉识别 (状态栏识图 + 战术决策)",
         "icon": "🤖",
         "type": "json",
-        "desc": "用多模态 AI 直接读状态栏截图识别状态/印记（PVP 对战页「AI 识别」标签页可视化配置）",
+        "desc": "多模态 AI 读状态栏识别状态/印记 + AI 战术决策引擎（PVP 对战页「AI 识别」标签页可视化配置）",
         "page_hint": "PVP 对战",
         "gui_page": "pvp",
         "fields": [
-            {"key": "enabled", "name": "总开关", "desc": "开启后 PVP 识别管线按间隔调用 AI 读状态栏（true/false）"},
-            {"key": "base_url", "name": "API 地址", "desc": "OpenAI 兼容接口地址，本地豆包桥为 http://127.0.0.1:7868/v1"},
-            {"key": "api_key", "name": "API Key", "desc": "接口密钥，本地豆包桥固定为 DoubaoAPI"},
-            {"key": "model", "name": "模型名", "desc": "多模态模型：doubao/vision-express（识图+推理）或 doubao/vision（纯识图）"},
+            {"key": "enabled", "name": "AI视觉总开关", "desc": "开启后 PVP 识别管线按间隔调用 AI 读状态栏（true/false）"},
+            {"key": "base_url", "name": "API 地址(视觉)", "desc": "OpenAI 兼容接口地址，本地豆包桥为 http://127.0.0.1:7868/v1"},
+            {"key": "api_key", "name": "API Key(视觉)", "desc": "接口密钥，本地豆包桥固定为 DoubaoAPI"},
+            {"key": "model", "name": "视觉模型名", "desc": "多模态模型：doubao/vision-express（识图+推理）或 doubao/vision（纯识图）"},
             {"key": "prompt", "name": "识图提示词", "desc": "发给模型的识别要求，留空使用内置提示词"},
             {"key": "interval_s", "name": "识别间隔(秒)", "desc": "同一状态栏两次 AI 识别的最小间隔，避免刷接口"},
-            {"key": "template", "name": "ROI 模板", "desc": "状态栏框位来源（视觉工坊画的模板名，如 pvp状态）"}
+            {"key": "template", "name": "ROI 模板", "desc": "状态栏框位来源（视觉工坊画的模板名，如 pvp状态）"},
+            {"key": "ai_decision_enabled", "name": "AI战术决策总开关", "desc": "开启后每2秒自动分析战局并推荐动作（true/false）"},
+            {"key": "ai_decision_base_url", "name": "API 地址(决策)", "desc": "战术决策用的 LLM 接口，默认为 http://127.0.0.1:7863/v1"},
+            {"key": "ai_decision_api_key", "name": "API Key(决策)", "desc": "战术决策 LLM 的密钥，默认为 WildWorkAPI"},
+            {"key": "ai_decision_model", "name": "决策模型名", "desc": "战术决策用的 LLM 模型，默认为 codebuddy/deepseek-v4.1-flash"},
+            {"key": "ai_decision_interval_s", "name": "决策刷新间隔(秒)", "desc": "AI 自动刷新建议的间隔，默认 2 秒"}
+        ]
+    },
+    "ai_companion.json": {
+        "title": "AI 陪玩伙伴 (对局弹幕伙伴)",
+        "icon": "💬",
+        "type": "json",
+        "desc": "对局事件驱动 → OpenAI 兼容 LLM → 悬浮窗弹幕（PVP 对战页「AI 伙伴」标签页可视化配置）",
+        "page_hint": "PVP 对战",
+        "gui_page": "pvp",
+        "fields": [
+            {"key": "enabled", "name": "总开关", "desc": "开启后 AI 伙伴会在对局中根据事件发弹幕（true/false）"},
+            {"key": "base_url", "name": "API 地址", "desc": "OpenAI 兼容接口地址，如 https://api.deepseek.com/v1"},
+            {"key": "api_key", "name": "API Key", "desc": "调用 LLM 的 API 密钥"},
+            {"key": "model", "name": "模型名", "desc": "LLM 模型名，如 deepseek-chat / gpt-4o-mini"},
+            {"key": "persona", "name": "人设", "desc": "内置人设：salty(毒舌主播)/tsundere(傲娇伙伴)/gentle(温柔鼓励)"},
+            {"key": "custom_persona", "name": "自定义人设提示词", "desc": "非空时覆盖内置人设，自由描述想要的角色风格"},
+            {"key": "interval_min", "name": "弹幕最小间隔(秒)", "desc": "两条弹幕之间的最小间隔(秒)，防刷屏"}
         ]
     },
     "settings.yaml": {
@@ -268,6 +290,10 @@ class AppBridge:
         self._pvp_running = False
         self._pvp_thread = None
         self._pvp_interval = 0.5  # 秒，每 500ms 识别一帧
+
+        # AI 决策缓存(由 /recommend 端点异步更新)
+        self._ai_recommendation: dict | None = None
+        self._ai_decision_lock = threading.Lock()
 
         # 模式控制器 (Step 3: 生命周期隔离)
         from src.states.mode_controller import ModeController
@@ -2518,6 +2544,111 @@ class AppBridge:
         except Exception as e:
             data["calc_error"] = str(e)
 
+    # ---- PVP 状态沿消费: 自动截图存档 + 战斗头像自动入库 ----
+    def _pvp_save_screenshot(self, frame, sub: str, tag: str) -> None:
+        """帧存档到 data/screenshots/<sub>/, md5 前缀去重 + 目录限额."""
+        import cv2
+        import hashlib
+        from src.pvp.pvp_pipeline import PROJECT_ROOT
+        out_dir = PROJECT_ROOT / "data" / "screenshots" / sub
+        out_dir.mkdir(parents=True, exist_ok=True)
+        md5 = hashlib.md5(frame.tobytes()).hexdigest()[:8]
+        # 文件名含 md5 前 8 位 → 重启后仍可去重
+        if any(md5 in p.name for p in out_dir.glob("*.png")):
+            return
+        files = list(out_dir.glob("*.png"))
+        if len(files) >= 200:   # 限额: 截图只是素材存档, 超额删最旧
+            try:
+                oldest = min(files, key=lambda p: p.stat().st_mtime)
+                oldest.unlink()
+            except Exception:
+                pass
+        fname = f"{time.strftime('%Y%m%d_%H%M%S')}_{tag}_{md5}.png"
+        ok, buf = cv2.imencode(".png", frame)   # imencode+tofile 兼容中文路径
+        if ok:
+            buf.tofile(str(out_dir / fname))
+
+    def _pvp_auto_ingest(self, frame, result, pipeline) -> None:
+        """战斗帧头像自动入库(后台线程): OCR≥0.9 验名的头像 ROI 直接入库.
+
+        优先复用管线已加载的模板库实例(特性缓存实时生效); 库为空时
+        管线侧保持 None, 此处自建并回填, 让首批自动模板立刻可用。
+        """
+        from src.pvp.pvp_pipeline import PROJECT_ROOT
+        lib = getattr(pipeline, "_avatar_lib", None)
+        if lib is None:
+            lib = getattr(self, "_pvp_auto_lib", None)
+            if lib is None:
+                try:
+                    import sys as _sys
+                    lib_dir = PROJECT_ROOT / "src" / "pvp" / "lib"
+                    for pth in (str(lib_dir), str(PROJECT_ROOT)):
+                        if pth not in _sys.path:
+                            _sys.path.insert(0, pth)
+                    from pvp_lib import PvpTemplateLibrary
+                    lib = PvpTemplateLibrary()
+                    lib.load()
+                except Exception:
+                    lib = None
+                self._pvp_auto_lib = lib
+            if lib is not None:
+                try:
+                    pipeline._avatar_lib = lib
+                except Exception:
+                    pass
+        if lib is None:
+            return
+        added = 0
+        for roi_id, name, conf in (
+                ("我方精灵头像", result.player_name, result.player_name_conf),
+                ("敌方精灵头像", result.enemy_name, result.enemy_name_conf)):
+            if not name or conf < 0.9:
+                continue   # 未过词库模糊命中验名 → 交给 add_template 内部再验
+            crop = pipeline._crop(frame, roi_id)
+            if crop is None or crop.size == 0:
+                continue
+            try:
+                if lib.add_template(name, crop, src="battle_auto"):
+                    added += 1
+            except Exception:
+                continue
+        if added:
+            self._enqueue_log(
+                f"📸 战斗帧自动入库 {added} 个头像模板 "
+                f"(总计 {len(getattr(lib, 'entries', []))})", "info")
+
+    def _handle_pvp_edges(self, frame, result, pipeline) -> None:
+        """状态沿消费(边沿触发, 常规帧仅两次 getattr 即返回):
+        - 进战斗沿: 战斗帧存档 pvp_battle/; 本局后续帧 OCR 高置信时头像自动入库(每局一次)
+        - 阵容识别沿: 战备屏存档 pvp_lineup/ (仅存档不自动入库:
+          pair_pvp_rows 的行布局不适配战斗帧, 误入库会造坏模板)
+        - 脱战斗沿: 无动作 (阵容会话缓存已在管线内清理)
+        """
+        try:
+            in_battle = getattr(result, "in_battle", False)
+            if not in_battle and not getattr(result, "lineup_new", False):
+                return
+            if getattr(result, "battle_start", False):
+                try:
+                    self._pvp_save_screenshot(frame, "pvp_battle", "battle")
+                except Exception:
+                    pass
+                self._pvp_ingest_done = False
+            if getattr(result, "lineup_new", False):
+                try:
+                    self._pvp_save_screenshot(frame, "pvp_lineup", "lineup")
+                except Exception:
+                    pass
+            if (in_battle and not getattr(self, "_pvp_ingest_done", True)
+                    and (getattr(result, "player_name_conf", 0) >= 0.9
+                         or getattr(result, "enemy_name_conf", 0) >= 0.9)):
+                self._pvp_ingest_done = True
+                threading.Thread(
+                    target=self._pvp_auto_ingest, args=(frame, result, pipeline),
+                    daemon=True).start()
+        except Exception:
+            pass
+
     def _pvp_loop(self):
         """后台线程: 截图 → 识别 → 伤害计算 → 推送悬浮窗"""
         import time as _time
@@ -2557,6 +2688,8 @@ class AppBridge:
 
                 # 2. 识别
                 result = pipeline.analyze(frame)
+                # 2.1 状态沿消费: 自动截图存档 + 战斗头像自动入库(边沿触发)
+                self._handle_pvp_edges(frame, result, pipeline)
                 data = pipeline.to_dict(result)
                 player = data.get("player", {})
                 enemy = data.get("enemy", {})
@@ -2565,7 +2698,11 @@ class AppBridge:
                 if result.in_battle:
                     self._enrich_result(data, result)
 
-                # 4. 推送悬浮窗
+                # 4. 推送悬浮窗(含 AI 决策缓存)
+                if result.in_battle:
+                    with self._ai_decision_lock:
+                        if self._ai_recommendation:
+                            data["ai_advice"] = self._ai_recommendation
                 if self._pvp_float_window and self._pvp_float_visible and self._pvp_float_loaded:
                     self._pvp_float_window.evaluate_js(
                         f"updatePVPData({json.dumps(data, ensure_ascii=False)})"
@@ -2576,6 +2713,20 @@ class AppBridge:
                     self._round_logger_tick(data, result)
                 except Exception:
                     pass
+
+                # 4.8 自动刷新 AI 决策(约每 2s 触发一次)
+                if result.in_battle:
+                    _now = _time.time()
+                    _last = getattr(self, "_last_ai_decision_ts", 0.0)
+                    if _now - _last >= 8.0:
+                        self._last_ai_decision_ts = _now
+                        try:
+                            from src.gui.ai_decision import get_decision
+                            _decision = get_decision(data)
+                            with self._ai_decision_lock:
+                                self._ai_recommendation = _decision
+                        except Exception:
+                            pass
 
                 # 4.5 同步双方精灵到主控台「PVP 实时对战」详细查询页
                 if result.in_battle and result.player_name and result.enemy_name                         and self._window and self._pvp_running:
@@ -2669,6 +2820,15 @@ class AppBridge:
                 data["energy_plan"] = self._energy_plan(data)
             except Exception:
                 pass
+            # AI 战术建议(缓存, 由 /recommend 端点或后台定时刷新)
+            with self._ai_decision_lock:
+                if self._ai_recommendation:
+                    data["ai_advice"] = self._ai_recommendation
+        elif getattr(result, "lineup_done", False):
+            # 非战斗态但已识别阵容: 透出阵容供 AI 预读
+            data["player_lineup"] = result.player_lineup
+            data["enemy_lineup"] = result.enemy_lineup
+            data["lineup_done"] = True
         return data
 
     @staticmethod
@@ -2802,6 +2962,16 @@ class AppBridge:
                 patrol["move_key"] = str(params["patrol_move_key"]).strip().lower()
             if params.get("patrol_turn_mode") in ("keys", "mouse"):
                 patrol["turn_mode"] = params["patrol_turn_mode"]
+            # AI 全局设置 (Key/模型)
+            ai = data.setdefault("ai", {})
+            if "ai_base_url" in params:
+                ai["base_url"] = str(params["ai_base_url"]).strip() or ""
+            if "ai_api_key" in params:
+                ai["api_key"] = str(params["ai_api_key"]).strip() or ""
+            if "ai_model" in params:
+                ai["model"] = str(params["ai_model"]).strip() or ""
+            if "ai_vision_model" in params:
+                ai["vision_model"] = str(params["ai_vision_model"]).strip() or ""
             SETTINGS_PATH.write_text(
                 yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
             invalidate()
@@ -2819,6 +2989,7 @@ class AppBridge:
             data = yaml.safe_load(SETTINGS_PATH.read_text(encoding="utf-8")) or {}
             battle = data.get("battle", {})
             patrol = data.get("patrol", {})
+            ai = data.get("ai", {})
             raw_skills = battle.get("skills", ["1"])
             skills_str = ",".join(str(s) for s in raw_skills) if isinstance(raw_skills, list) else str(raw_skills)
             settings = {
@@ -2829,6 +3000,10 @@ class AppBridge:
                 "patrol_enabled": patrol.get("enabled", True),
                 "patrol_move_key": patrol.get("move_key", "w"),
                 "patrol_turn_mode": patrol.get("turn_mode", "mouse"),
+                "ai_base_url": ai.get("base_url", ""),
+                "ai_api_key": ai.get("api_key", ""),
+                "ai_model": ai.get("model", ""),
+                "ai_vision_model": ai.get("vision_model", ""),
             }
             return {"success": True, "settings": settings}
         except Exception as e:
@@ -2872,6 +3047,13 @@ class AppBridge:
                 pass
         if "template" in params:
             cfg["template"] = str(params["template"]).strip()
+        # AI 决策配置字段(持久化到同一个 json, 由 ai_decision.py 读取)
+        decision_fields = ["ai_decision_enabled", "ai_decision_base_url",
+                          "ai_decision_api_key", "ai_decision_model",
+                          "ai_decision_interval_s"]
+        for k in decision_fields:
+            if k in params:
+                cfg[k] = params[k]
         ai_vision.save_config(cfg)
         self._enqueue_log("AI 视觉识别配置已保存", "info")
         return {"success": True, "settings": cfg}
@@ -2907,6 +3089,101 @@ class AppBridge:
             return {"success": False, "message": f"AI 识别异常: {e}"}
 
     # ========================================
+    # 5.6 AI 陪玩伙伴设置 (对局弹幕伙伴)
+    # ========================================
+
+    def ai_companion_get_settings(self) -> dict:
+        from src.gui.ai_companion import load_config
+        return {"success": True, "settings": load_config()}
+
+    def ai_companion_save_settings(self, params: dict) -> dict:
+        from src.gui import ai_companion
+        if not isinstance(params, dict) or not params:
+            return {"success": False, "message": "参数为空"}
+        cfg = ai_companion.load_config()
+        if "enabled" in params:
+            cfg["enabled"] = bool(params["enabled"])
+            self._ai_companion_enabled = cfg["enabled"]
+        if "base_url" in params:
+            cfg["base_url"] = str(params["base_url"]).strip()
+        if "api_key" in params:
+            cfg["api_key"] = str(params["api_key"]).strip()
+        if "model" in params:
+            cfg["model"] = str(params["model"]).strip()
+        if "persona" in params:
+            p = str(params["persona"]).strip()
+            if p in ai_companion.PERSONAS or not p:
+                cfg["persona"] = p or "tsundere"
+            else:
+                cfg["persona"] = p   # 允许手写人设 id
+        if "custom_persona" in params:
+            cfg["custom_persona"] = str(params["custom_persona"])
+        if "interval_min" in params:
+            try:
+                cfg["interval_min"] = max(5, min(600, int(float(params["interval_min"]))))
+            except Exception:
+                pass
+        ai_companion.save_config(cfg)
+        self._enqueue_log("AI 陪玩伙伴配置已保存", "info")
+        return {"success": True, "settings": cfg}
+
+    # ========================================
+    # 5.7 AI 自玩操作 (MCP 动作注入)
+    # ========================================
+
+    _PVP_ACT_DELAY = 0.3  # 动作间默认间隔(秒), MCP 可调
+
+    def pvp_act(self, action: str, delay: float = None) -> dict:
+        """执行一条 PVP 操作命令 (AI 自玩用, MCP /local_api 调用)
+
+        action 支持 (大小写不敏感):
+          skill1~4           → 按数字键 1~4 出招
+          energize           → 按 X 聚能(变化类操作, +5 能量)
+          switch_1~6         → 按 E 打开换宠列表 → 数字 1~6 选宠 → Space 确认
+          resonance          → 按 Q 打开共鸣背包 → 数字 1 选中 → 按 1 出招(愿力冲击)
+        delay: 动作间基础间隔(秒), 默认 0.3
+        """
+        import time
+        from src.driver import human_input
+
+        a = (action or "").strip().lower()
+        d = float(delay) if delay is not None else self._PVP_ACT_DELAY
+
+        if a.startswith("skill"):
+            n = a.replace("skill", "").strip()
+            if n in ("1", "2", "3", "4"):
+                human_input.press(n)
+                return {"ok": True, "action": a, "key": n}
+
+        if a == "energize":
+            human_input.press("x")
+            return {"ok": True, "action": a, "key": "x"}
+
+        if a.startswith("switch_"):
+            n = a.replace("switch_", "").strip()
+            if n in ("1", "2", "3", "4", "5", "6"):
+                human_input.press("e")
+                time.sleep(d)
+                human_input.press(n)
+                time.sleep(max(0.05, d * 0.3))
+                human_input.press("space")
+                return {"ok": True, "action": a, "key": f"e → {n} → space",
+                        "note": f"切换到第{n}个位置精灵"}
+
+        if a == "resonance":
+            # Q 打开共鸣背包 → 1 选中愿力冲击 → 按 1 出招
+            human_input.press("q")
+            time.sleep(d)
+            human_input.press("1")
+            time.sleep(max(0.05, d * 0.3))
+            human_input.press("1")  # 按技能 1 释放愿力冲击
+            return {"ok": True, "action": a, "keys": "q → 1 → 1",
+                    "note": "共鸣愿力冲击"}
+
+        return {"ok": False, "error": f"不支持的操作: {action}",
+                "hint": "支持: skill1~4 / energize / switch_1~6 / resonance"}
+
+    # ========================================
     # 6. PVP 对战助手 API
     # ========================================
 
@@ -2924,14 +3201,14 @@ class AppBridge:
             window.events.loaded += lambda: setattr(self, '_pvp_float_loaded', True)
         except Exception:
             pass
-        # 防自截: Windows 10 2004+ WDA_EXCLUDEFROMCAPTURE
+        # 防自截: Windows 10 2004+ WDA_EXCLUDEFROMCAPTURE (调试期间临时关闭)
         # (pywebview 6.x 没有 native_handle, 句柄要从 .native.Handle 取, 否则整段静默失效)
         def _exclude_from_capture():
             try:
                 import ctypes
                 hwnd = self._native_hwnd(window)
                 if hwnd:
-                    ctypes.windll.user32.SetWindowDisplayAffinity(int(hwnd), 0x00000011)
+                    ctypes.windll.user32.SetWindowDisplayAffinity(int(hwnd), 0x00000000)
             except Exception:
                 pass
         try:
@@ -4054,6 +4331,10 @@ class AppBridge:
                                else {"enabled": False, "mode": "-", "samples": 0,
                                      "updated_at": "", "slots": []}),
             "tasks": tasks,
+            "companion_enabled": (
+                getattr(self, "_ai_companion", None) is not None
+                and getattr(self, "_ai_companion_enabled", False)
+            ),
             "update_hint": getattr(self, "_update_hint", None),
         }
 
@@ -4204,6 +4485,17 @@ class Api:
 
     def ai_vision_test(self):
         return self._bridge.ai_vision_test()
+
+    # AI 陪玩伙伴
+    def ai_companion_get_settings(self):
+        return self._bridge.ai_companion_get_settings()
+
+    def ai_companion_save_settings(self, params):
+        return self._bridge.ai_companion_save_settings(params)
+
+    # AI 自玩操作
+    def pvp_act(self, action, delay=None):
+        return self._bridge.pvp_act(action, delay)
 
     # 工具箱
     def tools_list(self):

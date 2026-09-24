@@ -130,7 +130,7 @@ class RoundLogger:
         e_hp = enemy.get("hp_pct")
         p_hp = player.get("hp_val")
         p_hp_max = player.get("hp_max") or 0
-        skills = [s for s in (snap.get("skills") or []) if s]
+        skills = [s for s in ((player or {}).get("skills") or []) if s]
 
         # --- 换宠检测 ---
         if p_name and p_name != self.last_player_name:

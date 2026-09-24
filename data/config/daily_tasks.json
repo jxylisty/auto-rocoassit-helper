@@ -27,7 +27,7 @@
     "extra": {}
    }
   ],
-  "enabled": false
+  "enabled": true
  },
  {
   "id": "claim_wish_star",
@@ -270,23 +270,23 @@
   "name": "咕噜球契约孵蛋",
   "repeat": 3,
   "round_gap": 2,
-  "notes": "P→孵蛋按钮→建立契约→OCR 选普通/高级球→建立契约→等契约完成(OCR 识别「点击空白部分继续」出现)→OCR 确认后点屏幕→repeat 下一轮。模板: 咕噜球契约孵蛋.json; 球识别失败会打印逐格 OCR 原文便于对标注",
+  "notes": "全流程无 OCR 依赖：硬等契约动画 5s → 盲点屏幕中心关闭。循环 3 次，每轮间隔 2s。",
   "steps": [
    {
-    "name": "打开孵蛋界面",
+    "name": "1. 打开孵蛋界面 (按 P)",
     "action": "key",
     "target": "p",
     "extra": {}
    },
    {
-    "name": "等界面加载",
+    "name": "2. 等待界面加载完成",
     "action": "wait_seconds",
     "extra": {
      "seconds": 2
     }
    },
    {
-    "name": "点击孵蛋按钮",
+    "name": "3. 点击孵蛋按钮",
     "action": "roi_click",
     "target": [
      "咕噜球契约孵蛋",
@@ -298,14 +298,14 @@
     }
    },
    {
-    "name": "等孵蛋界面动画完成",
+    "name": "4. 等待孵蛋界面动画完成",
     "action": "wait_seconds",
     "extra": {
      "seconds": 4
     }
    },
    {
-    "name": "点击建立契约(展开球面板)",
+    "name": "5. 点击建立契约 (展开球面板)",
     "action": "roi_click",
     "target": [
      "咕噜球契约孵蛋",
@@ -317,14 +317,14 @@
     }
    },
    {
-    "name": "等球面板展开",
+    "name": "6. 等待球面板展开",
     "action": "wait_seconds",
     "extra": {
      "seconds": 2.5
     }
    },
    {
-    "name": "OCR 选普通/高级球",
+    "name": "7. OCR 识别普通/高级球并点击",
     "action": "roi_ocr_pick",
     "target": [
      "普通咕噜球",
@@ -337,14 +337,14 @@
     }
    },
    {
-    "name": "选中落定",
+    "name": "8. 等待选中落定",
     "action": "wait_seconds",
     "extra": {
      "seconds": 1
     }
    },
    {
-    "name": "点击建立契约(确认)",
+    "name": "9. 再次点击建立契约 (确认)",
     "action": "roi_click",
     "target": [
      "咕噜球契约孵蛋",
@@ -356,40 +356,29 @@
     }
    },
    {
-    "name": "契约动画",
+    "name": "10. 等待契约动画完成 (约 5s)",
     "action": "wait_seconds",
     "extra": {
-     "seconds": 3
+     "seconds": 5
     }
    },
    {
-    "name": "等契约完成(识别提示文字)",
-    "action": "ocr_assert",
-    "target": "点击空白部分继续",
-    "extra": {
-     "timeout": 15,
-     "interval": 0.8,
-     "on_fail": "skip"
-    }
+    "name": "11. 点击屏幕任意位置关闭提示",
+    "action": "click_ratio",
+    "target": [
+     0.5,
+     0.5
+    ],
+    "extra": {}
    },
    {
-    "name": "点击屏幕继续",
-    "action": "ocr_click_text",
-    "target": "点击空白部分继续",
-    "extra": {
-     "timeout": 8,
-     "interval": 0.8,
-     "on_fail": "skip"
-    }
-   },
-   {
-    "name": "轮收尾",
+    "name": "12. 等待下一轮开始",
     "action": "wait_seconds",
     "extra": {
      "seconds": 2
     }
    }
   ],
-  "enabled": true
+  "enabled": false
  }
 ]
