@@ -570,6 +570,8 @@ class RkppEventClient:
                 if isinstance(bip, dict) and _as_int(bip.get("pet_id")) is not None:
                     self._apply_on_field(
                         _parse_pet_info(bip, common=pet.get("battle_common_pet_info")), None)
+                    # round_start 也带完整技能表 → 累计进对照表(无 battle_enter 时的兜底)
+                    self._absorb_skill_map(bip.get("skill_round_data"))
             # 敌方上场宠
             other = du.get("other")
             if isinstance(other, dict):
@@ -582,6 +584,8 @@ class RkppEventClient:
                 pid = _as_int(ps.get("pet_id"))
                 if pid is not None and 1 <= pid <= 6:
                     self._pet_skills[pid] = ps.get("skills")
+                # pet_skill.skills 同样带 id+name → 累计进对照表
+                self._absorb_skill_map(ps.get("skills"))
 
     def _apply_skill_declare(self, detail: dict) -> None:
         """0x1322 cmd_sync：req.cast_skill 是本回合我方宣告技能。"""
@@ -643,6 +647,12 @@ class RkppEventClient:
         self._last_result = _RESULT_MAP.get(code, "") if code is not None else ""
         # real_pvp=0 说明这局不是真人 PVP（可能是 PVE/逃跑）
         self._last_real_pvp = bool(_as_int(si.get("real_pvp")))
+        # settle_info 里带「本局用过的所有技能」(含 id+name) → 累计进对照表，
+        # 这是无 battle_enter/round_start 时的最后兜底来源。
+        self._absorb_skill_map(si.get("skill_records"))
+        for mon in si.get("monster_info") or []:
+            if isinstance(mon, dict):
+                self._absorb_skill_map(mon.get("skill_records"))
         # 每局结束：把本局累计的 id→名 对照表合并落盘（越跑越全）
         self._export_skill_map()
 
@@ -674,6 +684,17 @@ class RkppEventClient:
                 self._logger(f"[RKPP] 技能对照表已导出: +{added} 条, 共 {len(merged)} 条")
         except Exception:
             pass
+
+    def _absorb_skill_map(self, skills: Any) -> None:
+        """把一组 skill 条目里的 {7位id: 技能名} 累计进本局对照表。
+
+        多来源复用：battle_enter.skill_round_data、round_start.pet_skill.skills、
+        battle_finish.settle_info.skill_records 都带该结构。只收战斗技能
+        (id>=1000000) 且名字非占位。
+        """
+        pairs = _skill_pairs_map(skills)
+        if pairs:
+            self._skill_map.update(pairs)
 
     def _add_skill_name(self, name: Any, skill_id: Any = None) -> None:
         nm = str(name or "").strip()
