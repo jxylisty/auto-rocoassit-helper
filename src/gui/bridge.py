@@ -128,6 +128,7 @@ class AppBridge(
         self._pvp_running = False
         self._pvp_thread = None
         self._pvp_interval = 0.5  # 秒，每 500ms 识别一帧
+        self._pvp_source = "ocr"  # 数据源: "ocr"(截图识别) 或 "capture"(抓包)
 
         # AI 决策缓存(由 /recommend 端点异步更新)
         self._ai_recommendation: dict | None = None
@@ -434,8 +435,8 @@ class Api:
     def pvp_get_asset(self, asset_type, key):
         return self._bridge.pvp_get_asset(asset_type, key)
 
-    def pvp_engine_start(self):
-        return self._bridge.pvp_engine_start()
+    def pvp_engine_start(self, source="ocr"):
+        return self._bridge.pvp_engine_start(source)
 
     def pvp_engine_stop(self):
         return self._bridge.pvp_engine_stop()

@@ -11,6 +11,10 @@ BetterCam>=1.0.0
 interception-python>=1.13.0
 keyboard>=0.13.5
 
+# 网络抓包（PVP 协议解析，只读旁路）
+scapy>=2.7.0,<3
+pycryptodome>=3.23.0,<4
+
 # OCR
 pytesseract>=0.3.10
 

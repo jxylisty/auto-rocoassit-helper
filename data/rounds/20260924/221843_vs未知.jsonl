@@ -1,0 +1,3 @@
+{"t": "2026-09-24 22:18:43", "event": "match_start", "player": "", "enemy": ""}
+{"t": "2026-09-24 22:19:18", "event": "round_sync", "turn": 1, "source": "capture"}
+{"t": "2026-09-24 22:19:30", "event": "match_end", "duration_sec": 46}

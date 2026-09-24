@@ -232,6 +232,11 @@ class PvpEngineMixin:
             if logger._closed or not logger.file:
                 logger.start_match(result.player_name or "", result.enemy_name or "")
                 self._enqueue_log(f"[回合日志] 开局: {logger.match_id}", "info")
+            # 抓包数据源带权威回合号(0x131A); OCR 的 PvpResult 无该字段, getattr 得 0 → 不生效
+            set_round = getattr(logger, "set_authoritative_round", None)
+            round_no = getattr(result, "round_no", 0) or 0
+            if set_round and round_no > 0:
+                set_round(round_no)
             logger.update(data)
         else:
             if not logger._closed:
@@ -487,9 +492,49 @@ class PvpEngineMixin:
         pipeline = get_pipeline()
         self._pipeline = pipeline
 
+        # 数据源: "ocr"(默认) / "capture"(自研抓包) / "rkpp"(RKPP 解码后端)。
+        # 抓包源跳过截图与 OCR, 由适配器产出同构快照, 下游代码零改动。
+        source = getattr(self, "_pvp_source", "ocr")
+        capture_adapter = None
+        rkpp_client = None
+        if source == "capture":
+            from src.capture.snapshot_adapter import get_capture_adapter
+            capture_adapter = get_capture_adapter()
+            self._capture_adapter = capture_adapter
+            capture_adapter.reset()
+            # 启动抓包子系统(后台线程, 只读旁路)
+            self._start_capture_subsystem()
+        elif source == "rkpp":
+            # RKPP 解码后端: 拉起 opencode-server 子进程(自动抓握手 key),
+            # 再订阅其 /events 实时流, 翻译成同构快照。
+            self._start_rkpp_subsystem()
+            rkpp_client = getattr(self, "_rkpp_client", None)
+
         while self._pvp_running:
             t0 = _time.perf_counter()
             try:
+                if source == "capture":
+                    # 抓包源: 无截图、无 OCR, 直接从抓包状态机取快照
+                    result = capture_adapter.analyze()
+                    data = capture_adapter.to_dict(result)
+                    pipeline._cached_result = result  # 供 local_pvp_snapshot 读取
+                    self._push_capture_snapshot(result, data)
+                    elapsed = _time.perf_counter() - t0
+                    _time.sleep(max(0.05, self._pvp_interval - elapsed))
+                    continue
+
+                if source == "rkpp":
+                    if rkpp_client is None:
+                        _time.sleep(self._pvp_interval)
+                        continue
+                    result = rkpp_client.analyze()
+                    data = rkpp_client.to_dict(result)
+                    pipeline._cached_result = result
+                    self._push_capture_snapshot(result, data)
+                    elapsed = _time.perf_counter() - t0
+                    _time.sleep(max(0.05, self._pvp_interval - elapsed))
+                    continue
+
                 # 1. 截图 (FastCapture 单例, ~3-5ms)
                 info = self._find_game_window()
                 if not info:
@@ -587,20 +632,227 @@ class PvpEngineMixin:
             _time.sleep(sleep_time)
 
 
-    def pvp_engine_start(self) -> dict:
-        """启动 PVP 实时识别引擎"""
+    # ========================================
+    # 抓包数据源(只读旁路, 与 OCR 并行; 默认不启用)
+    # ========================================
+
+    def _start_capture_subsystem(self) -> None:
+        """启动抓包子系统: PacketCaptureEngine 后台抓包 → BattleListener →
+        CaptureSnapshotAdapter。已启动则复用。失败只记日志, 不阻断主循环。"""
+        if getattr(self, "_capture_engine", None) is not None:
+            return
+        try:
+            from src.capture.packet_capture import PacketCaptureEngine
+            from src.capture.battle_listener import BattleListener
+            from src.capture.snapshot_adapter import get_capture_adapter
+
+            adapter = get_capture_adapter()
+
+            def _on_record(rec: dict) -> None:
+                adapter.ingest(rec)
+
+            listener = BattleListener(dump_enabled=True, verbose=False)
+            listener.on_record = _on_record
+            listener.start("bridge")
+
+            engine = PacketCaptureEngine(
+                iface=getattr(self, "_capture_iface", None),
+                port=getattr(self, "_capture_port", 8195),
+                on_frame=listener,
+                preset_key=getattr(self, "_capture_key", None),
+                verbose=False,
+            )
+            import threading
+            self._capture_listener = listener
+            self._capture_engine = engine
+            self._capture_thread = threading.Thread(
+                target=engine.run, kwargs={"seconds": 0},
+                daemon=True, name="PvpCapture")
+            self._capture_thread.start()
+            self._enqueue_log("抓包子系统已启动(同构数据源)", "success")
+        except Exception as e:
+            self._enqueue_log(f"抓包子系统启动失败: {e}", "error")
+
+    def _stop_capture_subsystem(self) -> None:
+        engine = getattr(self, "_capture_engine", None)
+        if engine is not None:
+            try:
+                engine.stop()
+            except Exception:
+                pass
+            self._capture_engine = None
+        listener = getattr(self, "_capture_listener", None)
+        if listener is not None:
+            try:
+                listener.close()
+            except Exception:
+                pass
+            self._capture_listener = None
+
+    # ---- RKPP 解码后端(独立进程 + HTTP 订阅, 遵守 AGPL-3.0-only) ----
+
+    def _rkpp_paths(self):
+        """定位 RKPP 项目目录与入口脚本。可用 self._rkpp_dir 覆盖。"""
+        import os
+        from pathlib import Path
+        candidates = []
+        override = getattr(self, "_rkpp_dir", None)
+        if override:
+            candidates.append(Path(override))
+        # 约定: 与项目同级(工作目录父目录)的 rkpp_ref
+        proj_root = Path(__file__).resolve().parents[2]
+        candidates.append(proj_root.parent / "rkpp_ref")
+        candidates.append(proj_root / "rkpp_ref")
+        for d in candidates:
+            script = d / "rkpp_live_tools.py"
+            if script.exists():
+                return d, script
+        return None, None
+
+    def _start_rkpp_subsystem(self) -> None:
+        """拉起 RKPP opencode-server 子进程并订阅其 /events 流。
+
+        流程:
+          1. 定位 rkpp_ref/rkpp_live_tools.py;
+          2. 若未预置 key(账号级可复用), 先跑 capture-key 抓 0x1002 握手 key;
+          3. 后台启动 opencode-server(HTTP relay, 默认 8765);
+          4. 等 relay 就绪后, 用 RkppEventClient 订阅 /events。
+        任一步失败只记日志, 不阻断主循环。"""
+        if getattr(self, "_rkpp_client", None) is not None:
+            return
+        try:
+            import subprocess
+            import sys
+            import threading
+
+            rkpp_dir, script = self._rkpp_paths()
+            if script is None:
+                self._enqueue_log(
+                    "RKPP 未找到: 请把 RKPP 项目放到本项目同级目录 rkpp_ref/", "error")
+                return
+
+            iface = getattr(self, "_capture_iface", None)
+            port = getattr(self, "_capture_port", 8195)
+            relay_port = getattr(self, "_rkpp_relay_port", 8765)
+            # RKPP 自身用全局 Key/latest.key 存取握手 key(账号级可复用)。
+            # capture-key 抓到后会自动写入该文件, opencode-server 启动时自动加载,
+            # 因此本项目无需手动读写 key 文件、也无需 --key 传参。
+            latest_key = rkpp_dir / "Key" / "latest.key"
+
+            # 1) 若无可用 key, 先跑 capture-key(内部会写全局 Key/latest.key)
+            if not latest_key.exists():
+                self._enqueue_log("RKPP 首次使用: 正在抓握手 key(请点「进入世界」)...", "info")
+                cap_cmd = [sys.executable, str(script), "capture-key", "--port", str(port)]
+                if iface:
+                    cap_cmd += ["--iface", iface]
+                try:
+                    subprocess.run(cap_cmd, cwd=str(rkpp_dir), timeout=90, check=False)
+                except Exception as e:
+                    self._enqueue_log(f"RKPP 抓 key 超时/失败: {e}", "error")
+                if latest_key.exists():
+                    self._enqueue_log("RKPP 握手 key 已获取(write 至 Key/latest.key)", "success")
+                else:
+                    self._enqueue_log("RKPP 未抓到 key: 将继续运行, 等游戏内重新握手", "warning")
+
+            # 2) 启动 opencode-server(HTTP relay); 未指定 --key 时自动加载 Key/latest.key
+            cmd = [sys.executable, str(script), "opencode-server",
+                   "--port", str(port),
+                   "--relay-host", "127.0.0.1", "--relay-port", str(relay_port)]
+            if iface:
+                cmd += ["--iface", iface]
+            key = getattr(self, "_capture_key", None)
+            if key:
+                cmd += ["--key", key]
+            self._enqueue_log(f"启动 RKPP 解码后端: {' '.join(cmd)}", "info")
+            proc = subprocess.Popen(
+                cmd, cwd=str(rkpp_dir),
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._rkpp_proc = proc
+
+            # 3) 订阅 /events(等 relay 就绪)
+            from src.capture.rkpp_client import get_rkpp_client
+            client = get_rkpp_client(
+                f"http://127.0.0.1:{relay_port}",
+                logger=lambda m: self._enqueue_log(m, "error"))
+            client.reset()
+            for _ in range(40):
+                if client.is_connected():
+                    break
+                threading.Event().wait(0.25)
+            client.start()
+            self._rkpp_client = client
+            self._enqueue_log("RKPP 事件流已订阅(/events)", "success")
+        except Exception as e:
+            self._enqueue_log(f"RKPP 子系统启动失败: {e}", "error")
+
+    def _stop_rkpp_subsystem(self) -> None:
+        client = getattr(self, "_rkpp_client", None)
+        if client is not None:
+            try:
+                client.stop()
+            except Exception:
+                pass
+            self._rkpp_client = None
+        proc = getattr(self, "_rkpp_proc", None)
+        if proc is not None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            self._rkpp_proc = None
+
+    def _push_capture_snapshot(self, result, data: dict) -> None:
+        """抓包快照 → 伤害推演 / 悬浮窗 / 回合日志 / AI 缓存。
+        _handle_pvp_edges 与 lineup 同步是 OCR 专属, 此处不调用。"""
+        if result.in_battle:
+            self._enrich_result(data, result)
+            with self._ai_decision_lock:
+                if self._ai_recommendation:
+                    data["ai_advice"] = self._ai_recommendation
+        if self._pvp_float_window and self._pvp_float_visible and self._pvp_float_loaded:
+            self._pvp_float_window.evaluate_js(
+                f"updatePVPData({json.dumps(data, ensure_ascii=False)})"
+            )
+        try:
+            self._round_logger_tick(data, result)
+        except Exception:
+            pass
+        if result.in_battle:
+            import time as _time
+            _now = _time.time()
+            _last = getattr(self, "_last_ai_decision_ts", 0.0)
+            if _now - _last >= 8.0:
+                self._last_ai_decision_ts = _now
+                try:
+                    from src.gui.ai_decision import get_decision
+                    _decision = get_decision(data)
+                    with self._ai_decision_lock:
+                        self._ai_recommendation = _decision
+                except Exception:
+                    pass
+
+    def pvp_engine_start(self, source: str = "ocr") -> dict:
+        """启动 PVP 实时识别引擎。source: "ocr"(默认) / "capture"(自研抓包) / "rkpp"。
+        rkpp = 复用 RKPP 解码后端(opencode-server + /events 订阅)。"""
         gate = self._auth_gate()
         if gate:
             return gate
         if self._pvp_running:
             return {"success": True, "message": "PVP 引擎已在运行"}
         auto_stopped = self._stop_conflicting_modes("pvp")
+        src = str(source).lower()
+        self._pvp_source = src if src in ("capture", "rkpp") else "ocr"
         import threading
         self._pvp_running = True
         self._pvp_thread = threading.Thread(target=self._pvp_loop, daemon=True, name="PvpEngine")
         self._pvp_thread.start()
-        self._enqueue_log("PVP 实时识别引擎已启动", "success")
-        return {"success": True, "auto_stopped": auto_stopped}
+        label = {"capture": "抓包", "rkpp": "RKPP 解码"}.get(self._pvp_source, "OCR")
+        self._enqueue_log(f"PVP 实时识别引擎已启动 (数据源: {label})", "success")
+        return {"success": True, "auto_stopped": auto_stopped, "source": self._pvp_source}
 
     def pvp_engine_stop(self) -> dict:
         """停止 PVP 实时识别引擎"""
@@ -608,11 +860,14 @@ class PvpEngineMixin:
         if self._pvp_thread:
             self._pvp_thread.join(timeout=2.0)
             self._pvp_thread = None
+        self._stop_capture_subsystem()
+        self._stop_rkpp_subsystem()
         self._enqueue_log("PVP 引擎已停止", "info")
         return {"success": True}
 
     def pvp_engine_status(self) -> dict:
-        return {"running": self._pvp_running, "float_visible": self._pvp_float_visible}
+        return {"running": self._pvp_running, "float_visible": self._pvp_float_visible,
+                "source": getattr(self, "_pvp_source", "ocr")}
 
     # ========================================
     # 本地 API 桥 (AI 陪玩 MCP 数据源)

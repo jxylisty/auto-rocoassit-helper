@@ -106,3 +106,47 @@ keys.json
 # 本机凭据与运行日志(绝不入库)
 data/config/auth.json
 data/logs/
+
+# ========================================
+# 抓包/探针临时产物 (含 key, 绝不入库!)
+# ========================================
+_probe_out/
+_probe_out2/
+_probe_out*/
+data/capture_test/
+*.pcap
+rkpp_ref/
+key.txt
+latest.key
+
+# ========================================
+# 一次性游戏调试脚本 (抓包调试会话产物, 不入库)
+# ========================================
+tools/auto_launch_game.py
+tools/bring_game_top.py
+tools/capture_game_window.py
+tools/capture_screen.py
+tools/click_at.py
+tools/click_game_focus.py
+tools/close_game_altf4.py
+tools/diag_client_area.py
+tools/diag_game_windows.py
+tools/enter_world.py
+tools/find_enter_btn.py
+tools/focus_game_click.py
+tools/force_foreground_game.py
+tools/graceful_close_game.py
+tools/grid_overlay.py
+tools/lift_game_window.py
+tools/minimize_blockers.py
+tools/move_game_window.py
+tools/ocr_enter_btn.py
+tools/ocr_full.py
+tools/ocr_login_btn.py
+tools/ocr_wegame_page.py
+tools/press_enter_game.py
+tools/press_esc_game.py
+tools/pvp_packet_capture.py
+tools/reveal_game_window.py
+
+

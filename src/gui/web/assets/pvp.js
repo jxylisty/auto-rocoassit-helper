@@ -494,12 +494,15 @@ async function togglePVPEngine() {
                 addLog('PVP 引擎已停止', 'info');
             }
         } else {
-            const r = await pywebview.api.pvp_engine_start();
+            const srcEl = document.getElementById('pvpSourceSelect');
+            const src = srcEl ? srcEl.value : 'ocr';
+            const r = await pywebview.api.pvp_engine_start(src);
             if (r.success) {
                 pvpEngineRunning = true;
                 btn.textContent = '⏹ 停止识别';
                 btn.className = 'btn btn-danger';
-                addLog('PVP 引擎已启动 (每500ms识别一帧)', 'success');
+                const labelMap = { ocr: 'OCR 识别', capture: '自研抓包', rkpp: 'RKPP 解码' };
+                addLog('PVP 引擎已启动 (数据源: ' + (labelMap[r.source || src] || 'OCR') + ')', 'success');
                 if (typeof notifyAutoStopped === 'function') notifyAutoStopped(r);
             }
         }
