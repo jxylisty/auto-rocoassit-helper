@@ -137,7 +137,9 @@ def _run_frozen(smoke: bool) -> None:
         import src.pvp.data_collector as _dc
         _dc.BASE = exe_root
 
-        import src.gui.bridge as _bridge
+        # 路径常量已移至 bridge_common(各 Mix-in from-import 取值),
+        # 必须在导入 bridge 前(即 Mix-in 快照取值前)完成补丁
+        import src.gui.bridge_common as _bridge
         _bridge.PROJECT_ROOT = exe_root
         _bridge.CONFIG_DIR = exe_root / "data" / "config"
         _bridge.SCREENSHOT_DIR = exe_root / "data" / "screenshots"

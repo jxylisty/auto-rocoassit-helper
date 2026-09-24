@@ -1,0 +1,733 @@
+"""AppBridge Mix-in —— 战斗引擎 / PVP 采集与观察 / 状态沿消费 / PVP 主循环 / 本地对战 API"""
+
+import json
+import sys
+import threading
+import time
+from pathlib import Path
+from src.gui.bridge_common import PROJECT_ROOT, DEV_MODE
+
+
+class PvpEngineMixin:
+
+    # ========================================
+    # 战斗引擎 API
+    # ========================================
+
+    def engine_start(self, dry_run: bool = False, params: dict | None = None) -> dict:
+        if self.engine.running:
+            return {"success": False, "message": "引擎已在运行"}
+        gate = self._auth_gate()
+        if gate:
+            return gate
+        auto_stopped = self._stop_conflicting_modes("engine")
+        overrides = self._parse_engine_params(params or {})
+        self.engine.dry_run = bool(dry_run)
+        ok = self.engine.start(overrides or None)
+        if ok:
+            self.auto_minimize_and_show_widget()
+            if params:
+                # 参数同步持久化到 settings.yaml
+                self._save_engine_settings(params)
+        return {"success": ok, "auto_stopped": auto_stopped}
+
+    def engine_stop(self) -> dict:
+        self.engine.stop()
+        return {"success": True}
+
+    # ========================================
+    # PVP 数据采集器(本体集成版)
+    # ========================================
+
+    def pvp_collector_start(self) -> dict:
+        """启动自动采集线程(每2秒一轮,输出到项目 output/)"""
+        if not DEV_MODE:
+            return {"success": False, "message": "数据采集仅开发者模式可用"}
+        if getattr(self, "_collector_thread", None) and self._collector_thread.is_alive():
+            return {"success": False, "message": "采集器已在运行"}
+        try:
+            from src.pvp.data_collector import PvpDataCollector
+            self._collector = PvpDataCollector(output_dir=PROJECT_ROOT / "output")
+        except Exception as e:
+            return {"success": False, "message": f"初始化失败: {e}"}
+        self._collector_stop = threading.Event()
+        self._collector_thread = threading.Thread(
+            target=self._collector_loop, daemon=True, name="PvpCollector")
+        self._collector_thread.start()
+        self._enqueue_log("PVP 数据采集器已启动(输出 output/)", "success")
+        return {"success": True}
+
+    def _collector_loop(self):
+        last_status = ""
+        while not self._collector_stop.is_set():
+            try:
+                status = self._collector.auto_collect()
+                # 只在"有产出/状态变化"时写日志,避免刷屏
+                if status != last_status and ("已采集" in status or "失败" in status or "不可见" in status):
+                    self._enqueue_log(f"[采集] {status}", "info")
+                last_status = status
+            except Exception as e:
+                self._enqueue_log(f"[采集] 异常: {e}", "error")
+            self._collector_stop.wait(2.0)
+
+    def pvp_collector_stop(self) -> dict:
+        if not getattr(self, "_collector_stop", None):
+            return {"success": True, "message": "未在运行"}
+        self._collector_stop.set()
+        summary = self._collector.summary()
+        self._enqueue_log(f"PVP 数据采集器已停止: {summary}", "warning")
+        return {"success": True, "summary": summary}
+
+    def pvp_collector_status(self) -> dict:
+        running = bool(getattr(self, "_collector_thread", None) and self._collector_thread.is_alive())
+        stats = getattr(self, "_collector", None).stats if running else {}
+        return {
+            "running": running,
+            "auto_saved": stats.get("auto_saved", 0),
+            "fail_saved": stats.get("fail_saved", 0),
+            "manual_saved": stats.get("manual_saved", 0),
+            "pets": len(stats.get("battles_seen", ())),
+        }
+
+    def pvp_collector_manual(self) -> dict:
+        """手动截图一张(战备阶段等)"""
+        if not getattr(self, "_collector", None):
+            try:
+                from src.pvp.data_collector import PvpDataCollector
+                self._collector = PvpDataCollector(output_dir=PROJECT_ROOT / "output")
+            except Exception as e:
+                return {"success": False, "message": str(e)}
+        try:
+            path = self._collector.save_manual("界面手动")
+            if path:
+                self._enqueue_log(f"[采集] 已保存 {Path(path).name}", "success")
+                return {"success": True, "path": path}
+            return {"success": False, "message": "游戏窗口不可见"}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    def engine_status(self) -> dict:
+        """获取悬浮窗战情状态（聚合挂机引擎与自动丢球助手）"""
+        if self.engine.running:
+            return self.engine.get_status()
+
+        # 如果当前是普通丢球/轰炸机/自动技能在运行
+        tool = self.tool
+        is_tool_running = tool.running or tool.bomber_running or tool.skill_running
+        if is_tool_running:
+            state = getattr(tool, "current_state", "throwing")
+            detail = getattr(tool, "state_detail", "")
+            if not detail:
+                if tool.running:
+                    detail = f"普通丢球: 已丢 {tool.normal_count} 球"
+                elif tool.bomber_running:
+                    detail = f"轰炸机: 已丢 {tool.bomber_count} 球"
+                elif tool.skill_running:
+                    detail = f"自动技能: 已按 {tool.skill_count} 次"
+
+            return {
+                "running": True,
+                "dry_run": False,
+                "mode_type": "tool",
+                "state": state,
+                "detail": detail,
+                "battles_done": getattr(tool, "battles_escaped", 0),
+                "catch_attempts": tool.normal_count + tool.bomber_count,
+                "catches": 0,
+                "skills_used": tool.skill_count,
+                "catch_hp": None,
+                "enemy_name": getattr(tool, "enemy_name", None),
+                "enemy_hp": getattr(tool, "enemy_hp", None),
+                "shiny_alert": (self.engine.get_status() or {}).get("shiny_alert"),
+            }
+
+        # 默认返回基础状态
+        st = self.engine.get_status()
+        if getattr(tool, "battles_escaped", 0) > 0 and st.get("battles_done", 0) == 0:
+            st["battles_done"] = tool.battles_escaped
+        # 观察模式战情(引擎/工具都没跑时,悬浮窗也能看到当前战斗)
+        w = getattr(self, "_watch", None)
+        if w and w.get("in_battle"):
+            st["enemy_name"] = w.get("enemy_name")
+            st["enemy_hp"] = w.get("enemy_hp")
+            st["watching"] = True
+        return st
+
+    # ========================================
+    # 观察模式(被动监视战斗,喂给挂机悬浮窗)
+    # ========================================
+
+    def _watch_loop(self):
+        """引擎/工具空闲时,每 2.5 秒轻量识别一帧,更新观察战情。
+
+        首次检测到战斗时做一次全量识别拿精灵名,之后走轻量(只读血量)。
+        """
+        from src.perception.vision_pipeline import VisionPipeline
+
+        while not self._stop_event.is_set():
+            try:
+                # 引擎/工具/PVP实时/调试台实时任一在跑 → 让位,不做重复识别
+                busy = (self.engine.running or self._pvp_running
+                        or self._live_running or self.tool.running
+                        or self.tool.bomber_running or self.tool.skill_running)
+                if busy:
+                    self._watch = None
+                    if self._stop_event.wait(2.0):
+                        break
+                    continue
+
+                info, frame = self._live_capture_frame()
+                if self._watch_pipeline is None:
+                    self._watch_pipeline = VisionPipeline()
+
+                if self._watch_started.is_set():
+                    snap = self._watch_pipeline.analyze(frame, light=True)
+                else:
+                    snap = self._watch_pipeline.analyze(frame, light=False)
+
+                battle = snap.raw.get("battle", {})
+                if not battle.get("in_battle"):
+                    if self._watch_started.is_set():
+                        self._watch = None
+                        self._watch_started.clear()
+                    if self._stop_event.wait(2.5):
+                        break
+                    continue
+
+                if not self._watch_started.is_set():
+                    # 刚进战斗: 全量识别拿名字
+                    full = self._watch_pipeline.analyze(frame, light=False)
+                    name = full.enemy_name.value
+                    hp = full.enemy_hp.value if full.enemy_hp.value is not None else snap.enemy_hp.value
+                    self._watch_started.set()
+                else:
+                    name = getattr(self, "_watch_name", None)
+                    hp = snap.enemy_hp.value
+
+                self._watch = {"in_battle": True, "enemy_name": name, "enemy_hp": hp}
+                if name:
+                    self._watch_name = name
+            except Exception:
+                pass  # 窗口不可见等静默重试
+            if self._stop_event.wait(2.5):
+                break
+
+    def _start_watch_loop(self):
+        if not getattr(self, "_watch_thread", None) or not self._watch_thread.is_alive():
+            self._watch_thread = threading.Thread(target=self._watch_loop, daemon=True, name="BattleWatch")
+            self._watch_thread.start()
+
+    # ========================================
+    # PVP 实时识别引擎
+    # ========================================
+
+    def _round_logger_tick(self, data: dict, result) -> None:
+        """回合日志: in_battle 状态切换开/关对局文件, 每帧 diff 事件落盘"""
+        logger = getattr(self, "_round_logger", None)
+        if logger is None:
+            from src.pvp.round_logger import RoundLogger
+            logger = RoundLogger()
+            self._round_logger = logger
+        if result.in_battle:
+            if logger._closed or not logger.file:
+                logger.start_match(result.player_name or "", result.enemy_name or "")
+                self._enqueue_log(f"[回合日志] 开局: {logger.match_id}", "info")
+            logger.update(data)
+        else:
+            if not logger._closed:
+                out = logger.close_match(final_snapshot=data)
+                if out:
+                    rec = out.get("recorded")
+                    self._enqueue_log(
+                        f"[回合日志] 收尾 {out['duration_sec']}s"
+                        + (f", 自动记录战报: {rec}" if rec else "(无胜负判定, 未写战报)"),
+                        "info")
+
+    def _enrich_result(self, data: dict, result) -> None:
+        """识别结果附加伤害推演字段(calc_skills/enemy_threats/速度/愿力)。
+        _pvp_loop 与本地 API /snapshot 共用; 精灵数据未就绪/名字未识别时写 calc_error。"""
+        try:
+            from src.pvp.pet_loader import get_pet_by_name
+            from src.pvp.skill_loader import get_skill
+            from src.pvp.damage_calculator import (
+                calculate_all_panels, calculate_damage_full,
+                calculate_world_speed_range, calculate_resonance_impact_damages)
+
+            self_pet = get_pet_by_name(result.player_name)
+            enemy_pet = get_pet_by_name(result.enemy_name)
+            if not (self_pet and enemy_pet):
+                data["calc_error"] = "精灵数据未就绪或名字未识别"
+                return
+
+            # 自动流派推导: 物攻高用物攻, 魔攻高用魔攻
+            race = self_pet.get("race", {})
+            prefer = "mattack" if race.get("mattack", 0) > race.get("attack", 0) else "attack"
+            self_panel = calculate_all_panels(self_pet.get("race", {}))
+            enemy_panel = calculate_all_panels(enemy_pet.get("race", {}))
+            speed_diff = self_panel["speed"] - enemy_panel["speed"]
+
+            # 我方技能伤害(OCR 出的 4 个技能逐个推演)
+            calc_skills = []
+            for sk_name in result.skills:
+                sk = get_skill(sk_name) or {}
+                sk_type = sk.get("type", "物攻")
+                sk_attr = sk.get("attr", "普")
+                sk_power = float(sk.get("power", 0)) if sk.get("power") else 0
+                if sk_power > 0 and sk_type in ("物攻", "魔攻"):
+                    dmg = calculate_damage_full(
+                        attacker_panel=self_panel, defender_panel=enemy_panel,
+                        skill_power=sk_power, skill_type=sk_type, skill_attr=sk_attr,
+                        attacker_attrs=self_pet.get("types", []),
+                        defender_attrs=enemy_pet.get("types", []),
+                    )
+                    enemy_est_hp = int(enemy_panel["hp"] * result.enemy_hp_pct)
+                    dmg_min = dmg["damage"]
+                    dmg_max = round(dmg["damage"] * 1.15)
+                    is_kill = enemy_est_hp > 0 and dmg_min >= enemy_est_hp
+                    calc_skills.append({
+                        "name": sk_name, "power": int(sk_power),
+                        "type": sk_type, "attr": sk_attr,
+                        "dmg_min": dmg_min, "dmg_max": dmg_max,
+                        "mult": dmg["attrMultiplier"],
+                        "is_kill": is_kill,
+                    })
+                else:
+                    calc_skills.append({"name": sk_name, "power": 0, "type": "变化",
+                                        "dmg_min": 0, "dmg_max": 0, "mult": 1, "is_kill": False})
+
+            # 敌方威胁预测: 与主控台 pvp_calc_all_skills 同一套玩家筛选规则 —
+            # 1) 按敌方种族值高项只选匹配的物攻/魔攻技能(双刀全显示)
+            # 2) 排除「升龙咆哮」 3) 威力<=60 的攻击技能剔除(龙系豁免)
+            enemy_race = enemy_pet.get("race", {})
+            try:
+                e_pa = int(enemy_race.get("attack", 0) or 0)
+            except (TypeError, ValueError):
+                e_pa = 0
+            try:
+                e_ma = int(enemy_race.get("mattack", 0) or 0)
+            except (TypeError, ValueError):
+                e_ma = 0
+            e_allowed = ("物攻", "魔攻") if e_pa == e_ma else (("物攻",) if e_pa > e_ma else ("魔攻",))
+
+            enemy_skills_raw = enemy_pet.get("skills", [])   # 全量, 筛选规则会收紧
+            enemy_skills = [s["name"] if isinstance(s, dict) else s for s in enemy_skills_raw]
+            enemy_threats = []
+            for esk_name in enemy_skills:
+                esk = get_skill(esk_name) or {}
+                try:
+                    esk_power = float(esk.get("power", 0)) if esk.get("power") else 0
+                except (TypeError, ValueError):
+                    esk_power = 0
+                esk_type = esk.get("type", "")
+                esk_attr = (esk.get("attr") or "").rstrip("系")
+                if esk_name == "升龙咆哮":
+                    continue
+                if not (esk_power > 0 and esk_type in e_allowed):
+                    continue
+                if esk_power <= 60 and esk_attr != "龙":
+                    continue
+                edmg = calculate_damage_full(
+                    attacker_panel=enemy_panel, defender_panel=self_panel,
+                    skill_power=esk_power, skill_type=esk_type,
+                    skill_attr=esk.get("attr", "普"),
+                    attacker_attrs=enemy_pet.get("types", []),
+                    defender_attrs=self_pet.get("types", []),
+                )
+                is_lethal = result.player_hp_val > 0 and edmg["damage"] >= result.player_hp_val
+                enemy_threats.append({
+                    "name": esk_name, "power": int(esk_power),
+                    "dmg_min": edmg["damage"],
+                    "dmg_max": round(edmg["damage"] * 1.15),
+                    "is_lethal": is_lethal,
+                    "tags": esk.get("tags", []),
+                })
+            # 按伤害降序取前 4
+            enemy_threats.sort(key=lambda t: -t["dmg_min"])
+            enemy_threats = enemy_threats[:4]
+
+            # 敌方《洛克王国：世界》真实速度极值区间(对齐点击头像显示的区间)
+            enemy_race_speed = float(enemy_pet.get("race", {}).get("speed", 0))
+            enemy_speed_range = calculate_world_speed_range(enemy_race_speed)
+
+            # 愿力冲击暗手伤害推演
+            resonance_data = calculate_resonance_impact_damages(
+                enemy_panel=enemy_panel,
+                self_panel=self_panel,
+                enemy_types=enemy_pet.get("types", []),
+                self_types=self_pet.get("types", []),
+                self_current_hp=result.player_hp_val,
+            )
+
+            data["speed_diff"] = int(speed_diff)
+            data["enemy_speed_range"] = enemy_speed_range
+            data["calc_skills"] = calc_skills
+            data["enemy_threats"] = enemy_threats
+            data["resonance_impact"] = resonance_data
+            data["calc_done"] = True
+        except Exception as e:
+            data["calc_error"] = str(e)
+
+
+    # ---- PVP 状态沿消费: 自动截图存档 + 战斗头像自动入库 ----
+    def _pvp_save_screenshot(self, frame, sub: str, tag: str) -> None:
+        """帧存档到 data/screenshots/<sub>/, md5 前缀去重 + 目录限额."""
+        import cv2
+        import hashlib
+        from src.pvp.pvp_pipeline import PROJECT_ROOT
+        out_dir = PROJECT_ROOT / "data" / "screenshots" / sub
+        out_dir.mkdir(parents=True, exist_ok=True)
+        md5 = hashlib.md5(frame.tobytes()).hexdigest()[:8]
+        # 文件名含 md5 前 8 位 → 重启后仍可去重
+        if any(md5 in p.name for p in out_dir.glob("*.png")):
+            return
+        files = list(out_dir.glob("*.png"))
+        if len(files) >= 200:   # 限额: 截图只是素材存档, 超额删最旧
+            try:
+                oldest = min(files, key=lambda p: p.stat().st_mtime)
+                oldest.unlink()
+            except Exception:
+                pass
+        fname = f"{time.strftime('%Y%m%d_%H%M%S')}_{tag}_{md5}.png"
+        ok, buf = cv2.imencode(".png", frame)   # imencode+tofile 兼容中文路径
+        if ok:
+            buf.tofile(str(out_dir / fname))
+
+    def _pvp_auto_ingest(self, frame, result, pipeline) -> None:
+        """战斗帧头像自动入库(后台线程): OCR≥0.9 验名的头像 ROI 直接入库.
+
+        优先复用管线已加载的模板库实例(特性缓存实时生效); 库为空时
+        管线侧保持 None, 此处自建并回填, 让首批自动模板立刻可用。
+        """
+        from src.pvp.pvp_pipeline import PROJECT_ROOT
+        lib = getattr(pipeline, "_avatar_lib", None)
+        if lib is None:
+            lib = getattr(self, "_pvp_auto_lib", None)
+            if lib is None:
+                try:
+                    import sys as _sys
+                    lib_dir = PROJECT_ROOT / "src" / "pvp" / "lib"
+                    for pth in (str(lib_dir), str(PROJECT_ROOT)):
+                        if pth not in _sys.path:
+                            _sys.path.insert(0, pth)
+                    from pvp_lib import PvpTemplateLibrary
+                    lib = PvpTemplateLibrary()
+                    lib.load()
+                except Exception:
+                    lib = None
+                self._pvp_auto_lib = lib
+            if lib is not None:
+                try:
+                    pipeline._avatar_lib = lib
+                except Exception:
+                    pass
+        if lib is None:
+            return
+        added = 0
+        for roi_id, name, conf in (
+                ("我方精灵头像", result.player_name, result.player_name_conf),
+                ("敌方精灵头像", result.enemy_name, result.enemy_name_conf)):
+            if not name or conf < 0.9:
+                continue   # 未过词库模糊命中验名 → 交给 add_template 内部再验
+            crop = pipeline._crop(frame, roi_id)
+            if crop is None or crop.size == 0:
+                continue
+            try:
+                if lib.add_template(name, crop, src="battle_auto"):
+                    added += 1
+            except Exception:
+                continue
+        if added:
+            self._enqueue_log(
+                f"📸 战斗帧自动入库 {added} 个头像模板 "
+                f"(总计 {len(getattr(lib, 'entries', []))})", "info")
+
+    def _handle_pvp_edges(self, frame, result, pipeline) -> None:
+        """状态沿消费(边沿触发, 常规帧仅两次 getattr 即返回):
+        - 进战斗沿: 战斗帧存档 pvp_battle/; 本局后续帧 OCR 高置信时头像自动入库(每局一次)
+        - 阵容识别沿: 战备屏存档 pvp_lineup/ (仅存档不自动入库:
+          pair_pvp_rows 的行布局不适配战斗帧, 误入库会造坏模板)
+        - 脱战斗沿: 无动作 (阵容会话缓存已在管线内清理)
+        """
+        try:
+            in_battle = getattr(result, "in_battle", False)
+            if not in_battle and not getattr(result, "lineup_new", False):
+                return
+            if getattr(result, "battle_start", False):
+                try:
+                    self._pvp_save_screenshot(frame, "pvp_battle", "battle")
+                except Exception:
+                    pass
+                self._pvp_ingest_done = False
+            if getattr(result, "lineup_new", False):
+                try:
+                    self._pvp_save_screenshot(frame, "pvp_lineup", "lineup")
+                except Exception:
+                    pass
+            if (in_battle and not getattr(self, "_pvp_ingest_done", True)
+                    and (getattr(result, "player_name_conf", 0) >= 0.9
+                         or getattr(result, "enemy_name_conf", 0) >= 0.9)):
+                self._pvp_ingest_done = True
+                threading.Thread(
+                    target=self._pvp_auto_ingest, args=(frame, result, pipeline),
+                    daemon=True).start()
+        except Exception:
+            pass
+
+
+    def _pvp_loop(self):
+        """后台线程: 截图 → 识别 → 伤害计算 → 推送悬浮窗"""
+        import time as _time
+        import cv2, numpy as np
+        from src.pvp.pvp_pipeline import get_pipeline
+        from src.pvp.pet_loader import get_pet_by_name
+        from src.pvp.skill_loader import get_skill
+        from src.pvp.damage_calculator import calculate_all_panels, calculate_damage_full
+        from src.pvp.type_chart import get_attr_multiplier
+
+        pipeline = get_pipeline()
+        self._pipeline = pipeline
+
+        while self._pvp_running:
+            t0 = _time.perf_counter()
+            try:
+                # 1. 截图 (FastCapture 单例, ~3-5ms)
+                info = self._find_game_window()
+                if not info:
+                    _time.sleep(self._pvp_interval)
+                    continue
+                left, top, right, bottom = info.rect
+                w, h = right - left, bottom - top
+                if w < 50 or h < 50:
+                    _time.sleep(self._pvp_interval)
+                    continue
+
+                fc = self._get_fast_capture()
+                frame = fc.capture(rect=(left, top, w, h))
+                if frame is None or frame.size == 0:
+                    _time.sleep(self._pvp_interval)
+                    continue
+                self._last_frame = frame
+
+                # 1.5 遮挡防护: 控制台叠在游戏上方时截到的是控制台画面 → 自动最小化
+                self._guard_console_occlusion(info.rect, info.hwnd)
+
+                # 2. 识别
+                result = pipeline.analyze(frame)
+                # 2.1 状态沿消费: 自动截图存档 + 战斗头像自动入库(边沿触发)
+                self._handle_pvp_edges(frame, result, pipeline)
+                data = pipeline.to_dict(result)
+                player = data.get("player", {})
+                enemy = data.get("enemy", {})
+
+                # 3. 伤害推演(计算块抽为 _enrich_result, 本地 API /snapshot 共用)
+                if result.in_battle:
+                    self._enrich_result(data, result)
+
+                # 4. 推送悬浮窗(含 AI 决策缓存)
+                if result.in_battle:
+                    with self._ai_decision_lock:
+                        if self._ai_recommendation:
+                            data["ai_advice"] = self._ai_recommendation
+                if self._pvp_float_window and self._pvp_float_visible and self._pvp_float_loaded:
+                    self._pvp_float_window.evaluate_js(
+                        f"updatePVPData({json.dumps(data, ensure_ascii=False)})"
+                    )
+
+                # 4.2 回合日志: 进战斗开局 / 每帧 diff 事件 / 脱战斗收尾写战报
+                try:
+                    self._round_logger_tick(data, result)
+                except Exception:
+                    pass
+
+                # 4.8 自动刷新 AI 决策(约每 2s 触发一次)
+                if result.in_battle:
+                    _now = _time.time()
+                    _last = getattr(self, "_last_ai_decision_ts", 0.0)
+                    if _now - _last >= 8.0:
+                        self._last_ai_decision_ts = _now
+                        try:
+                            from src.gui.ai_decision import get_decision
+                            _decision = get_decision(data)
+                            with self._ai_decision_lock:
+                                self._ai_recommendation = _decision
+                        except Exception:
+                            pass
+
+                # 4.5 同步双方精灵到主控台「PVP 实时对战」详细查询页
+                if result.in_battle and result.player_name and result.enemy_name                         and self._window and self._pvp_running:
+                    pair = (result.player_name, result.enemy_name)
+                    if pair != getattr(self, "_last_synced_pair", None):
+                        self._last_synced_pair = pair
+                        try:
+                            self._window.evaluate_js(
+                                "syncPvpFromFloat("
+                                + json.dumps(result.player_name, ensure_ascii=False) + ","
+                                + json.dumps(result.enemy_name, ensure_ascii=False) + ")")
+                        except Exception:
+                            pass
+
+                # 5. 日志
+                if result.in_battle:
+                    dmg_hint = ""
+                    if data.get("calc_skills"):
+                        kills = [s["name"] for s in data["calc_skills"] if s.get("is_kill")]
+                        if kills:
+                            dmg_hint = f" 🔥必杀:{','.join(kills)}"
+                    self._enqueue_log(
+                        f"⚔️ 我方:{result.player_name}({result.player_hp}) "
+                        f"敌方:{result.enemy_name}({result.enemy_hp_pct:.0%}) "
+                        f"技能:{result.skills[0] if result.skills else '-'}{dmg_hint}",
+                        "info")
+
+            except Exception as e:
+                self._enqueue_log(f"PVP 识别异常: {e}", "error")
+
+            elapsed = _time.perf_counter() - t0
+            sleep_time = max(0.05, self._pvp_interval - elapsed)
+            _time.sleep(sleep_time)
+
+
+    def pvp_engine_start(self) -> dict:
+        """启动 PVP 实时识别引擎"""
+        gate = self._auth_gate()
+        if gate:
+            return gate
+        if self._pvp_running:
+            return {"success": True, "message": "PVP 引擎已在运行"}
+        auto_stopped = self._stop_conflicting_modes("pvp")
+        import threading
+        self._pvp_running = True
+        self._pvp_thread = threading.Thread(target=self._pvp_loop, daemon=True, name="PvpEngine")
+        self._pvp_thread.start()
+        self._enqueue_log("PVP 实时识别引擎已启动", "success")
+        return {"success": True, "auto_stopped": auto_stopped}
+
+    def pvp_engine_stop(self) -> dict:
+        """停止 PVP 实时识别引擎"""
+        self._pvp_running = False
+        if self._pvp_thread:
+            self._pvp_thread.join(timeout=2.0)
+            self._pvp_thread = None
+        self._enqueue_log("PVP 引擎已停止", "info")
+        return {"success": True}
+
+    def pvp_engine_status(self) -> dict:
+        return {"running": self._pvp_running, "float_visible": self._pvp_float_visible}
+
+    # ========================================
+    # 本地 API 桥 (AI 陪玩 MCP 数据源)
+    # ========================================
+
+    def local_pvp_snapshot(self) -> dict:
+        """实时对局快照: 最新识别缓存 + 伤害推演字段(MCP /snapshot 数据源)。
+        引擎未运行/无识别缓存时返回 in_battle=False 的空壳(不报错, AI 可轮询等待)。"""
+        data = {"in_battle": False, "pvp_engine_running": bool(self._pvp_running)}
+        pipeline = getattr(self, "_pipeline", None)
+        result = getattr(pipeline, "_cached_result", None) if pipeline else None
+        if result is None:
+            return data
+        try:
+            from src.pvp.pvp_pipeline import get_pipeline
+            data = get_pipeline().to_dict(result)
+        except Exception:
+            return data
+        if getattr(result, "in_battle", False):
+            self._enrich_result(data, result)
+            # 手牌/心数/回合摘要(回合日志聚合, 供 AI 做终局与换宠决策)
+            try:
+                logger = getattr(self, "_round_logger", None)
+                if logger and not logger._closed:
+                    data["hands"] = logger.hands_summary(
+                        current_enemy=(data.get("enemy") or {}).get("name", ""))
+            except Exception:
+                pass
+            # 能量线推演: 本回合可放技能 / 聚能后下回合可放 / 距愿力还差几点
+            try:
+                data["energy_plan"] = self._energy_plan(data)
+            except Exception:
+                pass
+            # AI 战术建议(缓存, 由 /recommend 端点或后台定时刷新)
+            with self._ai_decision_lock:
+                if self._ai_recommendation:
+                    data["ai_advice"] = self._ai_recommendation
+        elif getattr(result, "lineup_done", False):
+            # 非战斗态但已识别阵容: 透出阵容供 AI 预读
+            data["player_lineup"] = result.player_lineup
+            data["enemy_lineup"] = result.enemy_lineup
+            data["lineup_done"] = True
+        return data
+
+    @staticmethod
+    def _energy_plan(data: dict) -> dict:
+        """我方能量线: 基于当前能量与技能消耗, 推演本回合/聚能后/两回合后的可选动作。
+        聚能=+5 不攻击; 愿力冲击固定 2 能耗 80 威。"""
+        player = data.get("player") or {}
+        energy = int(player.get("energy_val") or 0)
+        from src.pvp.skill_loader import get_skill
+        consume_map = {}
+        for sk_name in (player.get("skills") or []):
+            if not sk_name:
+                continue
+            sk = get_skill(sk_name) or {}
+            try:
+                consume_map[sk_name] = int(float(sk.get("consume") or 0))
+            except (TypeError, ValueError):
+                consume_map[sk_name] = 0
+        resonance_cost = 2
+
+        def _affordable(e: int) -> list:
+            return [n for n, c in consume_map.items() if c <= e]
+
+        plan = {
+            "energy_now": energy,
+            "this_turn_skills": _affordable(energy),
+            "can_resonance_now": energy >= resonance_cost,
+            "after_charge_energy": energy + 5,
+            "after_charge_skills": _affordable(energy + 5),
+            "charge_then_resonance_next_turn": (energy + 5) >= resonance_cost,
+            "deficit_to_resonance": max(0, resonance_cost - energy),
+        }
+        return plan
+
+    def push_ai_comment(self, text: str, mood: str = "normal") -> bool:
+        """AI 陪玩评论 → 悬浮窗弹幕条 (evaluate_js)"""
+        import html as _html
+        text = _html.escape(str(text)[:120])
+        mood = str(mood)[:16]
+        js = f"pushAiComment({json.dumps(text, ensure_ascii=False)}, {json.dumps(mood, ensure_ascii=False)})"
+        widget = getattr(self, "_pvp_float_window", None)
+        if not widget:
+            return False
+        try:
+            widget.evaluate_js(js)
+            return True
+        except Exception:
+            return False
+
+
+    def local_api_start(self):
+        """启动本机 HTTP 桥 + AI 陪玩线程(端口占用/配置缺失均静默降级)"""
+        if getattr(self, "_local_api", None):
+            return
+        try:
+            from src.gui.local_api import LocalApiServer
+            self._local_api = LocalApiServer(self)
+            self._local_api.start()
+        except Exception:
+            self._local_api = None
+        try:
+            from src.gui.ai_companion import AiCompanion
+            self._ai_companion = AiCompanion(self)
+            self._ai_companion.start()
+        except Exception:
+            self._ai_companion = None
+
+    def local_api_stop(self):
+        server = getattr(self, "_local_api", None)
+        if server:
+            server.stop()
+            self._local_api = None
+        companion = getattr(self, "_ai_companion", None)
+        if companion:
+            companion.stop()
+            self._ai_companion = None

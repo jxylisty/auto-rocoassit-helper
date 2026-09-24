@@ -27,9 +27,12 @@ if WORK.exists():
 for mod in ["seadata", "pet_loader", "skill_loader", "type_chart", "pvp_rules", "damage_calculator", "data_collector", "history_db", "pvp_pipeline", "resource_updater", "roi_template", "__init__"]:
     src = PYZ_DIR / "src" / "pvp" / f"{mod}.pyc"
     (WORK / "src" / "pvp" / f"{mod}.pyc").write_bytes(src.read_bytes())
-# gui 包的 __init__ 会 from .bridge import AppBridge/Api; bridge 顶层 import
-# auto_throw_ball / updater 等, 一并带上 (带不上就清空 __init__ 导出)
-for mod in ["auth", "__init__", "bridge", "updater", "window_sizing"]:
+# gui 包的 __init__ 会 from .bridge import AppBridge/Api; 门面 bridge 又依赖
+# bridge_common + 10 个 Mix-in 模块, auth 依赖 updater, 一并带上
+for mod in ["auth", "__init__", "bridge", "bridge_common", "bridge_widget",
+            "bridge_auth", "bridge_daily", "bridge_runtime", "bridge_game",
+            "bridge_vision", "bridge_pvp", "bridge_pvp_data", "bridge_settings",
+            "bridge_tools", "updater", "window_sizing"]:
     src = PYZ_DIR / "src" / "gui" / f"{mod}.pyc"
     (WORK / "src" / "gui" / f"{mod}.pyc").write_bytes(src.read_bytes())
 # bridge.py 顶层依赖 auto_throw_ball (项目根) —— 直接放个空壳替代, 终验不触发它
