@@ -104,20 +104,23 @@ def start_gui():
     bridge.start_auth_verify()
 
 # 启动看门狗: WebView2 偶发挂起(残留进程占用用户数据目录等)表现为
-    # "无报错但窗口永不出现"。20s 未 shown → 写诊断日志 + 弹窗, 不再无声卡死。
+    # "无报错但窗口永不出现"。30s 未 shown → 写诊断日志 + 弹窗, 不再无声卡死。
+    # 不能拿 window.width 判断: hidden 建窗的 width 恒为创建值(1280), 旧实现
+    # 第一轮就 return, 看门狗从未生效。改为等 pywebview 的 shown 事件 ——
+    # 内部 show 流程同样以它为就绪信号, 窗口没真正显示它就不会置位。
     def _boot_watchdog():
         import time as _t
-        for _ in range(40):          # 20s 内每 0.5s 查一次
-            _t.sleep(0.5)
-            try:
-                if window.width > 10 and window.height > 10:
-                    return
-            except Exception:
-                pass
         try:
-            detail = ("窗口 20 秒未就绪 — 多为 WebView2 运行时挂起。\n"
-                      "常见原因: 上次实例/WebView2 进程残留。\n"
-                      "处理: 任务管理器结束所有 python.exe 与 msedgewebview2.exe 后重试。")
+            shown = window.events.shown.wait(30)
+        except Exception:
+            shown = True       # 事件机制异常时宁可漏报, 不弹窗误报
+        if shown:
+            return
+        try:
+            detail = ("窗口 30 秒未出现 — 多为 WebView2 运行时挂起或上次实例残留。\n"
+                      "处理: 任务管理器结束所有 python.exe 与 msedgewebview2.exe 后重试,\n"
+                      "  或在终端执行: python main.py --kill-ghosts\n"
+                      "详细启动日志: data\\logs\\startup.log")
             log_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
             (log_dir / "data" / "logs").mkdir(parents=True, exist_ok=True)
             (log_dir / "data" / "logs" / "boot_watchdog.log").write_text(
@@ -168,6 +171,37 @@ def start_throw_tool():
 _mutex_handle = None
 
 
+def _kill_ghost_processes():
+    """只清理本应用的残留进程, 不碰机器上其他 python / WebView2 应用。
+
+    旧实现 taskkill /IM python.exe 是全机器扫射: 会连坐常驻的豆包桥
+    (pythonw bridge.py)、server.py、上下文挂件等无关进程。
+    匹配规则: python* 命令行含 main.py(本项目启动方式); msedgewebview2 的
+    用户数据目录含 pywebview(pywebview 默认 %APPDATA%\\pywebview, 仅本应用使用)。
+    """
+    import os as _os
+    import subprocess
+    own_pid = _os.getpid()
+    script = (
+        "$own = " + str(own_pid) + " ; "
+        "$targets = Get-CimInstance Win32_Process | Where-Object { "
+        "$_.ProcessId -ne $own -and ( "
+        "($_.Name -in @('python.exe','pythonw.exe') -and \"$($_.CommandLine)\" -match 'main\\.py') -or "
+        "($_.Name -eq 'msedgewebview2.exe' -and \"$($_.CommandLine)\" -match 'pywebview') ) } ; "
+        "if (-not $targets) { Write-Output '没有发现本应用的残留进程。' } ; "
+        "foreach ($p in @($targets)) { "
+        "$cl = \"$($p.CommandLine)\" ; "
+        "Write-Output ('已结束: PID ' + $p.ProcessId + '  ' + $p.Name + '  ' + $cl.Substring(0, [Math]::Min(90, $cl.Length))) ; "
+        "Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    r = subprocess.run(['powershell', '-NoProfile', '-Command', script],
+                       capture_output=True, text=True, errors='replace')
+    print(r.stdout.strip() or "清理完成, 重新启动即可。")
+    if r.returncode != 0 and r.stderr.strip():
+        print("清理脚本出错:", r.stderr.strip()[:300])
+    print("重新启动即可: python main.py")
+
+
 def _acquire_single_instance():
     """命名互斥锁, 进程退出/崩溃时自动释放, 不存在陈旧锁文件问题"""
     global _mutex_handle
@@ -200,6 +234,8 @@ def _init_startup_log():
 
     _sys.stdout = _Tee(_sys.stdout)
     _sys.stderr = _Tee(_sys.stderr)
+    # 终端可见的提示: 崩溃转储(faulthandler)只写文件不进终端, 出问题先看这里
+    print(f"[启动日志] 本次输出与崩溃转储同写: {log_dir / 'startup.log'}")
     import faulthandler
     faulthandler.enable(file=f)
 
@@ -213,10 +249,7 @@ def main():
     args = parser.parse_args()
 
     if args.kill_ghosts:
-        import subprocess
-        for name in ('python.exe', 'pythonw.exe', 'msedgewebview2.exe'):
-            subprocess.run(['taskkill', '/F', '/IM', name], capture_output=True)
-        print("已清理所有残留进程, 重新启动即可。")
+        _kill_ghost_processes()
         sys.exit(0)
 
     if not args.throw:
