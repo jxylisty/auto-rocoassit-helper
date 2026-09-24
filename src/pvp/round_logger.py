@@ -116,9 +116,10 @@ class RoundLogger:
 
     # ---------------- 权威回合号（抓包数据源） ----------------
 
-    def set_authoritative_round(self, round_no: int) -> bool:
+    def set_authoritative_round(self, round_no: int, source: str = "capture") -> bool:
         """用抓包解析出的真实回合号覆盖猜测值（OCR 无权值，靠技能栏变化累加）。
 
+        source 记录本回合号来自哪个数据源（"capture" 自研抓包 / "rkpp" RKPP 解码）。
         返回 True 表示本次确实推进了回合号。仅在抓包数据源下调用；
         OCR 数据源不调用，行为与改造前完全一致。
         """
@@ -129,7 +130,7 @@ class RoundLogger:
         if rn > self.turn_count:
             self.turn_count = rn
             self._write({"t": _now(), "event": "round_sync",
-                         "turn": rn, "source": "capture"})
+                         "turn": rn, "source": source})
             return True
         return False
 

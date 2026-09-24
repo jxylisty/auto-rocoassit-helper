@@ -236,7 +236,7 @@ class PvpEngineMixin:
             set_round = getattr(logger, "set_authoritative_round", None)
             round_no = getattr(result, "round_no", 0) or 0
             if set_round and round_no > 0:
-                set_round(round_no)
+                set_round(round_no, getattr(self, "_pvp_source", "capture"))
             logger.update(data)
         else:
             if not logger._closed:

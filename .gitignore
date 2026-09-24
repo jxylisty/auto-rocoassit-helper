@@ -149,4 +149,11 @@ tools/press_esc_game.py
 tools/pvp_packet_capture.py
 tools/reveal_game_window.py
 
+# 一次性诊断/回放脚本与输出 (调试会话产物, 不入库)
+tools/_diag_*.py
+tools/_diag_*.txt
+tools/_replay_*.py
+tools/_replay_*.txt
+tools/_*_out.txt
+
 

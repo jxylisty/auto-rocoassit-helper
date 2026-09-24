@@ -16,24 +16,38 @@
     按 AGPL-3.0-only，RKPP 作为**独立进程/独立目录**运行，本项目只通过 HTTP
     订阅其输出，不拷贝其源码进仓库。
 
-事件 schema（来自 RKPP rkpp_analyzer / rkpp_proto_battle，已实测核对）：
-    battle_enter  detail.{battle_mode, battle_id, round, max_round,
-                          weather_id, is_reconnect, wrappers:[...]}
-    round_start   detail.{state_type, round, series_index, has_perform,
-                          is_battle_finished, wrappers:[...]}
-    server_skill_declare  detail.{skill_id, skill_name, skill_id_x100,
-                                  command_slot, action_name, battle_token}
-    action_resolve        detail.{primary_skill:{skill_id,skill_name},
-                                  damage_event:{damage,damage_target_side,
-                                                damage_target_side_name,
-                                                target_hp_after,target_side},
-                                  energy_event:{energy_delta,energy_after},
-                                  effect_ids, has_defeat}
-    battle_finish detail.{result_code, result_name, rounds, seconds,
-                          is_surrender, pvp_score, finish_pet_infos:[...]}
+事件 schema（实测自 rkpp_opencode_server_*/opencode_summary.csv 与 /latest 真实流）：
+    relay 每个事件的顶层键：opencode / meaning / summary_kind / summary_text / content
+    业务数据全部在 content 里，**没有** detail 包裹层，也**没有** wrappers 数组。
 
-    wrapper（精灵状态，battle_enter/round_start 都带）：
-        {name, level, slot, pet_id, battle_max_hp, current_hp, battle_stats}
+    battle_enter  (0x1316)  content.{battle_mode, round, weather_id, max_round,
+                                      init_info:{player_team:[], enemy_team:[]}}
+        init_info.player_team[i].pets[j].battle_inside_pet_info:
+            {pet_id, name(hex), conf_name, battle_attr:[...]}
+            battle_attr[1]  = 当前血量（权威）
+            battle_attr[25] = 最大血量（权威）
+        battle_common_pet_info.{conf_name, level}
+        玩家 pet_id 取值范围 1..6；敌方 pet_id=401（不是 side 字段）。
+
+    round_start   (0x131A)  content.{state_info:{round,battle_id},
+                                      perform_cmd:{perform_info:[...]}}
+        perform_info[].data_update:
+            .pet.battle_inside_pet_info        → 我方上场宠
+            .other.{role_uin, pets:[...]}      → 敌方上场宠
+            .pet_skill.{pet_id, skills:[{skill_desc,...}]} → 技能名
+
+    server_skill_declare (0x1322) content.{player_uin,
+                                      req:{cast_skill:{skill_id, skill_desc}}}
+
+    action_resolve (0x1324) content.perform_cmd.perform_info:[
+            {type:1, skill_cast:{caster_id, target_id:[], skill_desc}}
+            {type:4, damage_info:{caster_id, target_id, source_id},
+                     sync_data:{pet_sync_info:[{pet_id, hp_result}, ...]}}
+        ]
+
+    battle_finish (0x132C)  content.settle_info.{result, real_pvp, real_pve,
+                                      rounds, seconds, monster_info:[...]}
+        result: 12=RUNAWAY, 2=WIN, 4=LOSE（见 rkpp_proto_battle.BATTLE_RESULT_MAP）
 
 注意：本模块**不改 OCR 管线**，也不写 RKPP 源码；只做「事件 → 字段」的翻译。
 """
@@ -52,9 +66,24 @@ from src.pvp.pvp_pipeline import PvpResult
 from src.pvp.skill_ids import resolve_skill_name
 
 # ---- 我方 / 敌方判定 ----
-# RKPP 的 side_name()：6/1 → 我方，401 → 敌方（实测对齐）
-_PLAYER_SIDES = frozenset({1, 6})
-_ENEMY_SIDES = frozenset({401})
+# 实测：玩家队伍 pet_id ∈ 1..6，敌方 pet_id = 401。battle_enter 的 base.side
+# 是 0(玩家)/1(敌人)，但 perform 里的 caster_id/target_id 用的是 pet_id，
+# 因此统一按「pet_id 区间」判定，避免 6/401 与 0/1 混淆。
+_ENEMY_PET_ID = 401
+
+
+def _side_of_pet_id(pet_id: Any) -> str:
+    """把 pet_id 归一成 'player' / 'enemy' / ''。"""
+    try:
+        pid = int(pet_id)
+    except (TypeError, ValueError):
+        return ""
+    if pid == _ENEMY_PET_ID:
+        return "enemy"
+    if 1 <= pid <= 6:
+        return "player"
+    return ""
+
 
 # ---- 战斗 opcode → summary_kind（用于从 content/opencode 反查种类） ----
 _OPCODE_TO_KIND = {
@@ -71,18 +100,133 @@ _ENTER_KINDS = frozenset({"battle_enter", "round_start", "server_skill_declare",
 # 结束战斗的事件种类
 _FINISH_KINDS = frozenset({"battle_finish"})
 
+# battle_finish.result → 胜负（对齐 rkpp_proto_battle.BATTLE_RESULT_MAP 的关键项）
+_RESULT_MAP = {
+    2: "WIN", 4: "LOSE", 18: "WIN", 34: "WIN", 66: "WIN", 68: "LOSE",
+    10: "RUNAWAY", 12: "RUNAWAY", 260: "RUNAWAY", 132: "RUNAWAY", 516: "RUNAWAY",
+}
 
-def _side_of(side_value: Any) -> str:
-    """把 RKPP 的 side / damage_target_side 归一成 'player' / 'enemy' / ''."""
-    try:
-        s = int(side_value)
-    except (TypeError, ValueError):
+# RKPP 对「隐藏特性/占位技能」给的说明文本，不是真正的技能名，需过滤
+_SKILL_PLACEHOLDERS = frozenset({
+    "此精灵被隐藏起来了，看不出特性",
+    "对对手赋予EFFECT。",
+})
+
+
+def _skill_display_name(sk: dict) -> str:
+    """取一条 skill 条目的「显示名」。
+
+    ★ 实测坑：RKPP 的 skill_desc / skill_name 在部分技能里是反的——
+        id=7040390 desc='闪燃'(名) name='造成物伤，自己回复1能量。'(效果)
+        id=7020780 desc='敌方获得全攻击技能能耗+2，持续3回合。'(效果) name='聒噪'(名)
+    没有单一可靠字段。判据：技能名是短词（无「。」且长度短），效果是句子。
+    取「不像句子」的那个；若两边都像或都不像，优先 skill_desc。
+    """
+    desc = str(sk.get("skill_desc") or "").strip()
+    name = str(sk.get("skill_name") or "").strip()
+    desc_sentence = ("。" in desc) or len(desc) > 12
+    name_sentence = ("。" in name) or len(name) > 12
+    if desc_sentence and not name_sentence:
+        return name
+    if name_sentence and not desc_sentence:
+        return desc
+    # 两边同为句子 / 同为短词：优先 skill_desc，去掉引号外壳
+    picked = desc or name
+    return picked.strip("“”\"'").strip()
+
+
+def _pick_battle_skills(skills: Any) -> list[str]:
+    """从一组 skill 条目里挑出 4 个「战斗技能」名。
+
+    特性/占位项的 skill_id 是 6 位（200146/7000010/7000030），战斗技能是 7 位
+    （如 7040390）。因此取 skill_id >= 1000000、名字非占位文本的前 4 个。
+    名字用 _skill_display_name 判定（应对 skill_desc/skill_name 反置）。
+    """
+    bar: list[str] = []
+    if not isinstance(skills, list):
+        return bar
+    for sk in skills:
+        if not isinstance(sk, dict):
+            continue
+        sid = _as_int(sk.get("skill_id"))
+        if sid is None or sid < 1000000:
+            continue
+        nm = _skill_display_name(sk)
+        if not nm or nm in _SKILL_PLACEHOLDERS:
+            continue
+        if nm not in bar:
+            bar.append(nm)
+    return bar[:4]
+
+
+def _decode_cn_hex(raw: Any) -> str:
+    """battle_inside_pet_info.name 是 UTF-8 的 hex 串（如 e78ab9→火），可解则解。"""
+    s = str(raw or "").strip()
+    if len(s) < 4 or len(s) % 2 or any(ch not in "0123456789abcdefABCDEF" for ch in s):
         return ""
-    if s in _PLAYER_SIDES:
-        return "player"
-    if s in _ENEMY_SIDES:
-        return "enemy"
-    return ""
+    try:
+        return bytes.fromhex(s).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return ""
+
+
+def _parse_pet_info(bip: dict, *, common: Optional[dict] = None) -> dict:
+    """从 battle_inside_pet_info 解析出 {pet_id, name, level, hp, hp_max, pos}。
+
+    名字优先 conf_name（已是明文），退化到 name 的 hex 解码。
+
+    ★ battle_attr 布局（实测全事件一致，与事件种类无关）：
+        battle_attr[1]  = 最大血量（恒定）
+        battle_attr[25] = 当前血量（会随回合递减）
+    battle_enter 时二者相等（满血）。早期版本误以为布局会反转，实为同布局，
+    这里统一取值即可。
+
+    ★ pos：uint64。pos 为小值(如 1) 表示该精灵正在场上；
+       pos=18446744073709551615(uint64 max) 表示不在场。
+    """
+    out = {"pet_id": None, "name": "", "level": 0, "hp": None, "hp_max": 0, "pos": None,
+           "skills": []}
+    if not isinstance(bip, dict):
+        return out
+    out["pet_id"] = _as_int(bip.get("pet_id"))
+    name = str(bip.get("conf_name") or "").strip()
+    if not name:
+        name = _decode_cn_hex(bip.get("name"))
+    out["name"] = name
+    if isinstance(common, dict):
+        lv = _as_int(common.get("level"))
+        if lv:
+            out["level"] = lv
+        if not name:
+            out["name"] = str(common.get("conf_name") or "").strip()
+    pos = _as_int(bip.get("pos"))
+    if pos is not None and 0 < pos < 100:
+        out["pos"] = pos
+    ba = bip.get("battle_attr")
+    if isinstance(ba, list):
+        if len(ba) > 1:
+            out["hp_max"] = _as_int(ba[1]) or 0
+        if len(ba) > 25:
+            out["hp"] = _as_int(ba[25])
+    # ★ battle_enter 的 battle_inside_pet_info.skill_round_data 是每只精灵
+    #   完整技能表（含 4 个战斗技能 + 特性/占位），是技能栏的权威来源。
+    srd = bip.get("skill_round_data")
+    if isinstance(srd, list):
+        out["skills"] = _pick_battle_skills(srd)
+    return out
+
+
+def _iter_team_pets(team: dict):
+    """遍历 init_info.player_team[i] / enemy_team[i] 里的 pets，产出 (bip, common)。"""
+    if not isinstance(team, dict):
+        return
+    for p in team.get("pets") or []:
+        if not isinstance(p, dict):
+            continue
+        bip = p.get("battle_inside_pet_info")
+        common = p.get("battle_common_pet_info")
+        if isinstance(bip, dict):
+            yield bip, (common if isinstance(common, dict) else None)
 
 
 def _kind_of_event(event: dict) -> str:
@@ -100,7 +244,8 @@ def _kind_of_event(event: dict) -> str:
 
 
 def _detail_of(event: dict) -> dict:
-    """取事件的业务 detail（RKPP 把结构化数据放在 content.detail 里）。"""
+    """取事件的业务 content（实测：RKPP relay 推送的 content 就是加工后结构，
+    没有 detail 包裹层）。为兼容旧版若真出现 detail 字段也一并支持。"""
     content = event.get("content")
     if not isinstance(content, dict):
         return {}
@@ -135,6 +280,9 @@ class RkppEventClient:
         # ---- 本局字段 ----
         self._round_no = 0
         self._declared_skills: list[str] = []      # 本局宣告技能名（去重）
+        self._skill_bar: list[str] = []            # 我方上场宠 4 技能栏
+        self._pet_skills: dict = {}                # pet_id → pet_skill.skills（全队）
+        self._on_field_pid: Optional[int] = None   # 我方当前上场宠 pet_id
         self._player_name = ""
         self._player_hp_val = 0
         self._player_hp_max = 0
@@ -145,6 +293,8 @@ class RkppEventClient:
         self._player_lineup: list = []
         self._enemy_lineup: list = []
         self._lineup_done = False
+        self._last_result = ""
+        self._last_real_pvp = False
         self._errors: list[str] = []
 
         # ---- 订阅线程 ----
@@ -177,6 +327,9 @@ class RkppEventClient:
             self._last_opcode_hex = ""
             self._round_no = 0
             self._declared_skills.clear()
+            self._skill_bar = []
+            self._pet_skills = {}
+            self._on_field_pid = None
             self._player_name = ""
             self._player_hp_val = 0
             self._player_hp_max = 0
@@ -187,6 +340,8 @@ class RkppEventClient:
             self._player_lineup = []
             self._enemy_lineup = []
             self._lineup_done = False
+            self._last_result = ""
+            self._last_real_pvp = False
             self._errors = []
 
     # ---------------- 订阅线程 ----------------
@@ -269,106 +424,243 @@ class RkppEventClient:
                 self._apply_action_resolve(_detail_of(event))
 
     def _apply_enter(self, detail: dict) -> None:
+        """0x1316 battle_enter：从 init_info.player_team / enemy_team 取双方阵容。
+
+        开新局时先清掉上局残留（技能栏/pet_skill/血量），避免串场。
+        注意：清理必须在事件侧做，而不是 analyze()，否则会误删本局
+        battle_enter 之后已到达的 round_start 数据。
+        """
+        self._declared_skills.clear()
+        self._skill_bar = []
+        self._pet_skills = {}
+        self._on_field_pid = None
+        self._round_no = 0
+        self._player_hp_val = 0
+        self._player_hp_max = 0
+        self._enemy_hp_val = 0
+        self._enemy_hp_max = 0
+        self._enemy_hp_pct = 0.0
+        self._last_result = ""
+        self._last_real_pvp = False
         rnd = _as_int(detail.get("round"))
         if rnd and rnd > self._round_no:
             self._round_no = rnd
-        self._apply_wrappers(detail.get("wrappers"))
+        init = detail.get("init_info")
+        if not isinstance(init, dict):
+            return
+        player_lineup, player_cur = self._collect_team(init.get("player_team"), "player")
+        enemy_lineup, enemy_cur = self._collect_team(init.get("enemy_team"), "enemy")
+        if player_lineup:
+            self._player_lineup = player_lineup
+        if enemy_lineup:
+            self._enemy_lineup = enemy_lineup
+        if self._player_lineup and self._enemy_lineup:
+            self._lineup_done = True
+        self._apply_on_field(player_cur, enemy_cur)
+
+    def _collect_team(self, teams: Any, side: str):
+        """收集一方的全部精灵与「当前上场」那只。"""
+        lineup: list[str] = []
+        cur: Optional[dict] = None
+        if not isinstance(teams, list):
+            return lineup, cur
+        for team in teams:
+            for bip, common in _iter_team_pets(team):
+                info = _parse_pet_info(bip, common=common)
+                nm = info["name"]
+                if nm and nm not in lineup:
+                    lineup.append(nm)
+                if cur is None and self._is_on_field(bip):
+                    cur = info
+        if cur is None and lineup:
+            # 没显式上场态：首个带血量的当上场宠
+            for team in teams:
+                for bip, common in _iter_team_pets(team):
+                    info = _parse_pet_info(bip, common=common)
+                    if info["hp"] is not None:
+                        cur = info
+                        break
+                if cur:
+                    break
+        return lineup, cur
+
+    @staticmethod
+    def _is_on_field(bip: dict) -> bool:
+        """battle_inside_pet_info 里 pos/pet_change_status 暗示上场。"""
+        if not isinstance(bip, dict):
+            return False
+        pcs = bip.get("pet_change_status")
+        if isinstance(pcs, int) and pcs not in (0,):
+            return True
+        pos = bip.get("pos")
+        if isinstance(pos, int) and 0 < pos < 100:
+            return True
+        return False
 
     def _apply_round_start(self, detail: dict) -> None:
-        rnd = _as_int(detail.get("round"))
-        if rnd and rnd > self._round_no:
-            self._round_no = rnd
-        self._apply_wrappers(detail.get("wrappers"))
+        """0x131A round_start：perform_info[].data_update 携带双方上场宠与技能。"""
+        si = detail.get("state_info")
+        if isinstance(si, dict):
+            rnd = _as_int(si.get("round"))
+            if rnd and rnd > self._round_no:
+                self._round_no = rnd
+        pc = detail.get("perform_cmd")
+        if not isinstance(pc, dict):
+            return
+        for item in pc.get("perform_info") or []:
+            if not isinstance(item, dict):
+                continue
+            du = item.get("data_update")
+            if not isinstance(du, dict):
+                continue
+            # 我方上场宠
+            pet = du.get("pet")
+            if isinstance(pet, dict):
+                bip = pet.get("battle_inside_pet_info")
+                if isinstance(bip, dict) and _as_int(bip.get("pet_id")) is not None:
+                    self._apply_on_field(
+                        _parse_pet_info(bip, common=pet.get("battle_common_pet_info")), None)
+            # 敌方上场宠
+            other = du.get("other")
+            if isinstance(other, dict):
+                for bip, common in _iter_team_pets(other):
+                    self._apply_on_field(None, _parse_pet_info(bip, common=common))
+            # 我方上场宠的技能栏：round_start 给的是「全队」pet_skill 列表
+            # (pet_id=1..6)，需用场上宠的 pet_id 匹配，取其 4 个战斗技能。
+            ps = du.get("pet_skill")
+            if isinstance(ps, dict):
+                pid = _as_int(ps.get("pet_id"))
+                if pid is not None and 1 <= pid <= 6:
+                    self._pet_skills[pid] = ps.get("skills")
 
     def _apply_skill_declare(self, detail: dict) -> None:
-        name = str(detail.get("skill_name") or "").strip()
-        if not name:
-            sid = detail.get("skill_id") or detail.get("skill_id_x100")
-            if sid is not None:
-                name = resolve_skill_name(sid)
-        if name and name not in self._declared_skills:
-            self._declared_skills.append(name)
+        """0x1322 cmd_sync：req.cast_skill 是本回合我方宣告技能。"""
+        req = detail.get("req")
+        cast = req.get("cast_skill") if isinstance(req, dict) else None
+        if isinstance(cast, dict):
+            self._add_skill_name(
+                _skill_display_name(cast) or cast.get("skill_id"), cast.get("skill_id"))
 
     def _apply_action_resolve(self, detail: dict) -> None:
-        primary = detail.get("primary_skill") or {}
-        if isinstance(primary, dict):
-            name = str(primary.get("skill_name") or "").strip()
-            if not name and primary.get("skill_id") is not None:
-                name = resolve_skill_name(primary["skill_id"])
-            if name and name not in self._declared_skills:
-                self._declared_skills.append(name)
+        """0x1324 perform：perform_info 里 type=1 技能、type=4 伤害/扣血。
 
-        dmg = detail.get("damage_event") or {}
-        if isinstance(dmg, dict):
-            target = _side_of(dmg.get("damage_target_side") or dmg.get("target_side"))
-            hp_after = _as_int(dmg.get("target_hp_after"))
-            if target == "enemy" and hp_after is not None:
-                self._enemy_hp_val = hp_after
+        只收集我方(caster_id∈1..6)施放的技能名；敌方施法不入技能栏。
+        """
+        pc = detail.get("perform_cmd")
+        if not isinstance(pc, dict):
+            return
+        for item in pc.get("perform_info") or []:
+            if not isinstance(item, dict):
+                continue
+            t = item.get("type")
+            if t == 1:
+                sc = item.get("skill_cast")
+                if isinstance(sc, dict) and _side_of_pet_id(sc.get("caster_id")) == "player":
+                    self._add_skill_name(
+                        _skill_display_name(sc) or sc.get("skill_id"), sc.get("skill_id"))
+            elif t == 4:
+                di = item.get("damage_info") or {}
+                sync = item.get("sync_data") or {}
+                self._apply_damage(di, sync)
+
+    def _apply_damage(self, damage_info: dict, sync_data: dict) -> None:
+        """sync_data.pet_sync_info[].hp_result 是该 pet 的最新血量。"""
+        if not isinstance(sync_data, dict):
+            return
+        for info in sync_data.get("pet_sync_info") or []:
+            if not isinstance(info, dict):
+                continue
+            side = _side_of_pet_id(info.get("pet_id"))
+            hp = _as_int(info.get("hp_result"))
+            if hp is None:
+                continue
+            if side == "enemy":
+                self._enemy_hp_val = hp
                 if self._enemy_hp_max > 0:
-                    self._enemy_hp_pct = max(0.0, min(1.0, hp_after / self._enemy_hp_max))
-            elif target == "player" and hp_after is not None:
-                self._player_hp_val = hp_after
+                    self._enemy_hp_pct = max(0.0, min(1.0, hp / self._enemy_hp_max))
+            elif side == "player":
+                self._player_hp_val = hp
 
     def _apply_finish(self, detail: dict) -> None:
-        pets = detail.get("finish_pet_infos") or []
-        if isinstance(pets, list):
-            for p in pets:
-                if not isinstance(p, dict):
-                    continue
-                rhp = _as_int(p.get("remain_hp"))
-                mhp = _as_int(p.get("battle_max_hp"))
-                if rhp is not None and mhp:
-                    pass  # 战后明细暂不入阵容，保留结构
-        # 结果文本进 errors 之外不落字段（胜负由 in_battle 沿 + 回合日志消费）
-        self._enemy_hp_pct = 0.0 if self._enemy_hp_val <= 0 else self._enemy_hp_pct
-
-    def _apply_wrappers(self, wrappers: Any) -> None:
-        """从精灵状态 wrappers 里挑出「场上双方」，填名字/血量/阵容。"""
-        if not isinstance(wrappers, list) or not wrappers:
+        """0x132C battle_finish：settle_info 里取回合数/胜负。"""
+        si = detail.get("settle_info")
+        if not isinstance(si, dict):
             return
-        # wrappers 只有 name/level/slot/pet_id/current_hp/battle_max_hp，无 side。
-        # 靠槽位约定：我方与敌方各占一批；用 slot 排序，前段作我方候选。
-        # 实战中 0x1316/0x131A 的 wrappers 常同时含双方，故按「名字首次出现」填：
-        #   第一个非空 → 我方；第二个不同名 → 敌方。
-        names = []
-        for w in wrappers:
-            if not isinstance(w, dict):
-                continue
-            nm = str(w.get("name") or "").strip()
-            if nm and nm not in names:
-                names.append(nm)
-        if not names:
+        rounds = _as_int(si.get("rounds"))
+        if rounds and rounds > self._round_no:
+            self._round_no = rounds
+        code = _as_int(si.get("result"))
+        self._last_result = _RESULT_MAP.get(code, "") if code is not None else ""
+        # real_pvp=0 说明这局不是真人 PVP（可能是 PVE/逃跑）
+        self._last_real_pvp = bool(_as_int(si.get("real_pvp")))
+
+    def _add_skill_name(self, name: Any, skill_id: Any = None) -> None:
+        nm = str(name or "").strip()
+        if not nm and skill_id is not None:
+            nm = resolve_skill_name(skill_id)
+        if not nm or nm in _SKILL_PLACEHOLDERS:
             return
+        if nm not in self._declared_skills:
+            self._declared_skills.append(nm)
 
-        if not self._player_name:
-            self._player_name = names[0]
-        if len(names) >= 2 and not self._enemy_name:
-            self._enemy_name = names[1]
+    def _set_skill_bar(self, skills: Any) -> None:
+        """填我方上场宠技能栏。
 
-        # 血量：优先用与当前敌方同名的那条
-        for w in wrappers:
-            if not isinstance(w, dict):
-                continue
-            nm = str(w.get("name") or "").strip()
-            mhp = _as_int(w.get("battle_max_hp")) or 0
-            chp = _as_int(w.get("current_hp"))
-            if nm == self._enemy_name and chp is not None:
-                if mhp > 0:
-                    self._enemy_hp_max = mhp
-                    self._enemy_hp_val = chp
-                    self._enemy_hp_pct = max(0.0, min(1.0, chp / mhp))
-            elif nm == self._player_name and chp is not None:
-                if mhp > 0:
-                    self._player_hp_max = mhp
-                    self._player_hp_val = chp
+        skills 既可能是原始 skill 条目（dict，来自 skill_round_data /
+        round_start 的 pet_skill.skills），也可能是已提取好的技能名列表
+        （来自 _parse_pet_info 的 skills 字段）。两种都支持。
+        """
+        if not isinstance(skills, list) or not skills:
+            return
+        if all(isinstance(s, str) for s in skills):
+            bar = [s for s in skills if s and s not in _SKILL_PLACEHOLDERS]
+        else:
+            bar = _pick_battle_skills(skills)
+        if bar:
+            self._skill_bar = bar[:4]
 
-        # 阵容：把出现的名字按顺序补进去（最多 6）
-        if not self._lineup_done:
-            lineup = list(names[:6])
-            if len(lineup) >= 2:
-                self._player_lineup = lineup
-                self._enemy_lineup = []
-                self._lineup_done = False  # 单场对手只解出 1 只时不标 done
+    def _apply_on_field(self, player_info: Optional[dict], enemy_info: Optional[dict]) -> None:
+        """更新场上双方的名字/血量（None 表示本次不动那一侧）。
+
+        battle_attr[1]=最大血、[25]=当前血，全事件同布局，直接采用。
+        场上宠确定后，顺带把它的技能栏填上（按 pet_id 查 _pet_skills）。
+        """
+        if player_info:
+            nm = player_info.get("name")
+            if nm:
+                self._player_name = nm
+            hp = player_info.get("hp")
+            mhp = player_info.get("hp_max") or 0
+            if hp is not None:
+                self._player_hp_val = hp
+            if mhp > 0 and self._player_hp_max <= 0:
+                self._player_hp_max = mhp
+            # 若当前血大于已知上限，用该值刷新上限
+            if self._player_hp_max > 0 and self._player_hp_val > self._player_hp_max:
+                self._player_hp_max = self._player_hp_val
+            # 上场宠确定 → 更新技能栏
+            pid = player_info.get("pet_id")
+            if player_info.get("pos") is not None and pid is not None:
+                self._on_field_pid = pid
+                own = player_info.get("skills")
+                if own:
+                    self._set_skill_bar(own)
+                else:
+                    self._set_skill_bar(self._pet_skills.get(pid))
+        if enemy_info:
+            nm = enemy_info.get("name")
+            if nm:
+                self._enemy_name = nm
+            hp = enemy_info.get("hp")
+            mhp = enemy_info.get("hp_max") or 0
+            if mhp > 0 and self._enemy_hp_max <= 0:
+                self._enemy_hp_max = mhp
+            if hp is not None:
+                self._enemy_hp_val = hp
+            if self._enemy_hp_max > 0 and self._enemy_hp_val > self._enemy_hp_max:
+                self._enemy_hp_max = self._enemy_hp_val
+            if self._enemy_hp_max > 0 and self._enemy_hp_val is not None:
+                self._enemy_hp_pct = max(0.0, min(1.0, self._enemy_hp_val / self._enemy_hp_max))
 
     # ---------------- 主循环侧：产出同构快照 ----------------
 
@@ -384,15 +676,16 @@ class RkppEventClient:
             result.battle_end = (not in_battle) and prev
 
             round_no = self._round_no
-            declared = list(self._declared_skills)
+            # 兜底：pet_skill 与上场宠可能不在同一 perform 项，analyze 时再解析一次
+            if not self._skill_bar and self._on_field_pid is not None:
+                skills = self._pet_skills.get(self._on_field_pid)
+                if skills:
+                    self._set_skill_bar(skills)
+            # 技能栏：优先用我方上场宠的完整技能栏，退化到本局已宣告技能
+            declared = list(self._skill_bar) or list(self._declared_skills)
 
             if result.battle_start:
-                # 新一局开局：清空上局残留（技能/回合/血量）
-                self._declared_skills.clear()
-                self._round_no = 0
-                self._player_hp_val = 0
-                self._player_hp_max = 0
-                self._enemy_hp_pct = 0.0
+                # 新一局开局：本帧快照先给空（状态已由 _apply_enter 清理）
                 round_no = 0
                 declared = []
 
@@ -409,6 +702,9 @@ class RkppEventClient:
                     result.player_hp = f"{self._player_hp_val}/{self._player_hp_max}"
                 result.enemy_hp_pct = self._enemy_hp_pct
                 result.enemy_hp_color = 1.0 if self._enemy_hp_max > 0 else 0.0
+                result.player_lineup = list(self._player_lineup)
+                result.enemy_lineup = list(self._enemy_lineup)
+                result.lineup_done = self._lineup_done
                 if declared:
                     slots = ["", "", "", ""]
                     for i, nm in enumerate(declared[:4]):
