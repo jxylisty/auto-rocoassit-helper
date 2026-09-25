@@ -262,9 +262,10 @@ def main() -> None:
     widget = widget.replace("</script>\n</body>",
                             shell_js + "</script>\n</body>", 1)
 
-    # 深色底: 用 !important 插在样式表最前(级联必赢),不做脆弱的正则改写
-    widget = widget.replace("<style>",
-                            "<style>\n    html, body { background: #0a0e1a !important; }", 1)
+    # 深色底不再注入 CSS(旧版曾用 !important 把 body 钉成近黑 #0a0e1a):
+    # 建窗时传 background_color='#0a0e1a'(main.py / tools/app_entry.py), 由
+    # WebView2 原生表面色兜底 —— 首帧前的空窗与窗口边距露出的都是主题深色,
+    # 源文件的透明底保持原样, 不再被产物层强行覆盖。
 
     # 产物自检: 关键 JS 合约缺失 = 生成残废, 立刻失败(勿静默写出)
     for must in ("function updatePVPData", "function onStarfallSelect",

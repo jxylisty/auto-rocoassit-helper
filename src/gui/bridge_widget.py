@@ -5,7 +5,11 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from src.gui.bridge_common import PROJECT_ROOT, CONFIG_DIR
+
+# 悬浮窗惰性创建的全局锁: 防止热键/界面按钮/任务自动弹出并发建出两个窗
+_WIDGET_CREATE_LOCK = threading.Lock()
 
 
 class WidgetMixin:
@@ -20,11 +24,96 @@ class WidgetMixin:
         self._start_watch_loop()  # 观察模式: 悬浮窗的被动战情监视
 
     def set_widget_window(self, window):
-        """设置悬浮状态窗引用(初始隐藏,由用户/热键唤出); 允许 None(降级为无悬浮窗)"""
+        """设置悬浮状态窗引用; 传 None = 惰性模式(首次唤出时才真正建窗)。
+
+        为什么不再启动即建 hidden 窗: pywebview 对 hidden 窗用 Opacity
+        Show/Hide 技巧规避启动闪烁, 但 WebView2 是跨进程 airspace, 该技巧
+        在部分机器上失效 —— 创建位置会残留一块永不绘制的黑色表面(启动黑框),
+        且之后 show() 也无法让它画出内容。改为惰性创建 + 出生即可见。
+        """
         self._widget = window
         self._widget_visible = False
         self._last_widget_pos = None   # 物理像素落点(show 后重新钉回用)
+        self._widget_show_gen = 0      # show 请求代数: 丢弃过期的延迟 show
+        self._widget_loaded_evt = threading.Event()
+        self._widget_url = getattr(self, "_widget_url", None)
+        if window is not None:
+            self._bind_widget_events(window)
 
+    def set_widget_url(self, uri: str):
+        """惰性创建所需的悬浮窗页面地址(main.py/app_entry.py 启动时注入)"""
+        self._widget_url = uri
+
+    def _bind_widget_events(self, window):
+        """loaded 门禁 + 关闭自愈(Alt+F4 后下次唤出自动重建)"""
+        try:
+            window.events.loaded += lambda: self._widget_loaded_evt.set()
+        except Exception:
+            pass
+
+        def _on_closed():
+            self._widget = None
+            self._widget_visible = False
+            self._pvp_float_visible = False
+            self._widget_loaded_evt = threading.Event()
+            try:
+                self.set_pvp_float_window(None)
+            except Exception:
+                pass
+        try:
+            window.events.closed += _on_closed
+        except Exception:
+            pass
+
+    def ensure_widget_window(self):
+        """首次唤出时才创建悬浮窗; 已存在则直接返回。
+
+        创建即可见(出生即渲染, 走与主窗口相同的正常路径): 首次打开有
+        <1s 的主题深色→内容过渡(background_color 兜底), 换取彻底消灭
+        hidden 建窗的幽灵黑框。创建后立即按记忆位置钉位。
+        """
+        if getattr(self, "_widget", None) is not None:
+            return self._widget
+        with _WIDGET_CREATE_LOCK:
+            print("[悬浮窗] 惰性创建开始", flush=True)
+            if getattr(self, "_widget", None) is not None:
+                return self._widget
+            import webview
+            self._widget_show_gen = 0
+            self._widget_loaded_evt = threading.Event()
+            url = self._widget_url or (
+                Path(PROJECT_ROOT) / "src" / "gui" / "web" / "float_console.html"
+            ).as_uri()
+            try:
+                win = webview.create_window(
+                    title='状态',
+                    url=url,
+                    js_api=self._api,
+                    width=340,
+                    height=335,
+                    resizable=False,
+                    frameless=True,
+                    easy_drag=False,
+                    on_top=True,
+                    background_color='#0a0e1a',
+                )
+            except Exception as e:
+                print(f"[悬浮窗] 创建失败: {e}", flush=True)
+                self._enqueue_log(f"悬浮窗创建失败: {e}", "error")
+                return None
+            self._widget = win
+            self._bind_widget_events(win)
+            try:
+                self.set_pvp_float_window(win)   # 合并悬浮窗: PVP 推演推送同窗
+            except Exception:
+                pass
+            # 立即钉到记忆位置(创建默认位在主屏左上角, 必须马上搬走)
+            try:
+                self._place_widget()
+            except Exception:
+                pass
+            self._enqueue_log("悬浮窗已创建(惰性, 首次唤出)")
+            return win
 
     def set_api(self, api):
         """注入 Api 转发层单例，供运行时创建的独立窗 (ROI 工坊) 共用"""
@@ -55,50 +144,79 @@ class WidgetMixin:
     # ========================================
 
     def widget_toggle(self) -> dict:
-        """显示/隐藏悬浮状态窗"""
-        if not getattr(self, "_widget", None):
-            return {"success": False, "message": "悬浮窗未创建"}
+        """显示/隐藏悬浮状态窗(首次唤出时惰性建窗)"""
         try:
-            if self._widget_visible:
+            print(f"[悬浮窗] toggle: visible={self._widget_visible}", flush=True)
+            if self._widget_visible and getattr(self, "_widget", None):
+                # 作废尚在等待的延迟 show, 再隐藏
+                self._widget_show_gen += 1
                 self._widget.hide()
                 self._widget_visible = False
                 self._pvp_float_visible = False
             else:
-                last_pos = self._last_widget_pos
-                self._place_widget()
-                self._widget.show()
-                self._widget_visible = True
-                self._pvp_float_visible = True   # 同一窗口: F2 显示时 PVP 推送闸门同步开
-                # show() 会 Activate 并可能重置位置, 显示后按物理像素再钉一次
-                self._ensure_widget_on_screen()
-                self._reassert_widget_pos()
-                try:
-                    x = self._widget.x
-                    y = self._widget.y
-                    w = self._widget.width
-                    h = self._widget.height
-                    self._enqueue_log(f"[DEBUG] Widget window position: x={x}, y={y}, w={w}, h={h}", "info")
-                    self._enqueue_log(f"[DEBUG] Widget is on_top: {getattr(self._widget, 'on_top', None)}", "info")
-                except Exception as e:
-                    self._enqueue_log(f"[DEBUG] Failed to get widget position: {e}", "warning")
+                if not self.ensure_widget_window():
+                    return {"success": False, "message": "悬浮窗创建失败"}
+                self._show_widget_when_ready(refocus_game_after=True)
                 self._enqueue_log(f"[DEBUG] Widget window shown, visible={self._widget_visible}", "info")
-                # 显示后按当前内容(含记忆的折叠状态)校准尺寸
-                try:
-                    self._widget.evaluate_js("if (typeof syncSize === 'function') syncSize()")
-                except Exception:
-                    pass
-                # 前端 syncSize 会改窗口尺寸(高度变化可能溢出下边界), 稍后再自愈一次
-                try:
-                    threading.Timer(0.6, self._on_widget_sized).start()
-                except Exception:
-                    pass
-                self._refocus_game_window_async()
             return {"success": True, "visible": self._widget_visible}
         except Exception as e:
             self._enqueue_log(f"[ERROR] widget_toggle error: {e}", "error")
             import traceback
             self._enqueue_log(traceback.format_exc(), "error")
             return {"success": False, "message": str(e)}
+
+    def _show_widget_when_ready(self, minimize_main_after=False, refocus_game_after=False):
+        """show 悬浮窗的统一入口: 页面未 loaded 时先等(≤3s)再 show。
+
+        WebView2 对隐藏窗口挂起渲染合成, 过早 show 只会露出一整块未绘制的
+        深色空窗(启动黑框)。loaded 事件已到则立即弹; 没到则后台线程等待,
+        期间用户再次切换显隐(代数变化)时放弃这次过期 show。
+        """
+        self._widget_show_gen = getattr(self, "_widget_show_gen", 0) + 1
+        gen = self._widget_show_gen
+        ready = getattr(self, "_widget_loaded_evt", None)
+        if ready is None or ready.is_set():
+            self._show_widget_common(minimize_main_after, refocus_game_after)
+            return
+
+        def _waiter():
+            ready.wait(3.0)          # 页面异常时最多等 3s, 不无限卡住唤出
+            if gen != getattr(self, "_widget_show_gen", gen):
+                return
+            try:
+                self._show_widget_common(minimize_main_after, refocus_game_after)
+            except Exception:
+                pass
+        threading.Thread(target=_waiter, daemon=True, name="WidgetShowGate").start()
+
+    def _show_widget_common(self, minimize_main_after=False, refocus_game_after=False):
+        """place → show → 钉位置 → 立即按内容校准尺寸; widget_toggle / 自动弹出共用"""
+        self._place_widget()
+        self._widget.show()
+        self._widget_visible = True
+        self._pvp_float_visible = True   # 同一窗口: 显示时 PVP 推送闸门同步开
+        # show() 会 Activate 并可能重置位置, 显示后按物理像素再钉一次
+        self._ensure_widget_on_screen()
+        self._reassert_widget_pos()
+        # 立即按当前内容校准尺寸(旧实现等 0.6s, 其间窗口偏大露出深色边)
+        try:
+            self._widget.evaluate_js("if (typeof syncSize === 'function') syncSize()")
+        except Exception:
+            pass
+        # 前端 syncSize 会改窗口尺寸(高度变化可能溢出下边界), 稍后再自愈一次
+        try:
+            threading.Timer(0.6, self._on_widget_sized).start()
+        except Exception:
+            pass
+        if minimize_main_after:
+            try:
+                self._window.minimize()
+            except Exception:
+                pass
+            self._refocus_game_window_async(0.1)
+        elif refocus_game_after:
+            # show 会 Activate 抢走游戏焦点, 手动唤出(F2)后必须交还, 且必须在 show 之后
+            self._refocus_game_window_async(0.15)
 
     def _reassert_widget_pos(self):
         """按上次落点再钉一次(show() 之后调用, 防 Activate 复位)"""
@@ -492,32 +610,8 @@ class WidgetMixin:
         """挂机/丢球启动时：自动弹出悬浮窗、最小化主界面，并将焦点交还给 3D 游戏窗口"""
         try:
             if getattr(self, "_widget", None):
-                self._place_widget()   # 之前直接 show(), 窗口总落在创建默认位(主屏左上角)
-                self._widget.show()
-                self._widget_visible = True
-                self._pvp_float_visible = True   # 自动弹出同样开 PVP 推送闸门
-                # show() 会 Activate 并可能重置位置, 显示后按物理像素再钉一次
-                self._ensure_widget_on_screen()
-                self._reassert_widget_pos()
-                try:
-                    threading.Timer(0.6, self._on_widget_sized).start()
-                except Exception:
-                    pass
-                try:
-                    x = self._widget.x
-                    y = self._widget.y
-                    w = self._widget.width
-                    h = self._widget.height
-                    self._enqueue_log(f"[DEBUG] Widget window position: x={x}, y={y}, w={w}, h={h}", "info")
-                    self._enqueue_log(f"[DEBUG] Widget is on_top: {getattr(self._widget, 'on_top', None)}", "info")
-                except Exception as e:
-                    self._enqueue_log(f"[DEBUG] Failed to get widget position: {e}", "warning")
-                self._enqueue_log(f"[DEBUG] Widget window shown, visible={self._widget_visible}", "info")
-        except Exception:
-            pass
-        try:
-            if getattr(self, "_window", None):
-                self._window.minimize()
+                # 等 loaded 再 show(消除启动黑框), show 后才最小化主窗/还焦点给游戏
+                self._show_widget_when_ready(minimize_main_after=True)
         except Exception:
             pass
         self._refocus_game_window_async(0.1)

@@ -198,23 +198,13 @@ def _run_frozen(smoke: bool) -> None:
 
         apply_window_size_physical(window, phys_w, phys_h, _wa)
 
-        # 悬浮控制台: 与源码版一致(实测冻结版 WebView2 也能创建第二个窗口,
-        # 之前误以为不支持而降级成 None, 会导致 set_pvp_float_window(None) 崩溃)
-        widget = webview.create_window(
-            title='状态',
-            url=(web_dir / "float_console.html").as_uri(),
-            js_api=api,
-            width=340,
-            height=335,
-            resizable=False,
-            frameless=True,
-            easy_drag=False,
-            on_top=True,
-            hidden=True)
-
+        # 悬浮控制台惰性创建(与 main.py 一致): 启动不建 hidden 窗, 根治
+        # "启动黑框"(pywebview 的 hidden Opacity 技巧对跨进程 WebView2 无效);
+        # 首次 F2/F12/启动任务时 ensure_widget_window 出生即可见地建窗。
         bridge.set_window(window)
-        bridge.set_widget_window(widget)
-        bridge.set_pvp_float_window(widget)  # 合并悬浮窗: PVP 推演推送同窗
+        bridge.set_widget_url((web_dir / "float_console.html").as_uri())
+        bridge.set_widget_window(None)
+        bridge.set_pvp_float_window(None)
         window.events.closed += bridge.shutdown
         bridge.enable_hotkeys()
 

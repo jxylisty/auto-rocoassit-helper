@@ -71,23 +71,14 @@ def start_gui():
         # 标题栏拖拽由 .pywebview-drag-region(tbDragZone)接管
         easy_drag=False
     )
-    # 悬浮控制台：置顶无边框小窗 (挂机+PVP 双标签),初始隐藏,F2/界面按钮唤出
-    widget = webview.create_window(
-        title='状态',
-        url=(web_dir / "float_console.html").as_uri(),
-        js_api=api,
-        width=340,
-        height=335,
-        resizable=False,
-        frameless=True,
-        easy_drag=False,
-        on_top=True,
-        hidden=True,
-    )
-
+    # 悬浮控制台改为惰性创建: 启动不再建 hidden 窗(根治"启动黑框"——
+    # pywebview 对 hidden 窗的 Opacity 技巧对跨进程 WebView2 无效, 会残留
+    # 一块永不绘制的黑色表面), 首次 F2/F12/启动任务时才建, 出生即可见。
+    # 页面地址与 Api 单例先注入 bridge, 见 bridge_widget.ensure_widget_window。
     bridge.set_window(window)
-    bridge.set_widget_window(widget)
-    bridge.set_pvp_float_window(widget)  # 合并悬浮窗：PVP 推演推送同窗
+    bridge.set_widget_url((web_dir / "float_console.html").as_uri())
+    bridge.set_widget_window(None)
+    bridge.set_pvp_float_window(None)
 
     window.events.closed += bridge.shutdown
 

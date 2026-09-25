@@ -549,13 +549,14 @@ class PvpDataMixin:
             return {"success": False, "message": str(e)}
 
     def pvp_float_toggle(self) -> dict:
-        """显示合并悬浮窗并切到 PVP 标签(与挂机悬浮窗同一窗口)"""
+        """显示合并悬浮窗并切到 PVP 标签(与挂机悬浮窗同一窗口, 惰性创建)"""
         gate = self._auth_gate()
         if gate:
             return gate
-        if not getattr(self, "_pvp_float_window", None):
-            return {"success": False, "message": "PVP悬浮窗未创建"}
         try:
+            if not getattr(self, "_pvp_float_window", None):
+                if not self.ensure_widget_window():
+                    return {"success": False, "message": "悬浮窗创建失败"}
             result = self.widget_toggle()
             visible = bool(result.get("visible"))
             # 推送闸门与 widget 显隐状态同步(此前 _pvp_float_visible 从未置 True,
