@@ -481,6 +481,40 @@ async function updateFloatIfVisible(calcResult) {
 // ---- PVP 实时识别引擎 ----
 let pvpEngineRunning = false;
 
+// 引擎状态 → 主控台 UI 同步(按钮文案/源下拉框)。
+// 引擎可能从悬浮窗启动/被模式互斥停止, 主控台不能只信自己的本地变量。
+async function syncPVPEngineUI() {
+    const btn = document.getElementById('btnPVPEngine');
+    if (!btn || btn.disabled) return;   // 用户正在操作, 不抢
+    try {
+        const s = await pywebview.api.pvp_engine_status();
+        pvpEngineRunning = !!s.running;
+        const srcEl = document.getElementById('pvpSourceSelect');
+        if (srcEl && s.source) srcEl.value = s.source;   // 下拉框反映真实数据源
+        if (pvpEngineRunning) {
+            btn.textContent = '⏹ 停止识别';
+            btn.className = 'btn btn-danger';
+        } else {
+            btn.textContent = '▶ 启动识别';
+            btn.className = 'btn btn-primary';
+        }
+    } catch (e) {}
+}
+
+// 数据源下拉框切换: 引擎运行中 → 立即按新源重启; 未运行 → 记住选择待启动
+async function onPvpSourceChange() {
+    const srcEl = document.getElementById('pvpSourceSelect');
+    const src = srcEl ? srcEl.value : 'ocr';
+    if (!pvpEngineRunning) return;
+    try {
+        await pywebview.api.pvp_engine_stop();
+        const r = await pywebview.api.pvp_engine_start(src);
+        if (r.success) addLog('PVP 引擎已切换数据源: ' + (r.source || src), 'success');
+    } catch (e) {
+        addLog('PVP 数据源切换异常: ' + e.message, 'error');
+    }
+}
+
 async function togglePVPEngine() {
     const btn = document.getElementById('btnPVPEngine');
     btn.disabled = true;
@@ -561,6 +595,8 @@ async function refreshCollector() {
     } catch (e) { /* 静默 */ }
 }
 setInterval(refreshCollector, 3000);
+// 引擎可能被悬浮窗/模式互斥改动, 定期同步一次真实状态到主控台
+setInterval(syncPVPEngineUI, 5000);
 
 // ---------- 悬浮窗同步入口 ----------
 // PVP 实时引擎识别到双方精灵后,自动填进详细查询页(玩家切屏细看)

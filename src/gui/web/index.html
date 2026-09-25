@@ -683,7 +683,7 @@
                 </div>
                 <div class="pvp-head-actions">
                     <button class="btn btn-ghost" onclick="doResourceSync()" title="从官方更新精灵与技能图鉴">同步资源</button>
-                    <select id="pvpSourceSelect" class="form-select" style="width:auto" title="数据源：OCR 截图识别 / 自研抓包 / RKPP 解码">
+                    <select id="pvpSourceSelect" class="form-select" style="width:auto" onchange="onPvpSourceChange()" title="数据源：OCR 截图识别 / 自研抓包 / RKPP 解码(运行中切换即时生效)">
                         <option value="ocr">OCR 识别</option>
                         <option value="capture">自研抓包</option>
                         <option value="rkpp">RKPP 解码</option>

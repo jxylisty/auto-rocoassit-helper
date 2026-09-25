@@ -929,7 +929,10 @@ class PvpEngineMixin:
         if gate:
             return gate
         if self._pvp_running:
-            return {"success": True, "message": "PVP 引擎已在运行"}
+            label = {"capture": "抓包", "rkpp": "RKPP 解码"}.get(self._pvp_source, "OCR")
+            return {"success": True, "running": True,
+                    "source": self._pvp_source,
+                    "message": f"PVP 引擎已在运行(数据源: {label})"}
         auto_stopped = self._stop_conflicting_modes("pvp")
         src = str(source or "").lower()
         if src not in ("capture", "rkpp", "ocr"):
