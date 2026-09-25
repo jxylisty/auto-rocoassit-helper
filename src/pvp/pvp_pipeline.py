@@ -22,6 +22,8 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from src.pvp.skill_lexicon import correct_skill_name
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_DIR = PROJECT_ROOT / "data" / "config" / "roi_templates"
 DEFAULT_TEMPLATE = TEMPLATE_DIR / "PVP标准模板.json"
@@ -441,7 +443,10 @@ class PvpPipeline:
                                         cv2.BORDER_CONSTANT, value=(0, 0, 0))
             crops.append((roi_id, padded))
         texts = ocr_batch_chinese(crops) if crops else {}
-        return [texts.get(f"技能{i}", "").strip() for i in range(1, 5)]
+        # 词库纠错: 错名("游泥表皮")/垃圾("VE")一律洗成词库内名字或空串,
+        # 空串由调用方沿用上一帧稳定值
+        return [correct_skill_name(texts.get(f"技能{i}", "").strip())
+                for i in range(1, 5)]
 
     def analyze(self, frame: np.ndarray) -> PvpResult:
         """分析一帧，返回 PvpResult。帧差跳帧：静止画面直接返回缓存 (0ms)"""
@@ -530,9 +535,9 @@ class PvpPipeline:
                     result.enemy_name_via_avatar = True
                     result.errors.append(f"敌方名字走头像兜底: {hit['name']}({hit['confidence']})")
 
-        # ---- 4. 技能名 ----
+        # ---- 4. 技能名 (词库纠错, 与 read_skill_bar 同一套) ----
         for i, roi_id in enumerate(["技能1", "技能2", "技能3", "技能4"]):
-            result.skills[i] = ocr_results.get(roi_id, "")
+            result.skills[i] = correct_skill_name(ocr_results.get(roi_id, ""))
 
         # ---- 5. 数字提取 ----
         hp_raw = ocr_results.get("我方血条", "")
@@ -647,6 +652,10 @@ class PvpPipeline:
             "player_lineup": result.player_lineup if result.lineup_done else [],
             "enemy_lineup": result.enemy_lineup if result.lineup_done else [],
             "lineup_done": result.lineup_done,
+            # 敌方最近一次实际释放的技能(仅 RKPP 抓包源有值, OCR 源恒空);
+            # 回合日志 enemy_skill_cast 事件与悬浮窗"敌方上招"消费
+            "enemy_last_cast": getattr(result, "enemy_last_cast", ""),
+            "round_no": getattr(result, "round_no", 0) or 0,
         }
 
 

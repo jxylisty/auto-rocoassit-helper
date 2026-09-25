@@ -164,6 +164,25 @@ def _skill_display_name(sk: dict) -> str:
     return desc or name
 
 
+def _enemy_cast_name(sk: dict) -> str:
+    """敌方施法的显示名：结构启发式 + 词库优先。
+
+    0x1324 的 skill_cast 同样存在 name/desc 反置；两边都"不像效果"的边界
+    情况下, 谁是词库(data/pvp/skills.json 等)内的合法技能名就取谁, 都不在
+    词库则退回结构启发式。敌方出招是回合日志/推演的权威记录, 宁可多一层校验。
+    """
+    try:
+        from src.pvp.skill_lexicon import correct_skill_name
+    except Exception:
+        return _skill_display_name(sk)
+    desc = str(sk.get("skill_desc") or "").strip()
+    name = str(sk.get("skill_name") or "").strip()
+    for cand in (_skill_display_name(sk), name, desc):
+        if cand and correct_skill_name(cand, allow_fuzzy=False):
+            return cand
+    return _skill_display_name(sk)
+
+
 def _iter_battle_skill_pairs(skills: Any):
     """从一组 skill 条目里产出 (skill_id, 显示名)，只保留战斗技能。
 
@@ -328,6 +347,8 @@ class RkppEventClient:
         self._pet_skills: dict = {}                # pet_id → pet_skill.skills（全队）
         self._on_field_pid: Optional[int] = None   # 我方当前上场宠 pet_id
         self._skill_map: dict = {}                 # 本局累计 {7位skill_id: 技能名}
+        self._enemy_casts: list = []               # 敌方施法记录 [{round, skill}]（本局）
+        self._enemy_last_cast = ""                 # 敌方最近一次释放的技能名
         self._player_name = ""
         self._player_hp_val = 0
         self._player_hp_max = 0
@@ -376,6 +397,8 @@ class RkppEventClient:
             self._pet_skills = {}
             self._on_field_pid = None
             self._skill_map = {}
+            self._enemy_casts = []
+            self._enemy_last_cast = ""
             self._player_name = ""
             self._player_hp_val = 0
             self._player_hp_max = 0
@@ -481,6 +504,8 @@ class RkppEventClient:
         self._pet_skills = {}
         self._on_field_pid = None
         self._skill_map = {}
+        self._enemy_casts = []
+        self._enemy_last_cast = ""
         self._round_no = 0
         self._player_hp_val = 0
         self._player_hp_max = 0
@@ -598,7 +623,9 @@ class RkppEventClient:
     def _apply_action_resolve(self, detail: dict) -> None:
         """0x1324 perform：perform_info 里 type=1 技能、type=4 伤害/扣血。
 
-        只收集我方(caster_id∈1..6)施放的技能名；敌方施法不入技能栏。
+        我方(caster_id∈1..6)施法 → 累计技能对照表；
+        敌方施法 → 记入 _enemy_casts/_enemy_last_cast（回合日志的
+        enemy_skill_cast 事件与悬浮窗"敌方上招"都吃这个, 此前直接丢弃）。
         """
         pc = detail.get("perform_cmd")
         if not isinstance(pc, dict):
@@ -609,9 +636,18 @@ class RkppEventClient:
             t = item.get("type")
             if t == 1:
                 sc = item.get("skill_cast")
-                if isinstance(sc, dict) and _side_of_pet_id(sc.get("caster_id")) == "player":
+                if not isinstance(sc, dict):
+                    continue
+                side = _side_of_pet_id(sc.get("caster_id"))
+                if side == "player":
                     self._add_skill_name(
                         _skill_display_name(sc) or sc.get("skill_id"), sc.get("skill_id"))
+                elif side == "enemy":
+                    name = _enemy_cast_name(sc) or str(sc.get("skill_id") or "").strip()
+                    if name:
+                        self._enemy_last_cast = name
+                        self._enemy_casts.append(
+                            {"round": self._round_no, "skill": name})
             elif t == 4:
                 di = item.get("damage_info") or {}
                 sync = item.get("sync_data") or {}
@@ -803,6 +839,7 @@ class RkppEventClient:
                 result.enemy_lineup = list(self._enemy_lineup)
                 result.lineup_done = self._lineup_done
                 result.skills = ["", "", "", ""]
+                result.enemy_last_cast = self._enemy_last_cast
             else:
                 # 非战斗态清空精灵名（与 PvpPipeline 语义一致，防串场）
                 result.player_name = ""

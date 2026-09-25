@@ -253,8 +253,10 @@ class PvpEngineMixin:
 
         抓包侧已不再产出技能名(result.skills 恒为空)，故此处 OCR 识别到的槽位直接
         写入；识别为空的槽位保持空串（不拿抓包的错误名兜底）。
-        防抖：某帧 OCR 失败/全空时，沿用上一帧成功的技能栏，避免技能栏闪没；
-        新一局开局(battle_start)清空缓存。
+        防抖(槽位级): 某帧某槽识别失败/为空时沿用上一帧该槽的稳定值, 不整栏清空
+        (识别结果显示层与判定层分离); 全栏失败沿用整栏缓存; 新一局开局清空缓存。
+        注意: read_skill_bar 返回前已经过技能名词库纠错, 垃圾值("VE"/"游泥表皮")
+        不会进来。
         """
         if getattr(result, "battle_start", False):
             self._ocr_skill_cache = None
@@ -272,11 +274,21 @@ class PvpEngineMixin:
             self._apply_ocr_skill_cache(result)
             return
         ocr_skills = pipeline.read_skill_bar(frame)
-        if not any(ocr_skills):
+        cache = getattr(self, "_ocr_skill_cache", None)
+        merged = []
+        for i in range(4):
+            new = ocr_skills[i] if i < len(ocr_skills) else ""
+            if new:
+                merged.append(new)                      # 本帧读到 → 更新
+            elif cache and i < len(cache) and cache[i]:
+                merged.append(cache[i])                 # 本帧没读到 → 沿用旧值
+            else:
+                merged.append("")                       # 从未读到 → 空
+        if not any(merged):
             self._apply_ocr_skill_cache(result)
             return
-        self._ocr_skill_cache = list(ocr_skills[:4])
-        result.skills = list(ocr_skills[:4])
+        self._ocr_skill_cache = merged
+        result.skills = list(merged)
 
     def _apply_ocr_skill_cache(self, result) -> None:
         """OCR 本帧失败时，沿用上一帧成功的技能栏（防闪没）。"""

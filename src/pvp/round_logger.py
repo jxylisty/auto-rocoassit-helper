@@ -35,6 +35,7 @@ class RoundLogger:
         self.last_enemy_hp_pct: float | None = None
         self.last_player_hp_val: int | None = None
         self.last_skills: list = []
+        self.last_enemy_cast = ""    # 敌方最近一次实际释放的技能(RKPP 0x1324)
         self.player_hp_max_seen = 0
         self.enemy_names_seen: list = []   # 本局敌方出场序列
         self.player_names_seen: list = []
@@ -208,6 +209,17 @@ class RoundLogger:
                            "turn": self.turn_count,
                            "skills": skills})
             self.last_skills = skills
+
+        # --- 敌方施法实测(RKPP 0x1324 perform, caster 为敌方时记录) ---
+        # 此前敌方侧只有血量增减猜测, 无实际出招记录; 抓包结算包里的
+        # skill_cast 是权威数据, 变化一次 = 敌方出了一招。
+        enemy_cast = (enemy or {}).get("enemy_last_cast") or ""
+        if enemy_cast and enemy_cast != self.last_enemy_cast:
+            events.append({"t": now, "event": "enemy_skill_cast",
+                           "turn": self.turn_count,
+                           "round": snap.get("round_no"),
+                           "skill": enemy_cast})
+            self.last_enemy_cast = enemy_cast
 
         # 敌方被打倒检测: 血量曾见底(<3%) → 该精灵已阵亡(粗判, 换宠前最后一次)
         for name, info in self.enemy_roster.items():
