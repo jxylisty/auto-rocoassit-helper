@@ -34,7 +34,9 @@ class DailyMixin:
         except Exception:
             pass
         try:
-            self._pvp_running = False
+            if getattr(self, "_pvp_running", False):
+                self._pvp_running = False
+                self._enqueue_log("PVP 识别已停止(日常任务互斥)", "warning")
         except Exception:
             pass
         try:
@@ -57,7 +59,9 @@ class DailyMixin:
         except Exception:
             pass
         try:
-            self._pvp_running = False
+            if getattr(self, "_pvp_running", False):
+                self._pvp_running = False
+                self._enqueue_log("PVP 识别已停止(日常任务互斥)", "warning")
         except Exception:
             pass
         try:

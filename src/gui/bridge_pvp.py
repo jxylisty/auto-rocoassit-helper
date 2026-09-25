@@ -919,17 +919,22 @@ class PvpEngineMixin:
                 except Exception:
                     pass
 
-    def pvp_engine_start(self, source: str = "ocr") -> dict:
-        """启动 PVP 实时识别引擎。source: "ocr"(默认) / "capture"(自研抓包) / "rkpp"。
-        rkpp = 复用 RKPP 解码后端(opencode-server + /events 订阅)。"""
+    def pvp_engine_start(self, source: str = "") -> dict:
+        """启动 PVP 实时识别引擎。source: "ocr" / "capture"(自研抓包) / "rkpp"。
+
+        source 缺省(悬浮窗启动按钮等无参调用方)时沿用上一次的数据源 ——
+        此前硬默认 "ocr", 用户选了 rkpp 后一按悬浮窗启动键就被无声降级成
+        OCR(实测 2026-09-25 晚), 是"我没切但它变成 OCR"的元凶之一。"""
         gate = self._auth_gate()
         if gate:
             return gate
         if self._pvp_running:
             return {"success": True, "message": "PVP 引擎已在运行"}
         auto_stopped = self._stop_conflicting_modes("pvp")
-        src = str(source).lower()
-        self._pvp_source = src if src in ("capture", "rkpp") else "ocr"
+        src = str(source or "").lower()
+        if src not in ("capture", "rkpp", "ocr"):
+            src = getattr(self, "_pvp_source", "") or "ocr"
+        self._pvp_source = src
         import threading
         self._pvp_running = True
         self._pvp_thread = threading.Thread(target=self._pvp_loop, daemon=True, name="PvpEngine")

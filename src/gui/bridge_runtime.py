@@ -152,7 +152,10 @@ class RuntimeMixin:
         self.tool.stop_all()
         if self.engine.running:
             self.engine.stop("全部停止")
-        self._pvp_running = False
+        if getattr(self, "_pvp_running", False):
+            # 静默杀 PVP 曾导致"RKPP 引擎无声消失"(全部停止/异色联动路径无日志)
+            self._pvp_running = False
+            self._enqueue_log("PVP 识别已停止(全部停止/联动触发)", "warning")
         return {"success": True}
 
     def get_app_mode(self) -> dict:

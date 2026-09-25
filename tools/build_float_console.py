@@ -206,10 +206,11 @@ def main() -> None:
 
     // ===== PVP 识别引擎开关(悬浮窗直达) =====
     let pvEngineOn = false;
+    let pvLastSource = '';          // 上次数据源(状态轮询时记录, 启动时带回)
     async function pvEngineToggle() {
         try {
             if (pvEngineOn) await pywebview.api.pvp_engine_stop();
-            else await pywebview.api.pvp_engine_start();
+            else await pywebview.api.pvp_engine_start(pvLastSource);
         } catch (e) {}
         refreshPvEngine();
     }
@@ -218,6 +219,7 @@ def main() -> None:
         try {
             const s = await pywebview.api.pvp_engine_status();
             pvEngineOn = !!s.running;
+            if (s.source) pvLastSource = s.source;   // 记住引擎/上次的源, 启动时带回
             const btn = $('pvEngineBtn');
             if (btn) {
                 btn.textContent = pvEngineOn ? '■ 停止识别' : '▶ 启动识别';
