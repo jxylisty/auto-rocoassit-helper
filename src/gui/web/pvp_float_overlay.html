@@ -87,14 +87,11 @@ body {
 }
 .fold-btn:hover { color: var(--text); border-color: var(--accent); background: rgba(99, 102, 241, 0.2); }
 
-/* 主体容器 */
+/* 主体容器: 高度跟随内容(紧凑卡常显 + 详情默认折叠), 窗口尺寸由外壳
+   syncSize 按卡片实际高度自适应, 不再用 490px 内滚死限制挤压推演区块 */
 .body {
     padding: 10px 12px 14px;
-    max-height: 490px;
-    overflow-y: auto;
 }
-.body::-webkit-scrollbar { width: 4px; }
-.body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
 
 /* 对阵双方 VS 看板 */
 .vs-banner {
@@ -506,6 +503,43 @@ body {
     @keyframes aiSpin { to { transform: rotate(360deg); } }
     .ai-d-empty { font-size: 10px; color: var(--dim); padding: 6px 8px; text-align: center; }
     @keyframes aiFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+    /* ===== 信息架构: 紧凑卡常显 + 推演详情折叠 ===== */
+    .pv-detail-fold {
+        margin-top: 10px; border-top: 1px dashed rgba(255,255,255,0.14);
+    }
+    .pv-detail-head {
+        width: 100%; text-align: left; cursor: pointer;
+        background: transparent; border: none; color: var(--dim);
+        font-family: inherit; font-size: 10.5px; font-weight: 700;
+        padding: 8px 2px 6px;
+    }
+    .pv-detail-head:hover { color: var(--text); }
+    #pvDetailBody { padding-bottom: 4px; }
+    .pv-detail-empty {
+        color: var(--dim); font-size: 10.5px; text-align: center; padding: 8px 0;
+    }
+    .adv-compact {
+        margin-top: 8px; padding: 7px 10px; border-radius: 10px;
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(59, 130, 246, 0.06));
+        border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+    .adv-compact .adv-conf { flex: 0 0 auto; }
+    .adv-compact .adv-reason {
+        flex-basis: 100%; font-size: 10px; color: var(--ink-2); line-height: 1.5;
+    }
+    .enemy-cast-line {
+        margin-top: 8px; padding: 6px 10px; border-radius: 8px;
+        font-size: 11px; color: var(--ink-1);
+        background: rgba(248, 113, 113, 0.08);
+        border: 1px solid rgba(248, 113, 113, 0.22);
+    }
+    .enemy-cast-line.lethal {
+        background: rgba(248, 113, 113, 0.16);
+        border-color: rgba(248, 113, 113, 0.45);
+        color: #f87171; font-weight: 700;
+    }
 </style>
 </head>
 <body>
@@ -663,6 +697,55 @@ function onStarfallSelect(value) {
     if (_lastPayload) updatePVPData(_lastPayload);
 }
 
+// ===== 信息架构: 紧凑卡常显 + 推演详情折叠 =====
+let _pvDetailOpen = false;      // 详情折叠态
+let _pvDetailDirty = false;     // 折叠期间数据来过 → 展开时补画一次
+let _autoTabShown = false;      // 本局是否已做过"进战斗自动切 PVP"
+let _userTabOverride = false;   // 用户手动点过标签 → 本局不再自动抢切
+
+function _ensurePvContainers(bodyEl) {
+    // 骨架常显: 保证 #pvCompact / #pvDetail 容器存在(卡片常显原则)
+    if (!document.getElementById('pvCompact')) {
+        bodyEl.insertAdjacentHTML('afterbegin',
+            '<div id="pvCompact"></div>' +
+            '<div class="pv-detail-fold" id="pvDetail">' +
+            '<button class="pv-detail-head" id="pvDetailBtn" onclick="togglePvpDetail()">📌 推演详情（星陨/愿力/AI详析/威胁） ▸</button>' +
+            '<div id="pvDetailBody" style="display:none"></div></div>');
+    }
+}
+
+function togglePvpDetail() {
+    _pvDetailOpen = !_pvDetailOpen;
+    const body = document.getElementById('pvDetailBody');
+    const btn = document.getElementById('pvDetailBtn');
+    if (!body) return;
+    body.style.display = _pvDetailOpen ? '' : 'none';
+    if (btn) btn.textContent = _pvDetailOpen
+        ? '📌 收起推演详情 ▾'
+        : '📌 推演详情（星陨/愿力/AI详析/威胁） ▸';
+    // 折叠期间数据来过 → 展开时补画一次
+    if (_pvDetailOpen && _pvDetailDirty && _lastPayload) {
+        updatePVPData(_lastPayload);
+        return;   // updatePVPData 内部已渲染详情
+    }
+    if (typeof syncSize === 'function') setTimeout(syncSize, 50);
+    else if (typeof syncPvpSize === 'function') setTimeout(syncPvpSize, 50);
+}
+
+// 自动上下文(仅合并版外壳有 switchTab): 进战斗切 PVP / 出战斗回落挂机;
+// 用户手动点过标签(_userTabOverride)后, 本轮对局不再自动抢切
+function _autoContextSwitch(inBattle) {
+    if (typeof switchTab !== 'function') return;
+    if (inBattle && !_autoTabShown) {
+        _autoTabShown = true;
+        _userTabOverride = false;
+        if (typeof activeTab !== 'undefined' && activeTab !== 'pvp') switchTab('pvp', true);
+    } else if (!inBattle && _autoTabShown) {
+        _autoTabShown = false;
+        if (!_userTabOverride && typeof activeTab !== 'undefined' && activeTab !== 'afk') switchTab('afk', true);
+    }
+}
+
 function updatePVPData(data) {
     // 内容高度随数据变化,渲染后自动校准窗口尺寸
     requestAnimationFrame(() => setTimeout(syncPvpSize, 50));
@@ -681,10 +764,12 @@ function updatePVPData(data) {
         statusDot.className = 'dot off';
         speedBadge.textContent = '--';
         speedBadge.className = 'speed-badge';
+        _autoContextSwitch(false);   // 出战斗回落挂机标签(用户手动切过则不抢)
         return; // 保留上一次的推演内容不清空
     }
 
     statusDot.className = 'dot';
+    _autoContextSwitch(true);
     const p = data.player || {}, e = data.enemy || {};
     _lastPayload = data;
 
@@ -860,34 +945,8 @@ function updatePVPData(data) {
         `;
     }
 
-    // AI 战术建议解析
-    const rawAdvice = data.ai_advice;
-    let advice = { actionLabel: '分析中…', reasoning: '', risk: '', confidence: 'medium', altsHtml: '' };
-    if (rawAdvice && rawAdvice.recommendation) {
-        const r = rawAdvice.recommendation;
-        const actionMap = { 'skill': '⚔️ 出招', 'switch': '🔄 换宠', 'energize': '⚡ 聚能', 'resonance': '🔮 愿力冲击' };
-        const actionIcon = actionMap[r.action] || ('➡️ ' + r.action);
-        const targetHtml = r.target ? `<span class="ai-d-target">${r.target}</span>` : '';
-        advice = {
-            actionLabel: `${actionIcon} ${targetHtml}`,
-            reasoning: r.reasoning || '',
-            risk: r.risk || '',
-            confidence: r.confidence || 'medium',
-            altsHtml: ''
-        };
-        if (rawAdvice.alternatives && rawAdvice.alternatives.length) {
-            advice.altsHtml = rawAdvice.alternatives.map(a =>
-                ` <span style="font-size:9px;color:var(--dim);display:block;padding:1px 0;">↳ ${a.action}: ${a.target} — ${(a.reasoning || '').slice(0, 40)}</span>`
-            ).join('');
-        }
-    } else if (!rawAdvice) {
-        advice = { actionLabel: '等待推演…', reasoning: '', risk: '', confidence: 'medium', altsHtml: '' };
-    } else if (rawAdvice.error) {
-        advice = { actionLabel: '推演异常', reasoning: rawAdvice.error, risk: '', confidence: 'low', altsHtml: '' };
-    }
-
-    bodyEl.innerHTML = `
-        <!-- VS 看板 -->
+    // VS 看板(紧凑卡常显区第一块)
+    const vsBannerHtml = `
         <div class="vs-banner">
             <div class="pet-side player">
                 <div class="pet-header">
@@ -938,37 +997,88 @@ function updatePVPData(data) {
                     <span style="color: #f87171; font-weight:700;">锁定中</span>
                 </div>
             </div>
+        </div>`;
+
+    // AI 战术建议解析
+    const rawAdvice = data.ai_advice;
+    let advice = { actionLabel: '分析中…', reasoning: '', risk: '', confidence: 'medium', altsHtml: '' };
+    if (rawAdvice && rawAdvice.recommendation) {
+        const r = rawAdvice.recommendation;
+        const actionMap = { 'skill': '⚔️ 出招', 'switch': '🔄 换宠', 'energize': '⚡ 聚能', 'resonance': '🔮 愿力冲击' };
+        const actionIcon = actionMap[r.action] || ('➡️ ' + r.action);
+        const targetHtml = r.target ? `<span class="ai-d-target">${r.target}</span>` : '';
+        advice = {
+            actionLabel: `${actionIcon} ${targetHtml}`,
+            reasoning: r.reasoning || '',
+            risk: r.risk || '',
+            confidence: r.confidence || 'medium',
+            altsHtml: ''
+        };
+        if (rawAdvice.alternatives && rawAdvice.alternatives.length) {
+            advice.altsHtml = rawAdvice.alternatives.map(a =>
+                ` <span style="font-size:9px;color:var(--dim);display:block;padding:1px 0;">↳ ${a.action}: ${a.target} — ${(a.reasoning || '').slice(0, 40)}</span>`
+            ).join('');
+        }
+    } else if (!rawAdvice) {
+        advice = { actionLabel: '等待推演…', reasoning: '', risk: '', confidence: 'medium', altsHtml: '' };
+    } else if (rawAdvice.error) {
+        advice = { actionLabel: '推演异常', reasoning: rawAdvice.error, risk: '', confidence: 'low', altsHtml: '' };
+    }
+
+    // ===== 信息架构: 紧凑对局卡常显, 推演详情折叠 =====
+    // 常显(每帧刷新): VS看板 / AI建议一行 / 我方技能4卡 / 敌方上招与致死预警
+    // 折叠(展开时才刷新): 星陨速查 / 愿力推演 / AI完整理由 / 敌方威胁全表
+    const enemyCast = (data.enemy_last_cast || '').toString().trim();
+    const lethalThreat = (data.enemy_threats || []).find(t => t.is_lethal);
+    const lethalHtml = lethalThreat
+        ? `<div class="enemy-cast-line lethal">⚠️ 致死预警: <b>${lethalThreat.name}</b> ${lethalThreat.dmg_min}~${lethalThreat.dmg_max}</div>`
+        : '';
+
+    const compactHtml = `
+        ${vsBannerHtml}
+        <div class="adv-compact">
+            <span class="ai-d-action" style="padding:0;font-size:13px;">${advice.actionLabel}</span>
+            <span class="adv-conf ai-d-conf ${advice.confidence || 'medium'}">${(advice.confidence === 'high' ? '高' : advice.confidence === 'low' ? '低' : '中')}</span>
+            ${advice.reasoning ? `<div class="adv-reason">${advice.reasoning.slice(0, 64)}${advice.reasoning.length > 64 ? '…' : ''}</div>` : ''}
         </div>
-
-        <!-- 星陨印记引爆速查 -->
-        ${starfallHtml}
-
-        <!-- 愿力冲击暗手推演 -->
-        ${resonanceHtml}
-
-        <!-- AI 战术决策面板 -->
-        <div class="ai-decision-box" id="aiDecisionBox">
-            <div class="ai-d-head">
-                <span class="ai-d-title">🧠 AI 战术建议</span>
-                <span class="ai-d-conf ${advice.confidence || 'medium'}">${(advice.confidence === 'high' ? '高' : advice.confidence === 'low' ? '低' : '中') || '中'}</span>
-            </div>
-            <div class="ai-d-action">
-                ${advice.actionLabel}
-            </div>
-            <div class="ai-d-reason">${advice.reasoning}</div>
-            ${advice.risk ? `<div class="ai-d-risk">⚠️ ${advice.risk}</div>` : ''}
-            ${advice.altsHtml ? `<div class="ai-d-alts">备选方案:${advice.altsHtml}</div>` : ''}
-        </div>
-
-        <!-- 我方技能推演 -->
         <div class="sec-title">🎯 我方技能即时伤害推演</div>
         <div class="skills-grid">
             ${skillsHtml || '<div style="color:var(--dim);font-size:11px;padding:8px 0;text-align:center;">暂无技能推演数据</div>'}
         </div>
-
-        <!-- 敌方常规威胁雷达 -->
-        ${threatsHtml}
+        ${enemyCast ? `<div class="enemy-cast-line">🗡️ 敌方上招: <b>${enemyCast}</b></div>` : ''}
+        ${lethalHtml}
     `;
+
+    const detailHtml = `
+        ${starfallHtml || '<div class="pv-detail-empty">星陨数据等待推送…</div>'}
+        ${resonanceHtml || ''}
+        <div class="ai-decision-box" id="aiDecisionBox">
+            <div class="ai-d-head">
+                <span class="ai-d-title">🧠 AI 战术建议 · 完整分析</span>
+                <span class="ai-d-conf ${advice.confidence || 'medium'}">${(advice.confidence === 'high' ? '高' : advice.confidence === 'low' ? '低' : '中') || '中'}</span>
+            </div>
+            <div class="ai-d-reason">${advice.reasoning || '（暂无完整理由）'}</div>
+            ${advice.risk ? `<div class="ai-d-risk">⚠️ ${advice.risk}</div>` : ''}
+            ${advice.altsHtml ? `<div class="ai-d-alts">备选方案:${advice.altsHtml}</div>` : ''}
+        </div>
+        <div class="sec-title">🎯 敌方预测伤害 (按其种族高项筛选)</div>
+        ${threatsHtml || '<div class="pv-detail-empty">暂无威胁数据</div>'}
+    `;
+
+    _ensurePvContainers(bodyEl);
+    const compactEl = document.getElementById('pvCompact');
+    if (compactEl) compactEl.innerHTML = compactHtml;
+
+    // 详情区: 折叠时只标脏不渲染(省 80% 重排), 展开瞬间补画一次
+    const detailBody = document.getElementById('pvDetailBody');
+    if (detailBody) {
+        if (_pvDetailOpen) {
+            detailBody.innerHTML = detailHtml;
+            _pvDetailDirty = false;
+        } else {
+            _pvDetailDirty = true;
+        }
+    }
 
     // 下拉展开期标记(mousedown→change 之间), 配合 updatePVPData 开头的跳过逻辑防打断
     const newSelect = document.getElementById('starfallStacksSelect');

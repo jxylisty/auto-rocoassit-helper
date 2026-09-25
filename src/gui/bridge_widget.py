@@ -822,8 +822,11 @@ class WidgetMixin:
             keyboard.add_hotkey('f8', self._hotkey_snip)
             keyboard.add_hotkey('f11', self._emergency_stop)
             keyboard.add_hotkey('f12', self._hotkey_pvp_float)
+            # stdout 直打: 启动日志可追溯(热键失效时不用猜)
+            print("[热键] keyboard 库注册完成: F2悬浮窗/F8截图/F11急停/F12 PVP悬浮窗", flush=True)
             self._enqueue_log("快捷键: F2悬浮窗/F8截图/F11急停/F12 PVP悬浮窗", "info")
         except Exception as e:
+            print(f"[热键] keyboard 库注册失败: {e}", flush=True)
             self._enqueue_log(f"快捷键注册失败: {e}", "error")
 
     def _hotkey_widget(self):
