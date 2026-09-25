@@ -698,10 +698,9 @@ function onStarfallSelect(value) {
 }
 
 // ===== 信息架构: 紧凑卡常显 + 推演详情折叠 =====
+// (自动上下文切换已按用户反馈移除: 标签只受手动控制, 不再随战斗状态抢切)
 let _pvDetailOpen = false;      // 详情折叠态
 let _pvDetailDirty = false;     // 折叠期间数据来过 → 展开时补画一次
-let _autoTabShown = false;      // 本局是否已做过"进战斗自动切 PVP"
-let _userTabOverride = false;   // 用户手动点过标签 → 本局不再自动抢切
 
 function _ensurePvContainers(bodyEl) {
     // 骨架常显: 保证 #pvCompact / #pvDetail 容器存在(卡片常显原则)
@@ -732,20 +731,6 @@ function togglePvpDetail() {
     else if (typeof syncPvpSize === 'function') setTimeout(syncPvpSize, 50);
 }
 
-// 自动上下文(仅合并版外壳有 switchTab): 进战斗切 PVP / 出战斗回落挂机;
-// 用户手动点过标签(_userTabOverride)后, 本轮对局不再自动抢切
-function _autoContextSwitch(inBattle) {
-    if (typeof switchTab !== 'function') return;
-    if (inBattle && !_autoTabShown) {
-        _autoTabShown = true;
-        _userTabOverride = false;
-        if (typeof activeTab !== 'undefined' && activeTab !== 'pvp') switchTab('pvp', true);
-    } else if (!inBattle && _autoTabShown) {
-        _autoTabShown = false;
-        if (!_userTabOverride && typeof activeTab !== 'undefined' && activeTab !== 'afk') switchTab('afk', true);
-    }
-}
-
 function updatePVPData(data) {
     // 内容高度随数据变化,渲染后自动校准窗口尺寸
     requestAnimationFrame(() => setTimeout(syncPvpSize, 50));
@@ -764,12 +749,10 @@ function updatePVPData(data) {
         statusDot.className = 'dot off';
         speedBadge.textContent = '--';
         speedBadge.className = 'speed-badge';
-        _autoContextSwitch(false);   // 出战斗回落挂机标签(用户手动切过则不抢)
         return; // 保留上一次的推演内容不清空
     }
 
     statusDot.className = 'dot';
-    _autoContextSwitch(true);
     const p = data.player || {}, e = data.enemy || {};
     _lastPayload = data;
 

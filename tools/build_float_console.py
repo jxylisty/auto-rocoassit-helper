@@ -193,13 +193,10 @@ def main() -> None:
 
     # ================= 4. 外壳 JS: 标签切换 + PVP 引擎开关 =================
     shell_js = """
-    // ===== 合并版: 标签切换 =====
-    // _userTabOverride 声明在 overlay 段(与 _autoTabShown 同处), 此处只赋值,
-    // 两处都 let 会因全局词法作用域重复声明抛错报废整个 script 块
+    // ===== 合并版: 标签切换(纯手动, 不随战斗状态自动切) =====
     let activeTab = 'afk';
-    function switchTab(tab, fromAuto) {
+    function switchTab(tab) {
         activeTab = tab;
-        if (!fromAuto) _userTabOverride = true;
         $('wBody').style.display = tab === 'afk' ? '' : 'none';
         $('pvRoot').style.display = tab === 'pvp' ? '' : 'none';
         $('tabAfk').classList.toggle('active', tab === 'afk');
