@@ -1,0 +1,7 @@
+{"t": "2026-09-25 21:53:40", "event": "match_start", "player": "翠顶夫人", "enemy": "兽花蕾"}
+{"t": "2026-09-25 21:53:48", "event": "player_hp_change", "from": 501, "to": 398, "delta": -103, "caused_by": "enemy"}
+{"t": "2026-09-25 21:53:57", "event": "enemy_hp_change", "from": 1.0, "to": 0.35, "delta_pct": -0.65, "caused_by": "player"}
+{"t": "2026-09-25 21:53:57", "event": "player_hp_change", "from": 398, "to": 501, "delta": 103, "caused_by": "enemy"}
+{"t": "2026-09-25 21:54:09", "event": "player_hp_change", "from": 501, "to": 407, "delta": -94, "caused_by": "enemy"}
+{"t": "2026-09-25 21:54:09", "event": "skills_seen", "turn": 1, "skills": ["等价交换", "力量增效", "水环", "水刃"]}
+{"t": "2026-09-25 21:54:32", "event": "match_end", "duration_sec": 52}

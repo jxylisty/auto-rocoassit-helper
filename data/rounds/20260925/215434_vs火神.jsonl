@@ -1,0 +1,3 @@
+{"t": "2026-09-25 21:54:34", "event": "match_start", "player": "翠顶夫人", "enemy": "火神"}
+{"t": "2026-09-25 21:54:38", "event": "player_hp_change", "from": 501, "to": 387, "delta": -114, "caused_by": "enemy"}
+{"t": "2026-09-25 21:54:53", "event": "match_end", "duration_sec": 19}
