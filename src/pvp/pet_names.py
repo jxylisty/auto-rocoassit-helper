@@ -38,7 +38,7 @@ def _load() -> dict[str, str]:
     with _lock:
         if _map is not None:
             return _map
-        mapping: dict[str, str] = {}
+        raw: dict[str, set] = {}
         try:
             data = json.loads(_PET_DETAIL.read_text(encoding="utf-8"))
             stack = [data]
@@ -50,12 +50,17 @@ def _load() -> dict[str, str]:
                     if title and img:
                         m = _ID_RE.search(str(img))
                         if m:
-                            mapping.setdefault(m.group(1), str(title))
+                            raw.setdefault(m.group(1), set()).add(str(title))
                     stack.extend(cur.values())
                 elif isinstance(cur, list):
                     stack.extend(cur)
         except Exception:
             pass
+        # 同一资源 ID 可能挂多个名字("暗影灵面" 与 "暗影灵面（闭眼的样子）"):
+        # 取最短的规范名(无括号修饰者优先), 保证 ID 解析出的名字可被头像表命中
+        mapping: dict[str, str] = {}
+        for key, titles in raw.items():
+            mapping[key] = min(titles, key=lambda t: (("（" in t) or ("(" in t), len(t)))
         _map = mapping
         return _map
 

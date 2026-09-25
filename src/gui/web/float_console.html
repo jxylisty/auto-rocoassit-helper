@@ -847,22 +847,24 @@
         const clean = raw.replace(/[\(（].*?[\)）]/g, '').trim();
         if (clean && map[clean]) return `assets/img/pets/${map[clean]}`;
 
-        // 3. 数字编号匹配（如 117 或 #117）
-        const numMatch = raw.match(/\d+/);
-        if (numMatch) {
-            const num = parseInt(numMatch[0], 10);
-            const pad3 = String(num).padStart(3, '0');
+        // 3. 纯数字名字(如 "117")才按编号找图; 名字里碰巧含数字的绝不走这里,
+        //    否则 "龙3" 会被 002_喵喵 之类抢走(图片对不上)
+        if (/^#?\d+$/.test(raw)) {
+            const pad3 = String(parseInt(raw, 10)).padStart(3, '0');
             for (const [k, v] of Object.entries(map)) {
-                if (v.startsWith(`${pad3}_`) || v.startsWith(`${num}_`)) {
+                if (v.startsWith(`${pad3}_`)) {
                     return `assets/img/pets/${v}`;
                 }
             }
         }
 
-        // 4. 模糊包含匹配
-        for (const [k, v] of Object.entries(map)) {
-            if (clean && (k.includes(clean) || clean.includes(k))) {
-                return `assets/img/pets/${v}`;
+        // 4. 模糊匹配(收紧): 只允许 词库键包含目标名 且 目标名>=3字,
+        //    绝不反向 includes —— 否则 "圣光迪莫" 会命中 "迪莫" 的基础形态图
+        if (clean && clean.length >= 3) {
+            for (const [k, v] of Object.entries(map)) {
+                if (k.includes(clean)) {
+                    return `assets/img/pets/${v}`;
+                }
             }
         }
 
@@ -1034,22 +1036,24 @@ function pvGetPetAvatar(name) {
     const clean = raw.replace(/[\(（].*?[\)）]/g, '').trim();
     if (clean && map[clean]) return `assets/img/pets/${map[clean]}`;
 
-    // 3. 数字编号匹配（如 117 或 #117）
-    const numMatch = raw.match(/\d+/);
-    if (numMatch) {
-        const num = parseInt(numMatch[0], 10);
-        const pad3 = String(num).padStart(3, '0');
+    // 3. 纯数字名字(如 "117")才按编号找图; 名字里碰巧含数字的绝不走这里,
+    //    否则 "龙3" 会被 002_喵喵 之类抢走(图片对不上)
+    if (/^#?\d+$/.test(raw)) {
+        const pad3 = String(parseInt(raw, 10)).padStart(3, '0');
         for (const [k, v] of Object.entries(map)) {
-            if (v.startsWith(`${pad3}_`) || v.startsWith(`${num}_`)) {
+            if (v.startsWith(`${pad3}_`)) {
                 return `assets/img/pets/${v}`;
             }
         }
     }
 
-    // 4. 模糊包含匹配
-    for (const [k, v] of Object.entries(map)) {
-        if (clean && (k.includes(clean) || clean.includes(k))) {
-            return `assets/img/pets/${v}`;
+    // 4. 模糊匹配(收紧): 只允许 词库键包含目标名 且 目标名>=3字,
+    //    绝不反向 includes —— 否则 "圣光迪莫" 会命中 "迪莫" 的基础形态图
+    if (clean && clean.length >= 3) {
+        for (const [k, v] of Object.entries(map)) {
+            if (k.includes(clean)) {
+                return `assets/img/pets/${v}`;
+            }
         }
     }
 
