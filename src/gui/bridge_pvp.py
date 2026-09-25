@@ -556,8 +556,12 @@ class PvpEngineMixin:
             pass
 
 
-    def _pvp_loop(self):
-        """后台线程: 截图 → 识别 → 伤害计算 → 推送悬浮窗"""
+    def _pvp_loop(self, gen: int = 0):
+        """后台线程: 截图 → 识别 → 伤害计算 → 推送悬浮窗。
+
+        gen = 启动代数: 快速 停止→启动 时, 旧线程可能仍卡在单轮 OCR 里
+        (join 超时返回), 若只看 _pvp_running 标志会与新线程双循环并行
+        推送。每轮检查代数, 过代即退。"""
         import time as _time
         import cv2, numpy as np
         from src.pvp.pvp_pipeline import get_pipeline
@@ -587,7 +591,7 @@ class PvpEngineMixin:
             self._start_rkpp_subsystem()
             rkpp_client = getattr(self, "_rkpp_client", None)
 
-        while self._pvp_running:
+        while self._pvp_running and gen == getattr(self, "_pvp_loop_gen", gen):
             t0 = _time.perf_counter()
             try:
                 if source == "capture":
@@ -940,7 +944,10 @@ class PvpEngineMixin:
         self._pvp_source = src
         import threading
         self._pvp_running = True
-        self._pvp_thread = threading.Thread(target=self._pvp_loop, daemon=True, name="PvpEngine")
+        self._pvp_loop_gen = getattr(self, "_pvp_loop_gen", 0) + 1
+        cur_gen = self._pvp_loop_gen
+        self._pvp_thread = threading.Thread(target=self._pvp_loop, kwargs={"gen": cur_gen},
+                                            daemon=True, name="PvpEngine")
         self._pvp_thread.start()
         label = {"capture": "抓包", "rkpp": "RKPP 解码"}.get(self._pvp_source, "OCR")
         self._enqueue_log(f"PVP 实时识别引擎已启动 (数据源: {label})", "success")
