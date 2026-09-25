@@ -247,6 +247,8 @@ class PvpPipeline:
         # 帧差跳帧缓存
         self._last_combined_hash: float | None = None
         self._cached_result: PvpResult | None = None
+        # 技能栏槽位防抖缓存(点击施法时技能栏隐藏, 残缺帧沿用上一帧稳定值)
+        self._skill_slot_cache: list[str] | None = None
         # 头像模板库(懒加载: 导入失败/库为空时静默降级, 只走 OCR)
         self._avatar_lib: object | None = None
         self._avatar_tried = False
@@ -535,9 +537,22 @@ class PvpPipeline:
                     result.enemy_name_via_avatar = True
                     result.errors.append(f"敌方名字走头像兜底: {hit['name']}({hit['confidence']})")
 
-        # ---- 4. 技能名 (词库纠错, 与 read_skill_bar 同一套) ----
-        for i, roi_id in enumerate(["技能1", "技能2", "技能3", "技能4"]):
-            result.skills[i] = correct_skill_name(ocr_results.get(roi_id, ""))
+        # ---- 4. 技能名 (词库纠错 + 槽位级防抖) ----
+        # 点击施法时游戏会隐藏技能栏, 过渡帧只读到部分槽位甚至读错;
+        # 整帧读满 4 槽才采信并缓存, 残缺帧沿用上一帧稳定值
+        # (识别结果显示层与判定层分离, 单帧失败不清空不污染)。
+        reads = [correct_skill_name(ocr_results.get(roi_id, ""))
+                 for roi_id in ["技能1", "技能2", "技能3", "技能4"]]
+        if getattr(result, "battle_start", False):
+            self._skill_slot_cache = None
+        cache = getattr(self, "_skill_slot_cache", None)
+        n_read = sum(1 for x in reads if x)
+        if cache and n_read < 4:
+            result.skills = list(cache)
+        else:
+            result.skills = reads
+            if n_read == 4:
+                self._skill_slot_cache = list(reads)
 
         # ---- 5. 数字提取 ----
         hp_raw = ocr_results.get("我方血条", "")
