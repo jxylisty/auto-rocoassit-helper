@@ -64,6 +64,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from src.pvp.pvp_pipeline import PvpResult
+from src.pvp.pet_names import pet_name_by_id
 from src.pvp.skill_ids import resolve_skill_name
 
 # id→名 对照表落盘位置（每局结束追加合并，越跑越全）
@@ -235,7 +236,13 @@ def _decode_cn_hex(raw: Any) -> str:
 def _parse_pet_info(bip: dict, *, common: Optional[dict] = None) -> dict:
     """从 battle_inside_pet_info 解析出 {pet_id, name, level, hp, hp_max, pos}。
 
-    名字优先 conf_name（已是明文），退化到 name 的 hex 解码。
+    ★ 名字解析链(2026-09-25 重排, 修"进化宠显示低级形态"):
+        1. 服务器下发的 name(field 23, hex→明文) — 客户端实际显示什么就传什么
+        2. conf_id 用项目 wiki 图鉴映射(pet_names) 查显示名 — 每个进化形态是
+           独立图鉴条目(迪莫=3004/圣光迪莫=5025), 覆盖全部 649 形态
+        3. RKPP 附带的 conf_name — 其内置查表混有测试/野外模板且偏基础形态,
+           只作兜底
+      conf_id / base_conf_id 原始值一并带出(out["conf_id"] 等), 供证据日志。
 
     ★ battle_attr 布局（实测全事件一致，与事件种类无关）：
         battle_attr[1]  = 最大血量（恒定）
@@ -247,13 +254,23 @@ def _parse_pet_info(bip: dict, *, common: Optional[dict] = None) -> dict:
        pos=18446744073709551615(uint64 max) 表示不在场。
     """
     out = {"pet_id": None, "name": "", "level": 0, "hp": None, "hp_max": 0, "pos": None,
-           "skills": [], "skill_map": {}}
+           "skills": [], "skill_map": {}, "conf_id": None, "base_conf_id": None}
     if not isinstance(bip, dict):
         return out
     out["pet_id"] = _as_int(bip.get("pet_id"))
-    name = str(bip.get("conf_name") or "").strip()
+    out["conf_id"] = _as_int(bip.get("conf_id"))
+    out["base_conf_id"] = _as_int(bip.get("base_conf_id"))
+
+    # 1) 服务器直接下发的名字(field 23, hex 明文) — 最贴近客户端实际显示
+    name = _decode_cn_hex(bip.get("name"))
+    # 2) conf_id → 项目 wiki 图鉴映射(含全部进化形态)
+    conf_id = out["conf_id"]
+    wiki_name = pet_name_by_id(conf_id) if conf_id else ""
+    if not name and wiki_name:
+        name = wiki_name
+    # 3) RKPP 内置查表的 conf_name 只作兜底(表混有测试模板, 且偏基础形态)
     if not name:
-        name = _decode_cn_hex(bip.get("name"))
+        name = str(bip.get("conf_name") or "").strip()
     out["name"] = name
     if isinstance(common, dict):
         lv = _as_int(common.get("level"))
@@ -444,6 +461,11 @@ class RkppEventClient:
                 self._stop.wait(1.0)
 
     def _log(self, msg: str) -> None:
+        # stdout 同步打一份: 启动日志(startup.log)可追溯, 不止进 UI 日志队列
+        try:
+            print(f"[RKPP] {msg}", flush=True)
+        except Exception:
+            pass
         if self._logger is not None:
             try:
                 self._logger(msg)
@@ -529,6 +551,22 @@ class RkppEventClient:
         if self._player_lineup and self._enemy_lineup:
             self._lineup_done = True
         self._apply_on_field(player_cur, enemy_cur)
+        # 证据日志: 名字解析链的原始输入与结果(修"低级形态"问题的可追溯性)
+        for side, lineup in (("我方", player_lineup), ("敌方", enemy_lineup)):
+            if lineup:
+                self._log(f"[阵容] {side}: {lineup}")
+        sample_pets = []
+        for team in (init.get("player_team") or []) if isinstance(init.get("player_team"), list) else []:
+            for bip, _c in _iter_team_pets(team):
+                if isinstance(bip, dict):
+                    sample_pets.append(bip)
+        for bip in sample_pets[:2]:
+            self._log(
+                f"[名字证据] pet_id={bip.get('pet_id')} conf_id={bip.get('conf_id')} "
+                f"base_conf_id={bip.get('base_conf_id')} "
+                f"服务器name={_decode_cn_hex(bip.get('name'))!r} "
+                f"conf_name={bip.get('conf_name')!r} "
+                f"wiki(conf_id)={pet_name_by_id(bip.get('conf_id'))!r}")
 
     def _collect_team(self, teams: Any, side: str):
         """收集一方的全部精灵与「当前上场」那只。"""
