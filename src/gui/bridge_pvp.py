@@ -274,6 +274,35 @@ class PvpEngineMixin:
             self._apply_ocr_skill_cache(result)
             return
         ocr_skills = pipeline.read_skill_bar(frame)
+        # OCR 槽位校准闭环: battle_enter 的 skill_round_data 带我方上场宠的
+        # (pos=HUD槽位, skill_id), OCR 按同样 4 个槽位读出准确名字 → id→名
+        # 零猜测写入校准表(最高优先级数据源), 敌方施法反查也吃这张表。
+        bar_entries = getattr(result, "_rkpp_bar_entries", None) or []
+        if bar_entries:
+            try:
+                from src.pvp.skill_calibration import record as cal_record, take_conflicts
+                pairs = {}
+                for ent in bar_entries:
+                    pos = ent.get("pos")
+                    sid = ent.get("skill_id")
+                    if not sid or not isinstance(pos, int) or not (1 <= pos <= 4):
+                        continue
+                    nm = ocr_skills[pos - 1] if pos - 1 < len(ocr_skills) else ""
+                    if nm:
+                        pairs[str(sid)] = nm
+                if pairs:
+                    changed = cal_record(pairs, source="ocr_slot")
+                    for c in take_conflicts():
+                        self._enqueue_log(
+                            f"[技能校准] ID {c['id']} 名字冲突: 保留'{c['kept']}', 新值'{c['new']}'",
+                            "warning")
+                    if changed:
+                        self._enqueue_log(
+                            f"[技能校准] +{len(changed)} 条: " +
+                            ", ".join(f"{c['id']}={c['name']}" for c in changed[:4]),
+                            "info")
+            except Exception:
+                pass
         cache = getattr(self, "_ocr_skill_cache", None)
         merged = []
         for i in range(4):

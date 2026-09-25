@@ -85,10 +85,22 @@ def normalize_skill_id(value: int | str) -> str | None:
 
 
 def resolve_skill_name(value: int | str) -> str:
-    """抓包技能 ID → 技能名。查不到返回空字符串（调用方自行降级）。"""
+    """抓包技能 ID → 技能名。查不到返回空字符串（调用方自行降级）。
+
+    优先级: OCR 槽位校准表(skill_calibration) → wiki 图鉴索引。
+    两表冲突时以校准表为准(来自真实对局的 OCR 实名); 都查不到宁空勿错,
+    绝不返回启发式猜测名(2026-09-25: 旧索引与启发式导出 41/41 冲突)。
+    """
     sid = normalize_skill_id(value)
     if sid is None:
         return ""
+    try:
+        from src.pvp.skill_calibration import name_for
+        cal = name_for(sid)
+        if cal:
+            return cal
+    except Exception:
+        pass
     return _load().get(sid, "")
 
 

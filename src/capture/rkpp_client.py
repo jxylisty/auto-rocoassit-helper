@@ -166,21 +166,26 @@ def _skill_display_name(sk: dict) -> str:
 
 
 def _enemy_cast_name(sk: dict) -> str:
-    """敌方施法的显示名：结构启发式 + 词库优先。
+    """敌方施法的显示名: ID 解析优先, 词库次之, 结构启发式最后。
 
-    0x1324 的 skill_cast 同样存在 name/desc 反置；两边都"不像效果"的边界
-    情况下, 谁是词库(data/pvp/skills.json 等)内的合法技能名就取谁, 都不在
-    词库则退回结构启发式。敌方出招是回合日志/推演的权威记录, 宁可多一层校验。
+    2026-09-25: 启发式配对被证实与 wiki 权威表大面积错位(41/41 冲突),
+    ID 才是稳定锚点 —— 校准表(OCR 槽位实测) → wiki 图鉴索引 → 包内名字
+    (须经词库校验, 防反置/描述句) → 启发式兜底。
     """
-    try:
-        from src.pvp.skill_lexicon import correct_skill_name
-    except Exception:
-        return _skill_display_name(sk)
+    sid = _as_int(sk.get("skill_id")) if isinstance(sk, dict) else None
+    if sid is not None:
+        by_id = resolve_skill_name(sid)
+        if by_id:
+            return by_id
     desc = str(sk.get("skill_desc") or "").strip()
     name = str(sk.get("skill_name") or "").strip()
-    for cand in (_skill_display_name(sk), name, desc):
-        if cand and correct_skill_name(cand, allow_fuzzy=False):
-            return cand
+    try:
+        from src.pvp.skill_lexicon import correct_skill_name
+        for cand in (name, desc):
+            if cand and correct_skill_name(cand, allow_fuzzy=False):
+                return cand
+    except Exception:
+        pass
     return _skill_display_name(sk)
 
 
@@ -203,6 +208,32 @@ def _iter_battle_skill_pairs(skills: Any):
         if not nm or nm in _SKILL_PLACEHOLDERS:
             continue
         yield sid, nm
+
+
+def _iter_battle_skill_entries(skills: Any):
+    """产出战斗技能的完整条目 {skill_id, name, pos, original_skill_id}。
+
+    与 _iter_battle_skill_pairs 的区别: 保留槽位号(pos, HUD 1~4)与变体回链
+    (original_skill_id, 应对/形态变化时游戏换用变体 ID 并回填原 ID) ——
+    OCR 槽位校准闭环靠这两个字段做精确对齐。
+    """
+    if not isinstance(skills, list):
+        return
+    for sk in skills:
+        if not isinstance(sk, dict):
+            continue
+        sid = _as_int(sk.get("skill_id"))
+        if sid is None or sid < 1000000:
+            continue
+        nm = _skill_display_name(sk)
+        if not nm or nm in _SKILL_PLACEHOLDERS:
+            continue
+        yield {
+            "skill_id": sid,
+            "name": nm,
+            "pos": _as_int(sk.get("pos")),
+            "original_skill_id": _as_int(sk.get("original_skill_id")),
+        }
 
 
 def _pick_battle_skills(skills: Any) -> list[str]:
@@ -254,7 +285,8 @@ def _parse_pet_info(bip: dict, *, common: Optional[dict] = None) -> dict:
        pos=18446744073709551615(uint64 max) 表示不在场。
     """
     out = {"pet_id": None, "name": "", "level": 0, "hp": None, "hp_max": 0, "pos": None,
-           "skills": [], "skill_map": {}, "conf_id": None, "base_conf_id": None}
+           "skills": [], "skill_map": {}, "conf_id": None, "base_conf_id": None,
+           "bar_entries": []}
     if not isinstance(bip, dict):
         return out
     out["pet_id"] = _as_int(bip.get("pet_id"))
@@ -293,6 +325,7 @@ def _parse_pet_info(bip: dict, *, common: Optional[dict] = None) -> dict:
     if isinstance(srd, list):
         out["skills"] = _pick_battle_skills(srd)
         out["skill_map"] = _skill_pairs_map(srd)
+        out["bar_entries"] = list(_iter_battle_skill_entries(srd))
     return out
 
 
@@ -366,6 +399,7 @@ class RkppEventClient:
         self._skill_map: dict = {}                 # 本局累计 {7位skill_id: 技能名}
         self._enemy_casts: list = []               # 敌方施法记录 [{round, skill}]（本局）
         self._enemy_last_cast = ""                 # 敌方最近一次释放的技能名
+        self._bar_entries: list = []               # 我方上场宠 (pos, skill_id) 条目(校准用)
         self._player_name = ""
         self._player_hp_val = 0
         self._player_hp_max = 0
@@ -416,6 +450,7 @@ class RkppEventClient:
             self._skill_map = {}
             self._enemy_casts = []
             self._enemy_last_cast = ""
+            self._bar_entries = []
             self._player_name = ""
             self._player_hp_val = 0
             self._player_hp_max = 0
@@ -487,11 +522,27 @@ class RkppEventClient:
 
     # ---------------- 事件翻译（核心） ----------------
 
+    def _dump_raw(self, event: dict) -> None:
+        """原始事件完美落盘: data/logs/rkpp_raw/<日期>.jsonl (NDJSON, 可离线重放)。
+
+        用于验证 id→名 映射/wiki 权威性/pos 槽位填充率 —— 在线解析出错时
+        原始数据仍在, 随时可重放修正。
+        """
+        try:
+            day = time.strftime("%Y%m%d")
+            d = _PROJECT_ROOT / "data" / "logs" / "rkpp_raw"
+            d.mkdir(parents=True, exist_ok=True)
+            with open(d / f"{day}.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+        except Exception:
+            pass
+
     def ingest_event(self, event: dict) -> None:
         """把一条 RKPP 事件翻译成内部状态（订阅线程调用）。"""
         kind = _kind_of_event(event)
         if not kind:
             return
+        self._dump_raw(event)
         op_hex = str(event.get("opencode") or "").strip().lower()
         with self._lock:
             self._last_event_ts = time.time()
@@ -528,6 +579,7 @@ class RkppEventClient:
         self._skill_map = {}
         self._enemy_casts = []
         self._enemy_last_cast = ""
+        self._bar_entries = []
         self._round_no = 0
         self._player_hp_val = 0
         self._player_hp_max = 0
@@ -567,6 +619,12 @@ class RkppEventClient:
                 f"服务器name={_decode_cn_hex(bip.get('name'))!r} "
                 f"conf_name={bip.get('conf_name')!r} "
                 f"wiki(conf_id)={pet_name_by_id(bip.get('conf_id'))!r}")
+        # 槽位证据: 验证 skill_round_data 的 pos 填充率与链式顺序
+        # (OCR 槽位校准依赖它; 缺失则退化多局收敛方案)
+        if self._bar_entries:
+            self._log("[技能槽位] " + str([
+                (e.get("pos"), e.get("skill_id"), e.get("original_skill_id"), e.get("name"))
+                for e in self._bar_entries]))
 
     def _collect_team(self, teams: Any, side: str):
         """收集一方的全部精灵与「当前上场」那只。"""
@@ -749,13 +807,26 @@ class RkppEventClient:
                     merged = {}
             before = len(merged)
             merged.update({str(k): str(v) for k, v in self._skill_map.items()})
+            # 可信名覆盖: 启发式配对与 wiki 权威表大面积错位(41/41), 导出的
+            # 对照表按 校准表(OCR实测) → wiki图鉴 顺序覆盖, 都没有才保留启发式名
+            from src.pvp.skill_calibration import name_for as _cal_name, all_ids as _cal_table_ids
+            for sid in list(merged.keys()):
+                trusted = _cal_name(sid) or resolve_skill_name(sid)
+                if trusted and trusted != merged[sid]:
+                    merged[sid] = trusted
+            for sid in list(_cal_table_ids()):
+                if sid not in merged:
+                    nm = _cal_name(sid)
+                    if nm:
+                        merged[sid] = nm
             _SKILL_MAP_FILE.parent.mkdir(parents=True, exist_ok=True)
             _SKILL_MAP_FILE.write_text(
                 json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True),
                 encoding="utf-8")
             added = len(merged) - before
             if self._logger:
-                self._logger(f"[RKPP] 技能对照表已导出: +{added} 条, 共 {len(merged)} 条")
+                self._logger(f"[RKPP] 技能对照表已导出: +{added} 条, 共 {len(merged)} 条"
+                             f" (名字已按 校准/wiki 权威覆盖)")
         except Exception:
             pass
 
@@ -818,6 +889,8 @@ class RkppEventClient:
             pid = player_info.get("pet_id")
             if player_info.get("pos") is not None and pid is not None:
                 self._on_field_pid = pid
+                # 我方上场宠的 (槽位, 技能ID) 条目 → OCR 槽位校准闭环的数据源
+                self._bar_entries = list(player_info.get("bar_entries") or [])
                 own = player_info.get("skills")
                 if own:
                     self._set_skill_bar(own)
@@ -878,6 +951,8 @@ class RkppEventClient:
                 result.lineup_done = self._lineup_done
                 result.skills = ["", "", "", ""]
                 result.enemy_last_cast = self._enemy_last_cast
+                # 我方上场宠 (pos, skill_id) 条目: bridge 层与 OCR 槽位名做校准
+                result._rkpp_bar_entries = [dict(e) for e in self._bar_entries]  # type: ignore[attr-defined]
             else:
                 # 非战斗态清空精灵名（与 PvpPipeline 语义一致，防串场）
                 result.player_name = ""
