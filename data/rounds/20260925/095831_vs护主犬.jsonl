@@ -1,0 +1,4 @@
+{"t": "2026-09-25 09:58:31", "event": "match_start", "player": "乖乖鹄", "enemy": "护主犬"}
+{"t": "2026-09-25 09:58:34", "event": "round_sync", "turn": 1, "source": "rkpp"}
+{"t": "2026-09-25 09:58:34", "event": "skills_seen", "turn": 2, "skills": ["等价交换", "力量增效", "水环", "水刃"]}
+{"t": "2026-09-25 09:58:41", "event": "match_end", "duration_sec": 10}

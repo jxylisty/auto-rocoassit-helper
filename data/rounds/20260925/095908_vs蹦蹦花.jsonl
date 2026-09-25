@@ -1,0 +1,5 @@
+{"t": "2026-09-25 09:59:08", "event": "match_start", "player": "团体战敌人", "enemy": "蹦蹦花"}
+{"t": "2026-09-25 09:59:11", "event": "round_sync", "turn": 1, "source": "rkpp"}
+{"t": "2026-09-25 09:59:13", "event": "switch_enemy", "from": "蹦蹦花", "to": "蹦蹦种子"}
+{"t": "2026-09-25 09:59:14", "event": "skills_seen", "turn": 2, "skills": ["恶作剧", "彼岸之手", "伪造账单", "降灵"]}
+{"t": "2026-09-25 09:59:20", "event": "match_end", "duration_sec": 11}
