@@ -18,12 +18,39 @@ from typing import Any
 
 from src.gui.bridge import AppBridge, Api
 from src.server.ws_manager import ws_manager
+from src.server.services.throw_service import ThrowService
+from src.server.services.daily_service import DailyService
+from src.server.services.config_service import ConfigService
+from src.server.services.pvp_service import PvpService
 
 logger = logging.getLogger("server.core")
 
 
 class CoreServerManager:
     def __init__(self):
+        # 1. 业务日志回调
+        def _on_service_log(msg: str, level: str = "info"):
+            try:
+                print(f"[{level.upper()}] {msg}")
+            except Exception:
+                pass
+            ws_manager.broadcast_log(msg, level)
+
+        # 2. 独立领域服务实例化 (纯净业务逻辑，零 GUI 干扰)
+        self.throw_svc = ThrowService(on_log=_on_service_log)
+        self.daily_svc = DailyService(on_log=_on_service_log)
+        self.config_svc = ConfigService()
+        self.pvp_svc = PvpService(on_log=_on_service_log)
+
+        # 领域服务列表 (优先按序派发)
+        self.services = [
+            self.pvp_svc,
+            self.throw_svc,
+            self.daily_svc,
+            self.config_svc,
+        ]
+
+        # 3. 兼容层: 托管 AppBridge 与 Api，作为未迁移老接口的无缝后备
         self.bridge = AppBridge()
         self.api = Api(self.bridge)
         self.bridge.set_api(self.api)
@@ -72,21 +99,33 @@ class CoreServerManager:
         self._log_pusher_thread.start()
 
     def invoke_rpc(self, method_name: str, args: list | None = None) -> Any:
-        """调用 Api 暴露的方法并返回结果"""
+        """调用业务方法并返回结果 (优先匹配独立领域服务，降级兼容 Api/bridge)"""
         args = args or []
-        target = getattr(self.api, method_name, None)
+
+        # 0. 客户端窗口行为拦截 (在 Web 解耦模式下直接返回成功，由前端 web_adapter 接管弹窗)
+        if method_name in ("minimize_window", "move_window_by", "window_move_by",
+                           "window_resize_by", "window_resize_to", "window_close",
+                           "set_on_top", "widget_resize", "pvp_float_resize",
+                           "ai_widget_resize", "move_ai_window_by",
+                           "widget_toggle", "pvp_float_toggle", "ai_widget_toggle"):
+            return {"success": True, "notice": f"{method_name} handled in browser mode"}
+
+        target = None
+
+        # 1. 优先从高内聚独立领域服务匹配
+        for svc in self.services:
+            m = getattr(svc, method_name, None)
+            if m is not None and callable(m):
+                target = m
+                break
+
+        # 2. 降级从 Api / bridge 兼容层匹配
         if target is None:
-            # 兼容：如果 Api 上没有，尝试从 bridge 直接调用
+            target = getattr(self.api, method_name, None)
+        if target is None:
             target = getattr(self.bridge, method_name, None)
 
         if target is None or not callable(target):
-            # 对纯客户端窗口行为（如置顶、移动、调尺寸等），在 Web 解耦模式下做优雅静默处理
-            if method_name in ("minimize_window", "move_window_by", "window_move_by",
-                               "window_resize_by", "window_resize_to", "window_close",
-                               "set_on_top", "widget_resize", "pvp_float_resize",
-                               "ai_widget_resize", "move_ai_window_by"):
-                return {"success": True, "notice": f"{method_name} ignored in browser mode"}
-
             logger.warning(f"未知或不可调用的 RPC 方法: {method_name}")
             return {"success": False, "message": f"Method '{method_name}' not found"}
 
@@ -105,6 +144,18 @@ class CoreServerManager:
         logger.info("正在关闭后端服务核心资源...")
         self._stop_event.set()
         try:
+            self.throw_svc.stop_all()
+        except Exception:
+            pass
+        try:
+            self.daily_svc.daily_stop()
+        except Exception:
+            pass
+        try:
+            self.pvp_svc.pvp_engine_stop()
+        except Exception:
+            pass
+        try:
             self.bridge.stop_all()
         except Exception:
             pass
@@ -113,6 +164,7 @@ class CoreServerManager:
         except Exception:
             pass
         logger.info("核心资源已全部释放")
+
 
 
 # 全局单例

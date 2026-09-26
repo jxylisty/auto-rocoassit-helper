@@ -19,12 +19,59 @@
 
     console.info(`[WebAdapter] 激活前后端解耦模式 (服务端: ${API_BASE})`);
 
+    // 弹窗窗口单例管理 (模拟桌面悬浮窗)
+    const subWindows = {};
+
+    function toggleSubWindow(key, url, width, height) {
+        try {
+            if (subWindows[key] && !subWindows[key].closed) {
+                subWindows[key].close();
+                subWindows[key] = null;
+                return { success: true, action: "closed" };
+            }
+            const left = Math.max(20, window.screen.availWidth - width - 30);
+            const top = Math.max(40, Math.floor((window.screen.availHeight - height) / 2));
+            const features = `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,resizable=yes`;
+            const win = window.open(url, key, features);
+            if (win) {
+                subWindows[key] = win;
+                win.focus();
+                return { success: true, action: "opened" };
+            }
+            console.warn(`[WebAdapter] 弹窗被浏览器拦截，请在浏览器地址栏允许弹出窗口: ${url}`);
+            return { success: false, message: "弹窗被拦截，请允许弹出窗口" };
+        } catch (e) {
+            console.error(`[WebAdapter] 打开弹窗失败:`, e);
+            return { success: false, message: String(e) };
+        }
+    }
+
     // 2. 构造透明 Proxy 拦截所有 pywebview.api 方法调用
     const apiProxy = new Proxy({}, {
         get(target, propKey) {
             if (propKey in target) {
                 return target[propKey];
             }
+            // 客户端窗口行为拦截 (浏览器模式下模拟多窗口挂件)
+            if (propKey === "widget_toggle") {
+                return async function () {
+                    toggleSubWindow("FloatConsoleWindow", `${API_BASE}/float`, 380, 520);
+                    return { success: true };
+                };
+            }
+            if (propKey === "pvp_float_toggle") {
+                return async function () {
+                    toggleSubWindow("PvpFloatWindow", `${API_BASE}/pvp_float`, 420, 620);
+                    return { success: true };
+                };
+            }
+            if (propKey === "ai_widget_toggle") {
+                return async function () {
+                    toggleSubWindow("AiFloatWindow", `${API_BASE}/float`, 360, 500);
+                    return { success: true };
+                };
+            }
+
             // 返回一个异步函数
             return async function (...args) {
                 try {
