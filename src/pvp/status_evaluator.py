@@ -255,9 +255,7 @@ def evaluate_status(
             desc = f"{rule['name']}×{stacks} (锁定{frz_pct:.0%}, {mult_desc})"
             tag_list.append(f"冻结斩杀线{frz_pct:.0%}")
         else:
-            desc = f"{rule['name']}×{stacks} ({element}系{mult_desc}, 掉{dmg_pct:.0%}HP"
-            if dmg_val > 0:
-                desc += f"/{dmg_val}点"
+            desc = f"{rule['name']}×{stacks} ({element}系{mult_desc}, 扣{dmg_pct:.0%}HP"
             if rule.get("decay") == "half":
                 desc += f", 次轮衰减至{next_stacks}层"
             desc += ")"
@@ -283,29 +281,22 @@ def evaluate_status(
     eval_res.details = details
     eval_res.tags = tag_list
 
-    # 斩杀判定
-    # 1. DOT 伤害足以清空当前血量
+    # 纯百分比斩杀判定 (敌方HP在对战中本就是百分比)
     if current_hp_pct <= eval_res.total_dot_pct and eval_res.total_dot_pct > 0:
         eval_res.is_dot_lethal = True
-    if current_hp_val and total_dot_val >= current_hp_val and total_dot_val > 0:
-        eval_res.is_dot_lethal = True
-
-    # 2. 当前血量低于冻结锁定阈值 -> 触发力竭即死
     if freeze_threshold > 0 and current_hp_pct <= freeze_threshold:
         eval_res.is_freeze_lethal = True
 
-    # 汇总战术说明
+    # 汇总战术说明 (完全对齐百分比，让 AI 和玩家一目了然)
     parts = []
     if details:
         parts.append(" | ".join(d.desc for d in details))
     if eval_res.is_dot_lethal:
-        parts.append("【DOT必死! 回合末直接流血阵亡】")
+        parts.append(f"【DOT必死! 回合末扣{total_dot_pct:.0%} >= 目标血量{current_hp_pct:.0%}】")
     elif eval_res.is_freeze_lethal:
-        parts.append(f"【冻结力竭! 血量≤{freeze_threshold:.0%}触发即死】")
+        parts.append(f"【冻结力竭! 目标血量{current_hp_pct:.0%} <= 冻结线{freeze_threshold:.0%}】")
     elif total_dot_pct > 0:
-        parts.append(f"回合末合计掉血约 {total_dot_pct:.0%}")
-        if total_dot_val > 0:
-            parts[-1] += f" ({total_dot_val}点)"
+        parts.append(f"回合末合计扣除约 {total_dot_pct:.0%} 生命")
 
     if speed_mod < 1.0:
         parts.append(f"速度受负面影响降至 {speed_mod:.0%}")

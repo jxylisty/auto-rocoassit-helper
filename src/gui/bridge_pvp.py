@@ -424,11 +424,9 @@ class PvpEngineMixin:
             eff_enemy_speed = enemy_panel["speed"] * enemy_status.speed_modifier
             speed_diff = eff_self_speed - eff_enemy_speed
 
-            # 我方技能伤害(OCR 出的 4 个技能逐个推演)
+            # 我方技能伤害(OCR 出的 4 个技能逐个推演直伤)
             calc_skills = []
             enemy_est_hp = int(enemy_panel["hp"] * result.enemy_hp_pct)
-            dot_val = enemy_status.total_dot_val
-            is_dot_kill = enemy_status.is_dot_lethal or enemy_status.is_freeze_lethal
 
             for sk_name in result.skills:
                 sk = get_skill(sk_name) or {}
@@ -444,27 +442,19 @@ class PvpEngineMixin:
                     )
                     dmg_min = dmg["damage"]
                     dmg_max = round(dmg["damage"] * 1.15)
-                    # 综合斩杀判定: 直伤斩杀 / 直伤+DOT斩杀 / 冻结即死 / 回合末DOT必死
-                    is_direct_kill = enemy_est_hp > 0 and dmg_min >= enemy_est_hp
-                    is_combined_kill = enemy_est_hp > 0 and (dmg_min + dot_val) >= enemy_est_hp
-                    is_kill = is_direct_kill or is_combined_kill or is_dot_kill
-                    kill_type = "direct" if is_direct_kill else ("direct+dot" if is_combined_kill else ("dot" if is_dot_kill else ""))
+                    is_kill = enemy_est_hp > 0 and dmg_min >= enemy_est_hp
                     calc_skills.append({
                         "name": sk_name, "power": int(sk_power),
                         "type": sk_type, "attr": sk_attr,
                         "dmg_min": dmg_min, "dmg_max": dmg_max,
                         "mult": dmg["attrMultiplier"],
                         "is_kill": is_kill,
-                        "kill_type": kill_type,
-                        "dot_dmg": dot_val,
                     })
                 else:
                     calc_skills.append({
                         "name": sk_name, "power": 0, "type": "变化",
                         "dmg_min": 0, "dmg_max": 0, "mult": 1,
-                        "is_kill": is_dot_kill,
-                        "kill_type": "dot" if is_dot_kill else "",
-                        "dot_dmg": dot_val,
+                        "is_kill": False,
                     })
 
             # 敌方威胁预测: 与主控台 pvp_calc_all_skills 同一套玩家筛选规则 —
