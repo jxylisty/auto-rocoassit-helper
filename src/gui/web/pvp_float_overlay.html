@@ -172,8 +172,10 @@ body {
     display: flex; justify-content: space-between; font-size: 10.5px; margin-bottom: 2px; font-variant-numeric: tabular-nums;
 }
 .stat-nums .hp-val { font-weight: 700; }
-.bar-track { height: 6px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #22c55e, #eab308 55%, #ef4444); }
+ .bar-track { height: 6px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #22c55e, #eab308 55%, #ef4444); }
 .bar-fill { height: 100%; border-radius: 0 999px 999px 0; margin-left: auto; background: rgba(8, 12, 22, 0.82); transition: width 0.45s ease; }
+.bar-fill.tier-mid { background: linear-gradient(90deg, rgba(234,179,8,0.9), rgba(250,204,21,0.75)); }
+.bar-fill.tier-low { background: linear-gradient(90deg, rgba(185,28,28,0.95), rgba(239,68,68,0.8)); }
 .energy-row {
     display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); margin-top: 2px;
 }
@@ -391,8 +393,10 @@ body {
     .pet-side.enemy { color: var(--wax); }
     .vs-banner { background: linear-gradient(90deg, rgba(138,100,32,0.15), rgba(168,64,47,0.15)); border: 1px solid var(--card-edge); color: var(--ink-1); }
     .vs-tag { background: #5a4426; color: #f9f1da; }
-    .bar-track { background: #e7dbba; border: 1px solid var(--line); }
-    .bar-fill { background: rgba(63,52,40,0.55); }
+    .bar-track { background: linear-gradient(90deg, rgba(34,197,94,0.85), rgba(234,179,8,0.85) 55%, rgba(239,68,68,0.85)); border: 1px solid var(--line); }
+    .bar-fill { background: rgba(63,52,40,0.45); }
+    .bar-fill.tier-mid { background: linear-gradient(90deg, rgba(180,83,9,0.75), rgba(202,138,4,0.6)); }
+    .bar-fill.tier-low { background: linear-gradient(90deg, rgba(153,27,27,0.85), rgba(220,38,38,0.65)); }
     .stat-nums, .hp-val { color: var(--ink-1); font-family: var(--num-font); }
     .attr-pill { background: #fffdf6; border: 1px solid var(--line); color: var(--ink-1); }
     .attr-badge-img, .attr-pill-img { filter: none; }
@@ -947,7 +951,7 @@ function updatePVPData(data) {
                         <span class="hp-val">${playerHp}</span>
                     </div>
                     <div class="bar-track">
-                        <div class="bar-fill" style="width: ${100 - playerHpPct}%"></div>
+                        <div class="bar-fill ${playerHpColor === 'yellow' ? 'tier-mid' : playerHpColor === 'red' ? 'tier-low' : ''}" style="width: ${100 - playerHpPct}%"></div>
                     </div>
                 </div>
                 <div class="energy-row">
@@ -974,7 +978,7 @@ function updatePVPData(data) {
                         <span style="color:var(--dim)">HP</span>
                     </div>
                     <div class="bar-track">
-                        <div class="bar-fill" style="width: ${100 - enemyHpPct}%"></div>
+                        <div class="bar-fill ${enemyHpColor === 'yellow' ? 'tier-mid' : enemyHpColor === 'red' ? 'tier-low' : ''}" style="width: ${100 - enemyHpPct}%"></div>
                     </div>
                 </div>
                 <div class="energy-row" style="justify-content: flex-end;">

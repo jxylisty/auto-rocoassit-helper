@@ -226,10 +226,10 @@
     .enemy-name.none { color: var(--ink-3); }
     .enemy-tag { background: #efe5c8; border: 1px solid var(--line); color: var(--ink-2); }
     .enemy-tag.battle { background: var(--wax-soft); border-color: rgba(168,64,47,0.4); color: var(--wax); }
-    .hpbar { background: #e7dbba; border: 1px solid var(--line); }
-    .hpbar-fill { background: var(--wax); }
-    .hpbar-fill.mid { background: #b07d1e; }
-    .hpbar-fill.low { background: var(--wax); }
+    .hpbar { background: linear-gradient(90deg, rgba(34,197,94,0.85), rgba(234,179,8,0.85) 55%, rgba(239,68,68,0.85)); border: 1px solid var(--line); }
+    .hpbar-fill { background: rgba(63,52,40,0.45); }
+    .hpbar-fill.mid { background: linear-gradient(90deg, rgba(180,83,9,0.75), rgba(202,138,4,0.6)); }
+    .hpbar-fill.low { background: linear-gradient(90deg, rgba(153,27,27,0.85), rgba(220,38,38,0.65)); }
     .hp-num { color: var(--ink-1); font-family: var(--num-font); font-variant-numeric: tabular-nums; }
     .hp-num span { color: var(--ink-3); }
 
@@ -414,6 +414,8 @@
 .pv-root .stat-nums .hp-val { font-weight: 700; }
 .pv-root .bar-track { height: 6px; border-radius: 999px; overflow: hidden; background: linear-gradient(90deg, #22c55e, #eab308 55%, #ef4444); }
 .pv-root .bar-fill { height: 100%; border-radius: 0 999px 999px 0; margin-left: auto; background: rgba(8, 12, 22, 0.82); transition: width 0.45s ease; }
+.pv-root .bar-fill.tier-mid { background: linear-gradient(90deg, rgba(234,179,8,0.9), rgba(250,204,21,0.75)); }
+.pv-root .bar-fill.tier-low { background: linear-gradient(90deg, rgba(185,28,28,0.95), rgba(239,68,68,0.8)); }
 .pv-root .energy-row {
     display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); margin-top: 2px;
 }
@@ -605,8 +607,10 @@
 .pv-root .pet-side.enemy { color: var(--wax); }
 .pv-root .vs-banner { background: linear-gradient(90deg, rgba(138,100,32,0.15), rgba(168,64,47,0.15)); border: 1px solid var(--card-edge); color: var(--ink-1); }
 .pv-root .vs-tag { background: #5a4426; color: #f9f1da; }
-.pv-root .bar-track { background: #e7dbba; border: 1px solid var(--line); }
-.pv-root .bar-fill { background: rgba(63,52,40,0.55); }
+.pv-root .bar-track { background: linear-gradient(90deg, rgba(34,197,94,0.85), rgba(234,179,8,0.85) 55%, rgba(239,68,68,0.85)); border: 1px solid var(--line); }
+.pv-root .bar-fill { background: rgba(63,52,40,0.45); }
+.pv-root .bar-fill.tier-mid { background: linear-gradient(90deg, rgba(180,83,9,0.75), rgba(202,138,4,0.6)); }
+.pv-root .bar-fill.tier-low { background: linear-gradient(90deg, rgba(153,27,27,0.85), rgba(220,38,38,0.65)); }
 .pv-root .stat-nums, .pv-root .hp-val { color: var(--ink-1); font-family: var(--num-font); }
 .pv-root .attr-pill { background: #fffdf6; border: 1px solid var(--line); color: var(--ink-1); }
 .pv-root .attr-badge-img, .pv-root .attr-pill-img { filter: none; }
@@ -1350,7 +1354,7 @@ function updatePVPData(data) {
                         <span class="hp-val">${playerHp}</span>
                     </div>
                     <div class="bar-track">
-                        <div class="bar-fill" style="width: ${100 - playerHpPct}%"></div>
+                        <div class="bar-fill ${playerHpColor === 'yellow' ? 'tier-mid' : playerHpColor === 'red' ? 'tier-low' : ''}" style="width: ${100 - playerHpPct}%"></div>
                     </div>
                 </div>
                 <div class="energy-row">
@@ -1377,7 +1381,7 @@ function updatePVPData(data) {
                         <span style="color:var(--dim)">HP</span>
                     </div>
                     <div class="bar-track">
-                        <div class="bar-fill" style="width: ${100 - enemyHpPct}%"></div>
+                        <div class="bar-fill ${enemyHpColor === 'yellow' ? 'tier-mid' : enemyHpColor === 'red' ? 'tier-low' : ''}" style="width: ${100 - enemyHpPct}%"></div>
                     </div>
                 </div>
                 <div class="energy-row" style="justify-content: flex-end;">

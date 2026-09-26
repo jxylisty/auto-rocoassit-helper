@@ -330,6 +330,35 @@ class PvpEngineMixin:
         self._ocr_skill_cache = merged
         result.skills = list(merged)
 
+        # ===== 能量: 包内无此数据 → ROI OCR(每 3 帧一次), 读不到沿用上次 =====
+        self._energy_tick = getattr(self, "_energy_tick", 0) + 1
+        if self._energy_tick % 3 == 1:
+            try:
+                import re as _re
+                info = self._find_game_window()
+                if info:
+                    left, top, right, bottom = info.rect
+                    w, h = right - left, bottom - top
+                    if w >= 50 and h >= 50:
+                        frame2 = self._get_fast_capture().capture(rect=(left, top, w, h))
+                        if frame2 is not None and frame2.size > 0:
+                            crop = pipeline._crop(frame2, "剩余能量")
+                            if crop is not None and crop.size > 0:
+                                from src.pvp.pvp_pipeline import preprocess_text_roi, ocr_number
+                                if crop.shape[0] < 30:
+                                    crop = preprocess_text_roi(crop, scale=3)
+                                val = ocr_number(crop)
+                                if val:
+                                    m = _re.search(r"(\d+)", val)
+                                    if m:
+                                        self._energy_val_cache = int(m.group(1))
+            except Exception:
+                pass
+        cached_energy = getattr(self, "_energy_val_cache", None)
+        if cached_energy is not None:
+            result.energy = str(cached_energy)
+            result.energy_val = cached_energy
+
     def _apply_ocr_skill_cache(self, result) -> None:
         """OCR 本帧失败时，沿用上一帧成功的技能栏（防闪没）。"""
         cache = getattr(self, "_ocr_skill_cache", None)
