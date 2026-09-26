@@ -18,5 +18,6 @@
     1,
     2
   ],
-  "confirm_teleport": false
+  "confirm_teleport": false,
+  "battles_target": 3
 }
