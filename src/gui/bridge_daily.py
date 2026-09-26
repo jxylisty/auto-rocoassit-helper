@@ -205,3 +205,39 @@ class DailyMixin:
             self._enqueue_log(f"预约挂机已触发: {mode_txt} · 时长 {dur} 分钟", "success")
         except Exception as e:
             self._enqueue_log(f"预约挂机触发异常: {e}", "error")
+
+    # ========================================
+    # 花种挑战配置 (flower_challenge.json)
+    # ========================================
+
+    def flower_config_load(self) -> dict:
+        cfg_file = CONFIG_DIR / "flower_challenge.json"
+        if not cfg_file.exists():
+            return {"success": True, "data": {"target_flower": 1, "battles_target": 3, "flower_count_override": 0}}
+        try:
+            data = json.loads(cfg_file.read_text(encoding="utf-8"))
+            return {"success": True, "data": data}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    def flower_config_save(self, params: dict) -> dict:
+        cfg_file = CONFIG_DIR / "flower_challenge.json"
+        try:
+            data = {}
+            if cfg_file.exists():
+                try:
+                    data = json.loads(cfg_file.read_text(encoding="utf-8"))
+                except Exception:
+                    data = {}
+            if "target_flower" in params:
+                data["target_flower"] = int(params["target_flower"])
+            if "battles_target" in params:
+                data["battles_target"] = int(params["battles_target"])
+            if "flower_count_override" in params:
+                data["flower_count_override"] = int(params["flower_count_override"])
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            cfg_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            return {"success": True, "data": data}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+

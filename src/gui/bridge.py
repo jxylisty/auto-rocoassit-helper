@@ -365,6 +365,12 @@ class Api:
     def daily_status(self):
         return self._bridge.daily_status()
 
+    def flower_config_load(self):
+        return self._bridge.flower_config_load()
+
+    def flower_config_save(self, params):
+        return self._bridge.flower_config_save(params)
+
 
     def schedule_set(self, enabled, hh=19, mm=0, duration_min=120, mode="engine"):
         return self._bridge.schedule_set(enabled, hh, mm, duration_min, mode)
