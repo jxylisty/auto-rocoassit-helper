@@ -233,6 +233,9 @@ class PvpResult:
     player_lineup: list = field(default_factory=list)   # 6 元素(未知为 None)
     enemy_lineup: list = field(default_factory=list)     # 6 元素
     lineup_done: bool = False
+    # 状态栏: 增益/异常状态与层数列表 [{name, stack, desc, text, type, buff_id}]
+    player_buffs: list = field(default_factory=list)
+    enemy_buffs: list = field(default_factory=list)
 
 
 class PvpPipeline:
@@ -650,6 +653,7 @@ class PvpPipeline:
                 "energy_val": result.energy_val,
                 # 物种名(抓包源由 base_conf_id 解析): 头像/查询用它, 昵称仅显示
                 "species": getattr(result, "player_species", ""),
+                "buffs": getattr(result, "player_buffs", []),
             },
             "enemy": {
                 "name": result.enemy_name,
@@ -663,9 +667,12 @@ class PvpPipeline:
                 "occluded": (result.enemy_hp_color <= 0.0
                              and result.enemy_name_conf < 0.9),
                 "species": getattr(result, "enemy_species", ""),
+                "buffs": getattr(result, "enemy_buffs", []),
             },
             "in_battle": result.in_battle,
             "errors": result.errors,
+            "player_buffs": getattr(result, "player_buffs", []),
+            "enemy_buffs": getattr(result, "enemy_buffs", []),
             # 战前阵容(开局识别, 战斗中不变)
             "player_lineup": result.player_lineup if result.lineup_done else [],
             "enemy_lineup": result.enemy_lineup if result.lineup_done else [],

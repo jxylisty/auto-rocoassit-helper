@@ -434,6 +434,9 @@ class RkppEventClient:
         self._enemy_lineup: list = []
         self._lineup_done = False
         self._roster_cache: dict[int, dict] = {}   # pet_id -> pet_info，整局持久缓存防换宠丢失技能
+        self._player_buffs: dict[int, dict] = {}   # buff_id -> {buff_id, name, desc, stack, type}
+        self._enemy_buffs: dict[int, dict] = {}
+        self._buff_name_cache: dict[int, str] = {} # 全局记住 buff_id -> name 映射
         self._last_result = ""
         self._last_real_pvp = False
         self._errors: list[str] = []
@@ -488,6 +491,8 @@ class RkppEventClient:
             self._enemy_lineup = []
             self._lineup_done = False
             self._roster_cache.clear()
+            self._player_buffs.clear()
+            self._enemy_buffs.clear()
             self._last_result = ""
             self._last_real_pvp = False
             self._errors = []
@@ -608,6 +613,8 @@ class RkppEventClient:
         self._enemy_last_cast = ""
         self._bar_entries = []
         self._roster_cache.clear()
+        self._player_buffs.clear()
+        self._enemy_buffs.clear()
         self._player_species = ""
         self._enemy_species = ""
         self._round_no = 0
@@ -729,11 +736,15 @@ class RkppEventClient:
                         _parse_pet_info(bip, common=pet.get("battle_common_pet_info")), None)
                     # round_start 也带完整技能表 → 累计进对照表(无 battle_enter 时的兜底)
                     self._absorb_skill_map(bip.get("skill_round_data"))
+                    if "buffs" in bip:
+                        self._sync_active_buffs(bip.get("buffs"), side="player")
             # 敌方上场宠
             other = du.get("other")
             if isinstance(other, dict):
                 for bip, common in _iter_team_pets(other):
                     self._apply_on_field(None, _parse_pet_info(bip, common=common))
+                    if isinstance(bip, dict) and "buffs" in bip:
+                        self._sync_active_buffs(bip.get("buffs"), side="enemy")
             # 我方上场宠的技能栏：round_start 给的是「全队」pet_skill 列表
             # (pet_id=1..6)，需用场上宠的 pet_id 匹配，取其 4 个战斗技能。
             ps = du.get("pet_skill")
@@ -753,12 +764,7 @@ class RkppEventClient:
                 _skill_display_name(cast) or cast.get("skill_id"), cast.get("skill_id"))
 
     def _apply_action_resolve(self, detail: dict) -> None:
-        """0x1324 perform：perform_info 里 type=1 技能、type=4 伤害/扣血。
-
-        我方(caster_id∈1..6)施法 → 累计技能对照表；
-        敌方施法 → 记入 _enemy_casts/_enemy_last_cast（回合日志的
-        enemy_skill_cast 事件与悬浮窗"敌方上招"都吃这个, 此前直接丢弃）。
-        """
+        """0x1324 perform：perform_info 里 type=1 技能、type=2 buff变更、type=4 伤害/扣血。"""
         pc = detail.get("perform_cmd")
         if not isinstance(pc, dict):
             return
@@ -786,10 +792,106 @@ class RkppEventClient:
                         self._enemy_last_cast = name
                         self._enemy_casts.append(
                             {"round": self._round_no, "skill": name})
+            elif t == 2:
+                bc = item.get("buff_change")
+                if isinstance(bc, dict):
+                    self._handle_buff_change(bc)
             elif t == 4:
                 di = item.get("damage_info") or {}
                 sync = item.get("sync_data") or {}
                 self._apply_damage(di, sync)
+
+    def _sync_active_buffs(self, buffs_list: list, side: str = "player") -> None:
+        """从 round_start 等全量状态包同步当前在场宠的 Buff 状态栏"""
+        if not isinstance(buffs_list, list):
+            return
+        target_dict = self._player_buffs if side == "player" else self._enemy_buffs
+        new_dict: dict[int, dict] = {}
+        for b in buffs_list:
+            if not isinstance(b, dict):
+                continue
+            bid = _as_int(b.get("buff_id"))
+            if not bid:
+                continue
+            stack = _as_int(b.get("stack")) or 1
+            btype = b.get("buff_type") or 0
+            cached_name = self._buff_name_cache.get(bid, "")
+            existing = target_dict.get(bid, {})
+            name = b.get("buff_name") or existing.get("name") or cached_name or f"Buff_{bid}"
+            desc = b.get("buff_desc") or existing.get("desc") or ""
+            if name and not name.startswith("Buff_"):
+                self._buff_name_cache[bid] = name
+            new_dict[bid] = {
+                "buff_id": bid,
+                "name": name,
+                "stack": stack,
+                "desc": desc,
+                "type": btype,
+            }
+        target_dict.clear()
+        target_dict.update(new_dict)
+
+    def _handle_buff_change(self, bc: dict) -> None:
+        """从 action_resolve 0x1324 type=2 (buff_change) 中增量更新 Buff"""
+        target_id = bc.get("target_id")
+        side = _side_of_pet_id(target_id)
+        if not side:
+            side = _side_of_pet_id(bc.get("caster_id"))
+        if not side:
+            return
+        target_dict = self._player_buffs if side == "player" else self._enemy_buffs
+        bid = _as_int(bc.get("buff_id"))
+        if not bid:
+            return
+        change_type = bc.get("type")
+        if change_type == 3:  # 移除 Buff
+            target_dict.pop(bid, None)
+            return
+
+        info = bc.get("buff_info") or {}
+        name = bc.get("buff_name") or info.get("buff_name")
+        desc = bc.get("buff_desc") or info.get("buff_desc") or ""
+        stack = _as_int(info.get("stack")) or 1
+        btype = bc.get("buff_type_id") or info.get("buff_type") or 0
+        if name and not name.startswith("Buff_"):
+            self._buff_name_cache[bid] = name
+        elif not name:
+            name = self._buff_name_cache.get(bid) or target_dict.get(bid, {}).get("name") or f"Buff_{bid}"
+
+        target_dict[bid] = {
+            "buff_id": bid,
+            "name": name,
+            "stack": stack,
+            "desc": desc or target_dict.get(bid, {}).get("desc", ""),
+            "type": btype,
+        }
+
+    @staticmethod
+    def _format_buff_list(buff_dict: dict[int, dict]) -> list[dict]:
+        """将内部 Buff 字典转换为对齐 UI 和 AI 的友好结构"""
+        out = []
+        for bid, b in buff_dict.items():
+            name = b.get("name") or f"Buff_{bid}"
+            stack = b.get("stack", 1)
+            desc = b.get("desc", "")
+            text = f"{name}"
+            # 强化等级换算: 物攻/魔攻/物防/魔防/速度 等级, 每级10%
+            if any(attr in name for attr in ["等级", "物攻", "魔攻", "物防", "魔防", "速度"]):
+                pct = stack * 10
+                sign = "+" if pct > 0 else ""
+                clean_name = name.replace("等级", "")
+                text = f"{clean_name}{sign}{pct}% ({stack}级)"
+            elif stack > 1:
+                text = f"{stack}层{name}"
+            out.append({
+                "buff_id": bid,
+                "name": name,
+                "stack": stack,
+                "desc": desc,
+                "text": text,
+                "type": b.get("type", 0),
+            })
+        return out
 
     def _apply_damage(self, damage_info: dict, sync_data: dict) -> None:
         """sync_data.pet_sync_info[].hp_result 是该 pet 的最新血量。"""
@@ -1003,6 +1105,8 @@ class RkppEventClient:
                 # 物种身份(base_conf_id 解析): 昵称显示名, 物种做头像
                 result.player_species = self._player_species  # type: ignore[attr-defined]
                 result.enemy_species = self._enemy_species  # type: ignore[attr-defined]
+                result.player_buffs = self._format_buff_list(self._player_buffs)
+                result.enemy_buffs = self._format_buff_list(self._enemy_buffs)
             else:
                 # 非战斗态清空精灵名（与 PvpPipeline 语义一致，防串场）
                 result.player_name = ""
@@ -1010,6 +1114,8 @@ class RkppEventClient:
                 result.player_name_conf = 0.0
                 result.enemy_name_conf = 0.0
                 result.skills = ["", "", "", ""]
+                result.player_buffs = []
+                result.enemy_buffs = []
 
             # 抓包特有字段（回合日志 set_authoritative_round 会读它）
             result.round_no = round_no

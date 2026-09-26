@@ -32,11 +32,14 @@ SYSTEM_PROMPT = (
     "1. 严格区分我方(Player)与敌方(Enemy)，绝不混淆敌我精灵与技能！\n"
     "2. 很多技能虽然基础直接伤害为0，但具有极其强力的状态效果（如「引燃」可造成10层灼烧，「抽枝」应对回复50%血量和5能），"
     "   务必深入分析技能官方效果描述与精灵被动特性（如燃薪虫的煤渣草特性使灼烧只增不减），切忌将机制状态技能当成无用技能！\n"
-    "3. 伤害与克制：注意属性克制倍率（2.0x克制/0.5x抵抗/0.25x双抵抗），有斩杀机会优先斩杀；血量危险注意防守或换宠。\n"
-    "4. 能量管理：注意技能消耗，能量不足无法出招，必要时选择聚能(+5能量)或愿力冲击。\n\n"
+    "3. 状态栏与异常层数（核心战情）：密切关注双方状态栏！"
+    "   若我方有属性强化（如物攻+100%），伤害已大幅提升，应优先打出毁灭爆发；"
+    "   若敌方被挂高层异常（如10层灼烧、冻结），考虑配合机制技能引爆或消耗；若我方被挂危险异常，考虑换宠或解控。\n"
+    "4. 伤害与克制：注意属性克制倍率（2.0x克制/0.5x抵抗/0.25x双抵抗），有斩杀机会优先斩杀；血量危险注意防守或换宠。\n"
+    "5. 能量管理：注意技能消耗，能量不足无法出招，必要时选择聚能(+5能量)或愿力冲击。\n\n"
     "必须严格按以下 JSON 格式回复，不要输出任何多余问候或 markdown 代码块外的杂音:\n"
     '{"recommendation": {"action": "skill|switch|energize|resonance", "target": "推荐的具体技能名或精灵名", '
-    '"confidence": "high|medium|low", "reasoning": "2-3句极精辟的战术解析(说明技能机制/特性联动/属性克制)", "risk": "针对敌方出招或反制的风险提示"}, '
+    '"confidence": "high|medium|low", "reasoning": "2-3句极精辟的战术解析(说明技能机制/特性联动/属性克制/状态栏)", "risk": "针对敌方出招或反制的风险提示"}, '
     '"alternatives": [{"action": "skill|switch|energize", "target": "备选技能或精灵", "reasoning": "备选理由"}]}'
 )
 
@@ -93,22 +96,28 @@ def build_prompt(snapshot: dict) -> str:
     p_hp = p.get("hp_val", "?")
     p_hp_max = p.get("hp_max", "?")
     p_energy = p.get("energy_val", "?")
+    p_buffs = p.get("buffs") or snapshot.get("player_buffs") or []
+    p_buff_texts = [b.get("text") or b.get("name") for b in p_buffs if isinstance(b, dict)]
     lines.append(f"▶ 我方在场精灵: {p_name}" + (f" (物种: {p_species})" if p_species != p_name else ""))
     lines.append(f"  • 属性: {', '.join(p_types) if p_types else '未知'}")
     lines.append(f"  • 血量: {p_hp}/{p_hp_max} | 当前能量: {p_energy}")
     lines.append(f"  • 特性(被动): {p_trait}")
+    lines.append(f"  • 实时状态/强化栏: {', '.join(p_buff_texts) if p_buff_texts else '正常 (无异常/强化)'}")
     lines.append("")
 
     # 2. 敌方在场
     e_hp = f"{float(e.get('hp_pct') or 0):.0%}"
+    e_buffs = e.get("buffs") or snapshot.get("enemy_buffs") or []
+    e_buff_texts = [b.get("text") or b.get("name") for b in e_buffs if isinstance(b, dict)]
     lines.append(f"▶ 敌方在场精灵: {e_name}" + (f" (物种: {e_species})" if e_species != e_name else ""))
     lines.append(f"  • 属性: {', '.join(e_types) if e_types else '未知'}")
     lines.append(f"  • 当前血量百分比: {e_hp}")
     lines.append(f"  • 特性(被动): {e_trait}")
+    lines.append(f"  • 实时状态/异常栏: {', '.join(e_buff_texts) if e_buff_texts else '正常 (无异常/强化)'}")
     if enemy_last_cast:
         sk_info = get_skill(enemy_last_cast) or {}
         desc = sk_info.get("describe") or ""
-        lines.append(f"  • ⚠️ 敌方上回合实际施放技能: 【{enemy_last_cast}】" + (f" (效果: {desc})" if desc else ""))
+        lines.append(f"  • 敌方上回合实际施放技能: 【{enemy_last_cast}】" + (f" (效果: {desc})" if desc else ""))
     lines.append("")
 
     # 3. 速度与局势

@@ -14,3 +14,9 @@
 
 - 改动 `main.py` / `src/gui/` 后：`python -m py_compile` 必过；涉及启动流程的实机启动一次验证（跑完用 `python main.py --kill-ghosts` 清理）。
 - 启动问题先看 `data/logs/startup.log`（崩溃转储也在这里）。
+
+## UI / 前端规范（必须遵守）
+
+- **严禁使用 Emoji 作为界面图标**：系统各平台（Windows 10/11、不同 WebView2 版本）Emoji 渲染色彩、尺寸与风格极不一致，且质感割裂。
+- **全部使用内联/内置 SVG 矢量图标**：所有按钮、状态指示、动作标签统一使用优雅的 SVG 矢量图标（可自适应 `currentColor` 与尺寸），保证现代透明毛玻璃质感。
+
