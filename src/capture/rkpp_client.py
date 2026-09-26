@@ -292,11 +292,11 @@ def _parse_pet_info(bip: dict, *, common: Optional[dict] = None) -> dict:
     out["pet_id"] = _as_int(bip.get("pet_id"))
     out["conf_id"] = _as_int(bip.get("conf_id"))
     out["base_conf_id"] = _as_int(bip.get("base_conf_id"))
-    # 物种身份: base_conf_id 是物种图鉴 ID(实测 3070=护主犬/3071=音速犬/
-    # 3492=兽花蕾), 玩家改昵称不影响; conf_id 是战斗实例 ID(wiki 查不到)。
-    # 昵称(服务器 name)做显示名, 物种名做头像与查询。
-    out["species"] = (pet_name_by_id(out["conf_id"])
-                      or pet_name_by_id(out["base_conf_id"]) or "")
+    # 物种身份: base_conf_id 是当前物种图鉴 ID(实测 3071=音速犬(进化态)/
+    # 3492=兽花蕾, 2/2 精确命中; conf_id 是战斗实例 ID, wiki 全查不到),
+    # 玩家改昵称不影响。昵称(服务器 name)做显示名, 物种名做头像与查询。
+    out["species"] = (pet_name_by_id(out["base_conf_id"])
+                      or pet_name_by_id(out["conf_id"]) or "")
 
     # 1) 服务器直接下发的名字(field 23, hex 明文) — 最贴近客户端实际显示
     name = _decode_cn_hex(bip.get("name"))
