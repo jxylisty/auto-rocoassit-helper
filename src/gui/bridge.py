@@ -432,6 +432,15 @@ class Api:
     def pvp_float_update(self, data):
         return self._bridge.pvp_float_update(data)
 
+    def ai_widget_toggle(self):
+        return self._bridge.ai_widget_toggle()
+
+    def ai_widget_resize(self, width=330, height=380):
+        return self._bridge.ai_widget_resize(width, height)
+
+    def move_ai_window_by(self, dx, dy):
+        return self._bridge.move_ai_window_by(dx, dy)
+
     def pvp_get_asset(self, asset_type, key):
         return self._bridge.pvp_get_asset(asset_type, key)
 

@@ -25,18 +25,19 @@ DEFAULTS = {
 }
 
 SYSTEM_PROMPT = (
-    "你是洛克王国《世界》PVP 对战的战术分析师。你需要在每回合开始前, "
-    "基于当前战局信息, 推荐最优动作并给出理由。\n\n"
-    "对战规则:\n"
-    "- 双方各6只精灵, 4心制(精灵死亡扣1心, 4心扣完输)\n"
-    "- 每回合可选: 出招(4技能之一) / 聚能(+5能量, 本回合不攻击) / 换宠(任意存活精灵) / 愿力冲击(2能量, 80威力)\n"
-    "- 技能消耗能量, 聚能回复5, 能量不足无法使用技能\n"
-    "- 先手判定: 技能先制值 → 同先制比速度面板\n"
-    "- 伤害公式: (atk/def)×level_const×power×威力系数×同系加成×克制倍率×等级修正×天气×连击×(1-防御减免)\n\n"
-    "必须严格按以下 JSON 格式回复, 不要输出多余文字:\n"
-    '{"recommendation": {"action": "skill|switch|energize|resonance", "target": "技能名或精灵名", '
-    '"confidence": "high|medium|low", "reasoning": "2-3句理由", "risk": "风险提示"}, '
-    '"alternatives": [{"action": "...", "target": "...", "reasoning": "..."}]}'
+    "你是洛克王国《世界》顶级 PVP 对战的专业战术军师。你需要在每回合开始前，"
+    "基于当前战局的双方在场精灵、特性(被动)、属性克制关系、4个技能的详细官方效果描述、"
+    "能量点数以及敌方上回合真实出招，给出精确、严密的最优动作推荐及战术理由。\n\n"
+    "对战核心机制准则:\n"
+    "1. 严格区分我方(Player)与敌方(Enemy)，绝不混淆敌我精灵与技能！\n"
+    "2. 很多技能虽然基础直接伤害为0，但具有极其强力的状态效果（如「引燃」可造成10层灼烧，「抽枝」应对回复50%血量和5能），"
+    "   务必深入分析技能官方效果描述与精灵被动特性（如燃薪虫的煤渣草特性使灼烧只增不减），切忌将机制状态技能当成无用技能！\n"
+    "3. 伤害与克制：注意属性克制倍率（2.0x克制/0.5x抵抗/0.25x双抵抗），有斩杀机会优先斩杀；血量危险注意防守或换宠。\n"
+    "4. 能量管理：注意技能消耗，能量不足无法出招，必要时选择聚能(+5能量)或愿力冲击。\n\n"
+    "必须严格按以下 JSON 格式回复，不要输出任何多余问候或 markdown 代码块外的杂音:\n"
+    '{"recommendation": {"action": "skill|switch|energize|resonance", "target": "推荐的具体技能名或精灵名", '
+    '"confidence": "high|medium|low", "reasoning": "2-3句极精辟的战术解析(说明技能机制/特性联动/属性克制)", "risk": "针对敌方出招或反制的风险提示"}, '
+    '"alternatives": [{"action": "skill|switch|energize", "target": "备选技能或精灵", "reasoning": "备选理由"}]}'
 )
 
 
@@ -54,88 +55,115 @@ def load_config() -> dict:
 
 
 def build_prompt(snapshot: dict) -> str:
-    """从识别快照构造 LLM 用户消息"""
+    """从快照中提取完整战局信息，拼接技能官方效果描述、特性、克制矩阵与敌方上招"""
+    try:
+        from src.pvp.pet_loader import get_pet_by_name
+        from src.pvp.skill_loader import get_skill
+        from src.pvp.type_chart import get_attr_multiplier
+    except Exception:
+        get_pet_by_name = lambda n: {}
+        get_skill = lambda n: {}
+        get_attr_multiplier = lambda a, d: 1.0
+
     p = snapshot.get("player") or {}
     e = snapshot.get("enemy") or {}
     hands = snapshot.get("hands") or {}
-    calc = snapshot.get("calc_skills") or []
+    calc = snapshot.get("calc_skills") or snapshot.get("damage_calc") or []
+    if not calc and p.get("skills"):
+        calc = [{"name": s} for s in p.get("skills") if s]
     threats = snapshot.get("enemy_threats") or []
     energy_plan = snapshot.get("energy_plan") or {}
+    enemy_last_cast = snapshot.get("enemy_last_cast") or ""
 
-    lines = ["当前战局信息:", ""]
-
-    # 双方阵容
-    player_lineup = snapshot.get("player_lineup") or []
-    enemy_lineup = snapshot.get("enemy_lineup") or []
-    if player_lineup:
-        lines.append(f"我方完整阵容: {', '.join(n or '?' for n in player_lineup)}")
-    if enemy_lineup:
-        lines.append(f"敌方完整阵容: {', '.join(n or '?' for n in enemy_lineup)}")
-    lines.append("")
-
-    # 当前在场
     p_name = p.get("name", "?")
+    p_species = p.get("species") or p_name
+    p_pet = get_pet_by_name(p_species) or get_pet_by_name(p_name) or {}
+    p_trait = p_pet.get("trait", "暂无特殊特性记录")
+    p_types = p.get("types") or p_pet.get("types") or []
+
+    e_name = e.get("name", "?")
+    e_species = e.get("species") or e_name
+    e_pet = get_pet_by_name(e_species) or get_pet_by_name(e_name) or {}
+    e_trait = e_pet.get("trait", "暂无特殊特性记录")
+    e_types = e.get("types") or e_pet.get("types") or []
+
+    lines = ["【当前对局实时战况】", ""]
+
+    # 1. 我方在场
     p_hp = p.get("hp_val", "?")
     p_hp_max = p.get("hp_max", "?")
     p_energy = p.get("energy_val", "?")
-    p_types = p.get("types", [])
-    lines.append(f"我方在场: {p_name} (HP {p_hp}/{p_hp_max}, 能量{p_energy}, 属性: {','.join(p_types)})")
+    lines.append(f"▶ 我方在场精灵: {p_name}" + (f" (物种: {p_species})" if p_species != p_name else ""))
+    lines.append(f"  • 属性: {', '.join(p_types) if p_types else '未知'}")
+    lines.append(f"  • 血量: {p_hp}/{p_hp_max} | 当前能量: {p_energy}")
+    lines.append(f"  • 特性(被动): {p_trait}")
+    lines.append("")
 
-    e_name = e.get("name", "?")
+    # 2. 敌方在场
     e_hp = f"{float(e.get('hp_pct') or 0):.0%}"
-    e_types = e.get("types", [])
-    lines.append(f"敌方在场: {e_name} (HP {e_hp}, 属性: {','.join(e_types)})")
+    lines.append(f"▶ 敌方在场精灵: {e_name}" + (f" (物种: {e_species})" if e_species != e_name else ""))
+    lines.append(f"  • 属性: {', '.join(e_types) if e_types else '未知'}")
+    lines.append(f"  • 当前血量百分比: {e_hp}")
+    lines.append(f"  • 特性(被动): {e_trait}")
+    if enemy_last_cast:
+        sk_info = get_skill(enemy_last_cast) or {}
+        desc = sk_info.get("describe") or ""
+        lines.append(f"  • ⚠️ 敌方上回合实际施放技能: 【{enemy_last_cast}】" + (f" (效果: {desc})" if desc else ""))
+    lines.append("")
 
-    # 速度线
+    # 3. 速度与局势
     sd = snapshot.get("speed_diff")
-    if sd is not None:
-        lines.append(f"速度差: {'先手' if sd > 0 else '后手'} {abs(sd)}")
+    speed_text = "先手 (+" + str(sd) + ")" if sd is not None and sd > 0 else ("后手 (" + str(sd) + ")" if sd is not None and sd < 0 else "同速")
+    lines.append(f"▶ 先后手状态: 我方{speed_text}")
     esr = snapshot.get("enemy_speed_range") or {}
     if esr:
-        lines.append(f"敌方速度区间: {esr.get('range_str', '?')}")
-
-    # 能量线
-    if energy_plan:
-        now_sk = energy_plan.get("this_turn_skills") or []
-        after_sk = energy_plan.get("after_charge_skills") or []
-        lines.append(f"能量线: 当前{energy_plan.get('energy_now', '?')}点, 可用技能: {'/'.join(now_sk) if now_sk else '无'}")
-        lines.append(f"    聚能后{energy_plan.get('after_charge_energy', '?')}点, 可用技能: {'/'.join(after_sk) if after_sk else '无'}")
-        if energy_plan.get("can_resonance_now"):
-            lines.append("    当前即可释放愿力冲击(2能量)")
-
-    # 回合/手牌
-    turn_n = hands.get("turn_count", "?")
-    enemy_dead = hands.get("enemy_dead") or []
-    enemy_seen = hands.get("enemy_seen") or []
-    unseen = hands.get("enemy_unseen_count", 0)
-    hearts = hands.get("enemy_hearts_left_est", "?")
-    lines.append(f"回合{ turn_n}, 已见敌方: {', '.join(enemy_seen) if enemy_seen else '无'}, 未出场约{unseen}只")
-    lines.append(f"敌方阵亡: {', '.join(enemy_dead) if enemy_dead else '无'}, 剩余心数: {hearts}")
+        lines.append(f"  敌方速度参考区间: {esr.get('range_str', '?')}")
     lines.append("")
 
-    # 我方技能伤害
-    lines.append("我方技能推演:")
+    # 4. 我方技能库与详细推演
+    lines.append("▶ 我方当前 4 个可选技能与效果详细信息:")
     if calc:
         for sk in calc:
-            name = sk.get("name", "?")
-            dmg = f"{sk.get('dmg_min', '?')}~{sk.get('dmg_max', '?')}" if sk.get("dmg_min") else "无伤"
-            mult = sk.get("mult", 1)
-            mult_tag = f" (克制×{mult})" if mult > 1 else (f" (抵抗×{mult})" if mult < 1 else "")
-            kill_tag = " [斩杀!]" if sk.get("is_kill") else ""
-            lines.append(f"  {name}: {dmg}{mult_tag}{kill_tag}")
+            name = (sk.get("name") or "").strip()
+            if not name:
+                continue
+            sk_meta = get_skill(name) or {}
+            desc = sk_meta.get("describe") or "常规技能"
+            cost = sk_meta.get("consume") or "0"
+            sk_type = sk_meta.get("type") or sk.get("type", "普通")
+            sk_attr = sk_meta.get("attr") or sk.get("attr", "普通")
+            mult = sk.get("mult", 1.0)
+            mult_str = f"克制×{mult:.1f}" if mult > 1.0 else (f"抵抗×{mult:.1f}" if mult < 1.0 else "等倍1.0")
+            dmg = f"{sk.get('dmg_min', 0)}~{sk.get('dmg_max', 0)}" if sk.get("dmg_min") else "0/状态技能"
+            kill_str = "【可直接斩杀!】" if sk.get("is_kill") else ""
+            lines.append(f"  • 【{name}】 消耗:{cost}能 | 类型:{sk_type}/{sk_attr} | 伤害预测:{dmg} ({mult_str}) {kill_str}")
+            lines.append(f"    官方技能效果: {desc}")
+    else:
+        lines.append("  (技能推演中...)")
     lines.append("")
 
-    # 敌方威胁
+    # 5. 敌方潜在威胁预测
     if threats:
-        lines.append("敌方威胁技能:")
-        for t in threats[:4]:
-            name = t.get("name", "?")
-            dmg = f"{t.get('dmg_min', '?')}~{t.get('dmg_max', '?')}"
-            lethal = " [致死!]" if t.get("is_lethal") else ""
-            lines.append(f"  {name}: {dmg}{lethal}")
+        lines.append("▶ 敌方潜在高威胁技能预测:")
+        for t in threats[:3]:
+            t_name = t.get("name", "")
+            t_meta = get_skill(t_name) or {}
+            t_desc = t_meta.get("describe") or ""
+            t_dmg = f"{t.get('dmg_min', 0)}~{t.get('dmg_max', 0)}"
+            lethal = "【可能直接致死我方!】" if t.get("is_lethal") else ""
+            lines.append(f"  • {t_name}: 预测伤害 {t_dmg} {lethal}" + (f" ({t_desc})" if t_desc else ""))
+        lines.append("")
+
+    # 6. 双方阵容与手牌
+    p_lineup = snapshot.get("player_lineup") or []
+    e_lineup = snapshot.get("enemy_lineup") or []
+    if p_lineup:
+        lines.append(f"我方候补阵容: {', '.join(p_lineup)}")
+    if e_lineup:
+        lines.append(f"敌方已知阵容: {', '.join(e_lineup)}")
 
     lines.append("")
-    lines.append("请给出最优动作建议(仅 JSON, 不要多余文字):")
+    lines.append("请作为最高水平 PVP 军师，综合我方技能效果（包含灼烧/控制/状态回复等机制）、双方特性加成、属性克制倍率及敌方上招，给出本回合最优决策。必须严格只回复指定 JSON。")
     return "\n".join(lines)
 
 

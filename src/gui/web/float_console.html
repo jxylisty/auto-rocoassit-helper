@@ -7,33 +7,33 @@
 <script src="assets/pet_asset_map.js"></script>
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    /* ============ 魔法绘本皮肤 V4.5 (换肤不换骨: DOM/JS 合约原样) ============ */
+    /* ============ 现代透明毛玻璃皮肤 (换肤不换骨: DOM/JS 合约原样) ============ */
     :root {
-        --paper: #f6efdc;          /* 书页黄 */
-        --card-bg: rgba(252, 247, 234, 0.97);
-        --card-edge: #c8b482;      /* 金棕描边 */
-        --line: #dccfa8;
-        --ink-1: #3f3428;          /* 棕墨主字 */
-        --ink-2: #655741;
-        --ink-3: #8a7a5e;
-        --gold: #8a6420;           /* 鎏金强调 */
-        --gold-soft: rgba(138, 100, 32, 0.12);
-        --cover: #332a1d;          /* 书脊深棕 */
-        --foil: #e6c46a;
-        --leaf: #4f7a4a;           /* 叶绿 = 正常/成功 */
-        --wax: #a8402f;            /* 火漆红 = 战斗/危险 */
-        --wax-soft: rgba(168, 64, 47, 0.12);
-        --teal: #3d6b5c;
+        --paper: rgba(13, 17, 28, 0.82);
+        --card-bg: rgba(18, 24, 38, 0.82);
+        --card-edge: rgba(255, 255, 255, 0.12);
+        --line: rgba(255, 255, 255, 0.08);
+        --ink-1: #f8fafc;
+        --ink-2: #cbd5e1;
+        --ink-3: #94a3b8;
+        --gold: #38bdf8;
+        --gold-soft: rgba(56, 189, 248, 0.15);
+        --cover: #0f172a;
+        --foil: #60a5fa;
+        --leaf: #22c55e;
+        --wax: #ef4444;
+        --wax-soft: rgba(239, 68, 68, 0.15);
+        --teal: #2dd4bf;
         --num-font: Consolas, 'Cascadia Mono', monospace;
-        --text: #3f3428;          /* 主文字 */
-        --bg: rgba(252, 247, 234, 0.97);    /* 卡片背景 */
-        --border: #dccfa8;         /* 边框 */
-        --radius: 12px;            /* 圆角 */
-        --dim: #8a7a5e;            /* 暗色文字 */
-        --accent: #8a6420;         /* 强调色 */
-        --ok: #4f7a4a;             /* 成功/正常 */
-        --warn: #b07d1e;           /* 警告 */
-        --err: #a8402f;            /* 错误 */
+        --text: #f1f5f9;
+        --bg: rgba(13, 17, 28, 0.82);
+        --border: rgba(255, 255, 255, 0.12);
+        --radius: 14px;
+        --dim: #94a3b8;
+        --accent: #6366f1;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --err: #ef4444;
     }
     html, body {
         background: transparent;
@@ -47,9 +47,9 @@
     .card {
         width: 100%;
         background: var(--bg); border: 1px solid var(--border);
-        border-radius: 12px; backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+        border-radius: 14px; backdrop-filter: blur(28px);
+        -webkit-backdrop-filter: blur(28px);
+        box-shadow: 0 12px 36px rgba(0,0,0,0.65), 0 0 0 1px rgba(255, 255, 255, 0.06);
         overflow: hidden;
     }
     .head {
@@ -768,6 +768,7 @@
         <div class="tabs">
             <button class="tab-btn active" id="tabAfk" onclick="switchTab('afk')">🎯 挂机</button>
             <button class="tab-btn" id="tabPvp" onclick="switchTab('pvp')">⚔️ PVP</button>
+            <button class="tab-btn" id="tabAiOverlay" onclick="toggleAiOverlay()" title="在屏幕左侧唤出/隐藏AI独立战术军师窗 (快捷键 F9)">🧠 军师</button>
         </div>
         <button class="fold-btn" id="foldBtn" onclick="toggleFold()" title="折叠/展开">▾</button>
     </div>
@@ -873,6 +874,12 @@
         }
 
         return '';
+    }
+
+    function toggleAiOverlay() {
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.ai_widget_toggle) {
+            window.pywebview.api.ai_widget_toggle().catch(e => console.error(e));
+        }
     }
 
     // 按内容真实高度同步窗口尺寸(乘 devicePixelRatio 换算物理像素,修复 DPI 缩放下折叠变形)
@@ -1432,9 +1439,9 @@ function updatePVPData(data) {
 
     const compactHtml = `
         ${vsBannerHtml}
-        <div class="adv-compact">
+        <div class="adv-compact" onclick="toggleAiOverlay()" style="cursor:pointer;" title="点击在屏幕左侧唤出/隐藏AI独立战术军师窗 (F9)">
             <span class="ai-d-action" style="padding:0;font-size:13px;">${advice.actionLabel}</span>
-            <span class="adv-conf ai-d-conf ${advice.confidence || 'medium'}">${(advice.confidence === 'high' ? '高' : advice.confidence === 'low' ? '低' : '中')}</span>
+            <span class="adv-conf ai-d-conf ${advice.confidence || 'medium'}">${(advice.confidence === 'high' ? '高' : advice.confidence === 'low' ? '低' : '中')} <span style="font-size:8px;opacity:0.8;">独立窗↗</span></span>
             ${advice.reasoning ? `<div class="adv-reason">${advice.reasoning.slice(0, 64)}${advice.reasoning.length > 64 ? '…' : ''}</div>` : ''}
         </div>
         <div class="sec-title">🎯 我方技能即时伤害推演</div>

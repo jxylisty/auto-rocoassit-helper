@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AI 战术军师</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+        --bg: rgba(13, 17, 28, 0.82);
+        --border: rgba(139, 92, 246, 0.28);
+        --card-bg: rgba(22, 28, 45, 0.72);
+        --text: #f8fafc;
+        --dim: #94a3b8;
+        --accent: #8b5cf6;
+        --accent-glow: rgba(139, 92, 246, 0.35);
+        --cyan: #38bdf8;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --err: #ef4444;
+    }
+    html, body {
+        background: transparent;
+        width: 100%; height: 100%;
+        overflow: hidden;
+    }
+    body {
+        font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+        color: var(--text); user-select: none; font-size: 12px;
+        -webkit-font-smoothing: antialiased;
+    }
+    .card {
+        width: 100%;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        backdrop-filter: blur(28px);
+        -webkit-backdrop-filter: blur(28px);
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+        transition: box-shadow 0.3s ease;
+    }
+    .card:hover {
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), 0 0 18px var(--accent-glow);
+    }
+
+    /* 拖拽栏 */
+    .head {
+        display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(90deg, rgba(139, 92, 246, 0.15), rgba(56, 189, 248, 0.08));
+        cursor: move;
+        height: 38px;
+    }
+    .dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--accent); box-shadow: 0 0 8px var(--accent);
+        flex-shrink: 0;
+    }
+    .dot.live { animation: pulse 1.8s infinite; }
+    .dot.off { background: #64748b; box-shadow: none; animation: none; }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.45; transform: scale(1.15); }
+    }
+
+    .title {
+        font-size: 12.5px; font-weight: 700; flex: 1;
+        letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;
+        color: #f1f5f9;
+    }
+    .conf-badge {
+        font-size: 10px; font-weight: 700; padding: 2px 7px;
+        border-radius: 999px; text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .conf-badge.high { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+    .conf-badge.medium { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+    .conf-badge.low { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+
+    .btn-icon {
+        background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1);
+        color: var(--dim); width: 22px; height: 22px;
+        border-radius: 6px; cursor: pointer; font-size: 11px;
+        line-height: 1; display: flex; align-items: center; justify-content: center;
+        transition: all 0.2s;
+    }
+    .btn-icon:hover { color: #fff; border-color: var(--accent); background: rgba(139, 92, 246, 0.3); }
+
+    /* 主体容器 */
+    .body {
+        padding: 10px 12px 12px;
+        display: flex; flex-direction: column; gap: 8px;
+    }
+
+    /* 核心决策主卡 */
+    .rec-card {
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(56, 189, 248, 0.12));
+        border: 1px solid rgba(139, 92, 246, 0.35);
+        border-radius: 10px;
+        padding: 9px 11px;
+        display: flex; flex-direction: column; gap: 6px;
+    }
+    .rec-top {
+        display: flex; align-items: center; justify-content: space-between;
+    }
+    .rec-action-badge {
+        font-size: 10.5px; font-weight: 700; padding: 2px 7px;
+        border-radius: 4px; background: rgba(139, 92, 246, 0.3);
+        color: #c4b5fd;
+    }
+    .rec-target {
+        font-size: 14px; font-weight: 800; color: #fff;
+        letter-spacing: 0.4px; display: flex; align-items: center; gap: 5px;
+    }
+    .rec-target.skill { color: #38bdf8; text-shadow: 0 0 10px rgba(56, 189, 248, 0.4); }
+    .rec-target.switch { color: #34d399; text-shadow: 0 0 10px rgba(52, 211, 153, 0.4); }
+    .rec-target.energize { color: #fbbf24; text-shadow: 0 0 10px rgba(251, 191, 36, 0.4); }
+
+    .rec-reason {
+        font-size: 12px; line-height: 1.55; color: #e2e8f0;
+        text-align: justify; word-break: break-all;
+    }
+
+    /* 风险提示卡 */
+    .risk-box {
+        display: flex; align-items: flex-start; gap: 6px;
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 8px; padding: 6px 9px;
+        font-size: 11px; line-height: 1.45; color: #fca5a5;
+    }
+    .risk-icon { font-size: 13px; line-height: 1; flex-shrink: 0; margin-top: 1px; }
+
+    /* 备选方案 */
+    .alts-box {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px; padding: 7px 10px;
+        display: flex; flex-direction: column; gap: 4px;
+    }
+    .alts-title {
+        font-size: 10.5px; font-weight: 700; color: var(--dim);
+        display: flex; align-items: center; gap: 4px;
+    }
+    .alt-item {
+        font-size: 11.5px; color: #cbd5e1; line-height: 1.4;
+        display: flex; align-items: baseline; gap: 4px;
+    }
+    .alt-item b { color: #f1f5f9; }
+
+    /* 空态 */
+    .empty-state {
+        text-align: center; padding: 18px 12px; color: var(--dim);
+        font-size: 11.5px; line-height: 1.6;
+    }
+    .empty-icon { font-size: 24px; margin-bottom: 6px; }
+
+    /* 折叠态 */
+    .folded .body { display: none; }
+</style>
+</head>
+<body>
+<div class="card" id="aiCard">
+    <div class="head drag-handle" id="dragHead">
+        <div class="dot live" id="aiDot"></div>
+        <div class="title">
+            <span>🧠 战术军师</span>
+            <span class="conf-badge high" id="confBadge">AI 待命中</span>
+        </div>
+        <button class="btn-icon" id="foldBtn" title="折叠/展开" onclick="toggleFold()">▾</button>
+    </div>
+    <div class="body" id="aiBody">
+        <div class="empty-state" id="emptyState">
+            <div class="empty-icon">⚔️</div>
+            <div>进入对战后，AI 军师将实时提供每回合精准出招与战术解析</div>
+        </div>
+        <div id="contentArea" style="display:none; flex-direction:column; gap:8px;">
+            <div class="rec-card" id="recCard">
+                <div class="rec-top">
+                    <span class="rec-action-badge" id="recActionBadge">出招</span>
+                    <span style="font-size:11px;color:var(--dim);" id="recTurn">回合 1</span>
+                </div>
+                <div class="rec-target skill" id="recTarget">引燃</div>
+                <div class="rec-reason" id="recReason">
+                    建议使用引燃：敌方月亮砣抗性较弱，引燃可施加10层灼烧。结合我方燃薪虫特性，灼烧只增不减，可建立持续压制优势。
+                </div>
+            </div>
+            <div class="risk-box" id="riskBox" style="display:none;">
+                <span class="risk-icon">⚠️</span>
+                <span id="riskText">敌方有概率使用控制技能，注意血量保持。</span>
+            </div>
+            <div class="alts-box" id="altsBox" style="display:none;">
+                <div class="alts-title">🔄 备选策略</div>
+                <div id="altsList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let _folded = false;
+    let _lastData = null;
+
+    function syncSize() {
+        const card = document.getElementById('aiCard');
+        if (!card || !window.pywebview || !pywebview.api || !pywebview.api.ai_widget_resize) return;
+        const rect = card.getBoundingClientRect();
+        const w = Math.ceil(rect.width) || 300;
+        const h = Math.ceil(rect.height) || 200;
+        pywebview.api.ai_widget_resize(w, h);
+    }
+
+    function toggleFold() {
+        _folded = !_folded;
+        const card = document.getElementById('aiCard');
+        const btn = document.getElementById('foldBtn');
+        if (_folded) {
+            card.classList.add('folded');
+            btn.textContent = '▸';
+        } else {
+            card.classList.remove('folded');
+            btn.textContent = '▾';
+        }
+        setTimeout(syncSize, 50);
+    }
+
+    function updateAIDecision(payload) {
+        if (!payload) return;
+        _lastData = payload;
+
+        const empty = document.getElementById('emptyState');
+        const content = document.getElementById('contentArea');
+        const dot = document.getElementById('aiDot');
+        const confBadge = document.getElementById('confBadge');
+        const recTarget = document.getElementById('recTarget');
+        const recActionBadge = document.getElementById('recActionBadge');
+        const recReason = document.getElementById('recReason');
+        const recTurn = document.getElementById('recTurn');
+        const riskBox = document.getElementById('riskBox');
+        const riskText = document.getElementById('riskText');
+        const altsBox = document.getElementById('altsBox');
+        const altsList = document.getElementById('altsList');
+
+        // 支持直接传入 decision 结构 或 带 ai_advice 的对战快照
+        const advice = payload.ai_advice || payload.recommendation ? payload : (payload.data ? payload.data : null);
+        const rec = advice && advice.recommendation ? advice.recommendation : (advice && advice.action ? advice : null);
+
+        if (!rec) {
+            empty.style.display = 'block';
+            content.style.display = 'none';
+            dot.className = 'dot off';
+            confBadge.className = 'conf-badge';
+            confBadge.textContent = '等待分析';
+            setTimeout(syncSize, 50);
+            return;
+        }
+
+        empty.style.display = 'none';
+        content.style.display = 'flex';
+        dot.className = 'dot live';
+
+        // 置信度
+        const conf = (rec.confidence || 'medium').toLowerCase();
+        confBadge.className = 'conf-badge ' + conf;
+        confBadge.textContent = conf === 'high' ? '高胜算' : (conf === 'low' ? '低把握' : '推荐');
+
+        // 动作类型
+        const act = (rec.action || 'skill').toLowerCase();
+        const actionLabels = {
+            skill: '出招',
+            switch: '换宠',
+            energize: '聚能',
+            resonance: '愿力冲击',
+        };
+        recActionBadge.textContent = actionLabels[act] || '动作';
+
+        // 目标名称与样式
+        recTarget.className = 'rec-target ' + (act === 'skill' ? 'skill' : (act === 'switch' ? 'switch' : 'energize'));
+        recTarget.textContent = rec.target || (act === 'energize' ? '聚能 (+5能量)' : (act === 'resonance' ? '愿力冲击' : '出招'));
+
+        // 理由
+        recReason.textContent = rec.reasoning || '根据当前克制与能量线进行最优推演。';
+
+        // 回合
+        if (payload.round_no || payload.turn) {
+            recTurn.textContent = `回合 ${payload.round_no || payload.turn}`;
+        } else {
+            recTurn.textContent = '本回合建议';
+        }
+
+        // 风险提示
+        if (rec.risk) {
+            riskBox.style.display = 'flex';
+            riskText.textContent = rec.risk;
+        } else {
+            riskBox.style.display = 'none';
+        }
+
+        // 备选方案
+        const alts = advice.alternatives || [];
+        if (alts.length > 0) {
+            altsBox.style.display = 'flex';
+            altsList.innerHTML = alts.map(a => {
+                const aAct = actionLabels[a.action] || '方案';
+                return `<div class="alt-item"><b>[${aAct}] ${a.target || ''}</b>: ${a.reasoning || ''}</div>`;
+            }).join('');
+        } else {
+            altsBox.style.display = 'none';
+        }
+
+        requestAnimationFrame(() => setTimeout(syncSize, 50));
+    }
+
+    // 自研拖拽: 标题栏拖动
+    (function initDrag() {
+        let dragging = false, lx = 0, ly = 0, px = 0, py = 0, raf = 0;
+        const head = document.getElementById('dragHead');
+        if (!head) return;
+
+        head.addEventListener('mousedown', (e) => {
+            if (e.button !== 0 || e.target.tagName === 'BUTTON') return;
+            dragging = true;
+            lx = e.screenX; ly = e.screenY; px = py = 0;
+            e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            px += e.screenX - lx; py += e.screenY - ly;
+            lx = e.screenX; ly = e.screenY;
+            if (!raf) raf = requestAnimationFrame(flush);
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (dragging) { flush(); dragging = false; }
+        });
+
+        function flush() {
+            raf = 0;
+            if ((px || py) && window.pywebview && pywebview.api && pywebview.api.move_ai_window_by) {
+                pywebview.api.move_ai_window_by(Math.round(px), Math.round(py));
+                px = py = 0;
+            }
+        }
+    })();
+
+    window.addEventListener('DOMContentLoaded', () => {
+        setTimeout(syncSize, 80);
+    });
+</script>
+</body>
+</html>

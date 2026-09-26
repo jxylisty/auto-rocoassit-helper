@@ -112,13 +112,28 @@ _RESULT_MAP = {
     10: "RUNAWAY", 12: "RUNAWAY", 260: "RUNAWAY", 132: "RUNAWAY", 516: "RUNAWAY",
 }
 
-# RKPP 对「隐藏特性/占位技能」给的说明文本，不是真正的技能名，需过滤
+# RKPP 对「隐藏特性/占位技能/内部Buff」给的说明文本，不是真正的技能名，需过滤
 _SKILL_PLACEHOLDERS = frozenset({
     "此精灵被隐藏起来了，看不出特性",
     "对对手赋予EFFECT。",
+    "对自己赋予BUFF。",
+    "对自己赋予EFFECT。",
+    "对对手赋予BUFF。",
     "？？？",
     "赋予效果用技能",
 })
+
+
+def _is_valid_skill_cast_name(name: Any) -> bool:
+    """过滤被动Buff/特性/引擎指令，确保敌方施法记录的是真实战斗技能。"""
+    nm = str(name or "").strip()
+    if not nm or nm in _SKILL_PLACEHOLDERS:
+        return False
+    if nm.startswith("对自己赋予") or nm.startswith("对对手赋予") or nm.startswith("此精灵被隐藏"):
+        return False
+    if _is_effect_text(nm):
+        return False
+    return True
 
 
 def _is_effect_text(text: str) -> bool:
@@ -175,18 +190,19 @@ def _enemy_cast_name(sk: dict) -> str:
     sid = _as_int(sk.get("skill_id")) if isinstance(sk, dict) else None
     if sid is not None:
         by_id = resolve_skill_name(sid)
-        if by_id:
+        if by_id and _is_valid_skill_cast_name(by_id):
             return by_id
     desc = str(sk.get("skill_desc") or "").strip()
     name = str(sk.get("skill_name") or "").strip()
     try:
         from src.pvp.skill_lexicon import correct_skill_name
         for cand in (name, desc):
-            if cand and correct_skill_name(cand, allow_fuzzy=False):
+            if cand and _is_valid_skill_cast_name(cand) and correct_skill_name(cand, allow_fuzzy=False):
                 return cand
     except Exception:
         pass
-    return _skill_display_name(sk)
+    cand = _skill_display_name(sk)
+    return cand if _is_valid_skill_cast_name(cand) else ""
 
 
 def _iter_battle_skill_pairs(skills: Any):
@@ -417,6 +433,7 @@ class RkppEventClient:
         self._player_lineup: list = []
         self._enemy_lineup: list = []
         self._lineup_done = False
+        self._roster_cache: dict[int, dict] = {}   # pet_id -> pet_info，整局持久缓存防换宠丢失技能
         self._last_result = ""
         self._last_real_pvp = False
         self._errors: list[str] = []
@@ -470,6 +487,7 @@ class RkppEventClient:
             self._player_lineup = []
             self._enemy_lineup = []
             self._lineup_done = False
+            self._roster_cache.clear()
             self._last_result = ""
             self._last_real_pvp = False
             self._errors = []
@@ -589,6 +607,7 @@ class RkppEventClient:
         self._enemy_casts = []
         self._enemy_last_cast = ""
         self._bar_entries = []
+        self._roster_cache.clear()
         self._player_species = ""
         self._enemy_species = ""
         self._round_no = 0
@@ -650,6 +669,9 @@ class RkppEventClient:
             for bip, common in _iter_team_pets(team):
                 info = _parse_pet_info(bip, common=common)
                 nm = info["name"]
+                pid = info.get("pet_id")
+                if pid is not None and side == "player":
+                    self._roster_cache[pid] = dict(info)
                 if nm and nm not in lineup:
                     lineup.append(nm)
                 # 累计 id→名 对照表(仅我方；敌方 skill_round_data 可能不完整)
@@ -753,8 +775,14 @@ class RkppEventClient:
                     self._add_skill_name(
                         _skill_display_name(sc) or sc.get("skill_id"), sc.get("skill_id"))
                 elif side == "enemy":
-                    name = _enemy_cast_name(sc) or str(sc.get("skill_id") or "").strip()
-                    if name:
+                    name = _enemy_cast_name(sc)
+                    if not name:
+                        sid = _as_int(sc.get("skill_id"))
+                        if sid:
+                            by_id = resolve_skill_name(sid)
+                            if by_id and _is_valid_skill_cast_name(by_id):
+                                name = by_id
+                    if name and _is_valid_skill_cast_name(name):
                         self._enemy_last_cast = name
                         self._enemy_casts.append(
                             {"round": self._round_no, "skill": name})
@@ -904,9 +932,12 @@ class RkppEventClient:
             if player_info.get("pos") is not None and pid is not None:
                 self._on_field_pid = pid
                 # 我方上场宠的 (槽位, 技能ID) 条目 → OCR 槽位校准闭环的数据源
-                self._bar_entries = list(player_info.get("bar_entries") or [])
-                self._player_species = player_info.get("species") or ""
-                own = player_info.get("skills")
+                # 优先用当前数据，若当前包缺失则从本局阵容缓存中平稳继承，防换宠抽风
+                cached = self._roster_cache.get(pid, {})
+                entries = list(player_info.get("bar_entries") or cached.get("bar_entries") or [])
+                self._bar_entries = entries
+                self._player_species = player_info.get("species") or cached.get("species") or ""
+                own = player_info.get("skills") or cached.get("skills")
                 if own:
                     self._set_skill_bar(own)
                 else:

@@ -258,6 +258,11 @@ class PvpEngineMixin:
         技能栏也不再依赖游戏窗口可见)。OCR 读数仅用于补 wiki 缺口并写入
         校准表; 新一局开局(battle_start)清缓存。
         """
+        cur_pet = getattr(result, "player_name", "")
+        last_pet = getattr(self, "_ocr_last_pet_name", "")
+        if cur_pet and cur_pet != last_pet:
+            self._ocr_last_pet_name = cur_pet
+            self._ocr_skill_cache = None
         if getattr(result, "battle_start", False):
             self._ocr_skill_cache = None
         bar_entries = sorted(
@@ -759,6 +764,7 @@ class PvpEngineMixin:
                             _decision = get_decision(data)
                             with self._ai_decision_lock:
                                 self._ai_recommendation = _decision
+                            self._push_ai_decision(_decision)
                         except Exception:
                             pass
 
@@ -1018,8 +1024,21 @@ class PvpEngineMixin:
                     _decision = get_decision(data)
                     with self._ai_decision_lock:
                         self._ai_recommendation = _decision
+                    self._push_ai_decision(_decision)
                 except Exception:
                     pass
+
+    def _push_ai_decision(self, decision: dict):
+        """将 AI 战术军师决策推送到独立的左侧悬浮窗"""
+        if not decision:
+            return
+        ai_win = getattr(self, "_ai_widget", None)
+        if ai_win and getattr(self, "_ai_widget_visible", False):
+            try:
+                js = f"updateAIDecision({json.dumps(decision, ensure_ascii=False)})"
+                ai_win.evaluate_js(js)
+            except Exception:
+                pass
 
     def pvp_engine_start(self, source: str = "") -> dict:
         """启动 PVP 实时识别引擎。source: "ocr" / "capture"(自研抓包) / "rkpp"。

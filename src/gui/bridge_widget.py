@@ -10,6 +10,7 @@ from src.gui.bridge_common import PROJECT_ROOT, CONFIG_DIR
 
 # 悬浮窗惰性创建的全局锁: 防止热键/界面按钮/任务自动弹出并发建出两个窗
 _WIDGET_CREATE_LOCK = threading.Lock()
+_AI_WIDGET_CREATE_LOCK = threading.Lock()
 
 
 class WidgetMixin:
@@ -39,6 +40,15 @@ class WidgetMixin:
         self._widget_url = getattr(self, "_widget_url", None)
         if window is not None:
             self._bind_widget_events(window)
+
+    def set_ai_widget_window(self, window):
+        """设置独立 AI 战术军师悬浮窗引用"""
+        self._ai_widget = window
+        self._ai_widget_visible = False
+        self._last_ai_widget_pos = None
+        self._ai_widget_loaded_evt = threading.Event()
+        if window is not None:
+            self._bind_ai_widget_events(window)
 
     def set_widget_url(self, uri: str):
         """惰性创建所需的悬浮窗页面地址(main.py/app_entry.py 启动时注入)"""
@@ -132,6 +142,180 @@ class WidgetMixin:
                 pass
             self._enqueue_log("悬浮窗已创建(惰性, 首次唤出)")
             return win
+
+    def ensure_ai_window(self):
+        """首次唤出时才创建独立 AI 战术军师悬浮窗"""
+        if getattr(self, "_ai_widget", None) is not None:
+            return self._ai_widget
+        with _AI_WIDGET_CREATE_LOCK:
+            if getattr(self, "_ai_widget", None) is not None:
+                return self._ai_widget
+            import webview
+            self._ai_widget_loaded_evt = threading.Event()
+            url = getattr(self, "_ai_widget_url", None) or (
+                Path(PROJECT_ROOT) / "src" / "gui" / "web" / "ai_float_overlay.html"
+            ).as_uri()
+            try:
+                win = webview.create_window(
+                    title='AI战术军师',
+                    url=url,
+                    js_api=self._api,
+                    width=330,
+                    height=380,
+                    resizable=False,
+                    frameless=True,
+                    easy_drag=False,
+                    on_top=True,
+                    background_color='#0a0e1a',
+                )
+            except Exception as e:
+                print(f"[AI悬浮窗] 创建失败: {e}", flush=True)
+                self._enqueue_log(f"AI悬浮窗创建失败: {e}", "error")
+                return None
+            self._ai_widget = win
+            self._bind_ai_widget_events(win)
+            try:
+                self._place_ai_widget()
+            except Exception:
+                pass
+            self._enqueue_log("AI战术军师悬浮窗已创建")
+            return win
+
+    def _bind_ai_widget_events(self, window):
+        """AI 悬浮窗事件绑定"""
+        try:
+            window.events.loaded += lambda: self._ai_widget_loaded_evt.set()
+        except Exception:
+            pass
+
+        def _on_closed():
+            self._ai_widget = None
+            self._ai_widget_visible = False
+            self._ai_widget_loaded_evt = threading.Event()
+        try:
+            window.events.closed += _on_closed
+        except Exception:
+            pass
+
+    def _ai_widget_hwnd(self) -> int:
+        return self._native_hwnd(getattr(self, "_ai_widget", None))
+
+    def _set_ai_widget_pos(self, x, y) -> bool:
+        """把 AI 悬浮窗钉到物理像素 (x, y)"""
+        x, y = int(x), int(y)
+        hwnd = self._ai_widget_hwnd()
+        if hwnd:
+            try:
+                import ctypes
+                SWP_NOSIZE, SWP_NOZORDER, SWP_NOACTIVATE = 0x0001, 0x0004, 0x0010
+                self._u32().SetWindowPos(
+                    ctypes.c_void_p(int(hwnd)), None, x, y, 0, 0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
+                return True
+            except Exception:
+                pass
+        try:
+            s = float(getattr(getattr(self._ai_widget, "native", None), "scale_factor", 1) or 1)
+            s = s if s > 0 else 1.0
+            self._ai_widget.move(int(round(x / s)), int(round(y / s)))
+            return True
+        except Exception:
+            return False
+
+    def _place_ai_widget(self):
+        """将 AI 悬浮窗默认放置在屏幕左侧(优先读保存的 ai_pos)"""
+        pos = None
+        try:
+            saved = self._load_widget_state().get("ai_pos")
+            if isinstance(saved, (list, tuple)) and len(saved) == 2:
+                pos = (int(saved[0]), int(saved[1]))
+        except Exception:
+            pos = None
+        if pos is None:
+            try:
+                wa_l, wa_t, wa_r, wa_b = self._monitor_workarea()
+                pos = (wa_l + 35, wa_t + 200)
+            except Exception:
+                pos = (50, 200)
+        else:
+            try:
+                wa_l, wa_t, wa_r, wa_b = self._monitor_workarea()
+                pos = (int(min(max(pos[0], wa_l), max(wa_l, wa_r - 200))),
+                       int(min(max(pos[1], wa_t), max(wa_t, wa_b - 200))))
+            except Exception:
+                pass
+        self._set_ai_widget_pos(*pos)
+        self._last_ai_widget_pos = pos
+
+    def ai_widget_toggle(self) -> dict:
+        """显隐切换独立 AI 悬浮窗"""
+        try:
+            if getattr(self, "_ai_widget_visible", False) and getattr(self, "_ai_widget", None):
+                self._ai_widget.hide()
+                self._ai_widget_visible = False
+            else:
+                if not self.ensure_ai_window():
+                    return {"success": False, "message": "AI悬浮窗创建失败"}
+                self._place_ai_widget()
+                self._ai_widget.show()
+                self._ai_widget_visible = True
+                try:
+                    self._ai_widget.evaluate_js("if (typeof syncSize === 'function') syncSize()")
+                except Exception:
+                    pass
+                with getattr(self, "_ai_decision_lock", threading.Lock()):
+                    rec = getattr(self, "_ai_recommendation", None)
+                if rec:
+                    try:
+                        self._ai_widget.evaluate_js(f"updateAIDecision({json.dumps(rec, ensure_ascii=False)})")
+                    except Exception:
+                        pass
+            return {"success": True, "visible": self._ai_widget_visible}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    def ai_widget_resize(self, width: int = 330, height: int = 380) -> dict:
+        """调整 AI 悬浮窗尺寸"""
+        if not getattr(self, "_ai_widget", None):
+            return {"success": False, "message": "AI悬浮窗未创建"}
+        if not getattr(self, "_ai_widget_visible", False):
+            return {"success": False, "message": "AI悬浮窗未显示"}
+        try:
+            safe_w = max(240, min(700, int(width)))
+            safe_h = max(36, min(1400, int(height)))
+            self._ai_widget.resize(safe_w, safe_h)
+            return {"success": True, "width": safe_w, "height": safe_h}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    def move_ai_window_by(self, dx: int, dy: int) -> dict:
+        """增量拖动 AI 悬浮窗"""
+        if not getattr(self, "_ai_widget", None):
+            return {"success": False}
+        try:
+            hwnd = self._ai_widget_hwnd()
+            r = self._window_rect(hwnd)
+            if r:
+                cx, cy = int(r[0]), int(r[1])
+                ww, wh = int(r[2] - r[0]), int(r[3] - r[1])
+            else:
+                cx, cy = getattr(self, "_last_ai_widget_pos", (35, 200))
+                ww, wh = 330, 380
+            s = self._scale_for_hwnd(hwnd)
+            nx = cx + int(round(int(dx) * s))
+            ny = cy + int(round(int(dy) * s))
+            wa_l, wa_t, wa_r, wa_b = self._nearest_workarea(nx, ny)
+            nx = max(wa_l - ww + 80, min(int(nx), wa_r - 80))
+            ny = max(wa_t, min(int(ny), wa_b - 40))
+            self._set_ai_widget_pos(nx, ny)
+            self._last_ai_widget_pos = (int(nx), int(ny))
+            now = time.time()
+            if now - getattr(self, "_last_ai_pos_save", 0.0) > 1.5:
+                self._last_ai_pos_save = now
+                self._save_widget_state(ai_pos=[int(nx), int(ny)])
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
 
     def set_api(self, api):
         """注入 Api 转发层单例，供运行时创建的独立窗 (ROI 工坊) 共用"""
@@ -838,11 +1022,12 @@ class WidgetMixin:
             import keyboard
             keyboard.add_hotkey('f2', self._hotkey_widget)
             keyboard.add_hotkey('f8', self._hotkey_snip)
+            keyboard.add_hotkey('f9', self._hotkey_ai_widget)
             keyboard.add_hotkey('f11', self._emergency_stop)
             keyboard.add_hotkey('f12', self._hotkey_pvp_float)
             # stdout 直打: 启动日志可追溯(热键失效时不用猜)
-            print("[热键] keyboard 库注册完成: F2悬浮窗/F8截图/F11急停/F12 PVP悬浮窗", flush=True)
-            self._enqueue_log("快捷键: F2悬浮窗/F8截图/F11急停/F12 PVP悬浮窗", "info")
+            print("[热键] keyboard 库注册完成: F2悬浮窗/F8截图/F9 AI军师/F11急停/F12 PVP悬浮窗", flush=True)
+            self._enqueue_log("快捷键: F2悬浮窗/F8截图/F9 AI军师/F11急停/F12 PVP悬浮窗", "info")
         except Exception as e:
             print(f"[热键] keyboard 库注册失败: {e}", flush=True)
             self._enqueue_log(f"快捷键注册失败: {e}", "error")
@@ -850,6 +1035,10 @@ class WidgetMixin:
     def _hotkey_widget(self):
         """F2: 纯浮窗显隐切换(不碰模式状态机,避免已显示窗口被意外隐藏)"""
         self.widget_toggle()
+
+    def _hotkey_ai_widget(self):
+        """F9: AI 战术军师独立悬浮窗显隐切换"""
+        self.ai_widget_toggle()
 
     def _hotkey_pvp_float(self):
         """F12: 纯浮窗显隐切换; pvp_float_toggle 会在显示时自动切到 PVP 标签"""
