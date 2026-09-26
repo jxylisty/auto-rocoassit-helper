@@ -648,6 +648,24 @@ class PvpEngineMixin:
                     if rkpp_client is None:
                         _time.sleep(self._pvp_interval)
                         continue
+                    # 断流自愈: 服务端(opencode-server)崩溃后事件流会静默中断,
+                    # 表现为"进入战斗完全没反应"。检测到断连 → 整套重启子系统。
+                    if not rkpp_client.is_connected():
+                        self._rkpp_fail_count = getattr(self, "_rkpp_fail_count", 0) + 1
+                        if self._rkpp_fail_count >= 10:      # 连续 ~5s 断连
+                            self._rkpp_fail_count = 0
+                            self._enqueue_log("[RKPP] 事件流断连, 自动重启解码后端…", "warning")
+                            self._stop_rkpp_subsystem()
+                            self._start_rkpp_subsystem()
+                            rkpp_client = getattr(self, "_rkpp_client", None)
+                            if rkpp_client is None:
+                                _time.sleep(self._pvp_interval)
+                                continue
+                        else:
+                            _time.sleep(self._pvp_interval)
+                            continue
+                    else:
+                        self._rkpp_fail_count = 0
                     result = rkpp_client.analyze()
                     # 我方技能栏: OCR 优先(准确率高), 抓包结果兜底。
                     # 仅在战斗态截图识别；窗口找不到/截图失败则保留抓包技能栏。
@@ -906,10 +924,18 @@ class PvpEngineMixin:
             if key:
                 cmd += ["--key", key]
             self._enqueue_log(f"启动 RKPP 解码后端: {' '.join(cmd)}", "info")
+            # 输出落盘: 服务端崩溃原因可追溯(此前 DEVNULL 吞掉一切, 崩了无从排查)
+            server_log = Path(PROJECT_ROOT) / "data" / "logs" / "rkpp_server.log"
+            server_log.parent.mkdir(parents=True, exist_ok=True)
+            server_log_f = open(server_log, "ab")
+            banner = "===== opencode-server 启动 " + time.strftime('%Y-%m-%d %H:%M:%S') + " ====="
+            server_log_f.write(("\n" + banner + "\n").encode())
+            server_log_f.flush()
             proc = subprocess.Popen(
                 cmd, cwd=str(rkpp_dir),
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                stdout=server_log_f, stderr=server_log_f)
             self._rkpp_proc = proc
+            self._rkpp_server_log_f = server_log_f
 
             # 3) 订阅 /events(等 relay 就绪)
             from src.capture.rkpp_client import get_rkpp_client
