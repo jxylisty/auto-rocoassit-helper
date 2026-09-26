@@ -648,6 +648,8 @@ class PvpPipeline:
                 "name_via_avatar": result.player_name_via_avatar,
                 "energy": result.energy,
                 "energy_val": result.energy_val,
+                # 物种名(抓包源由 base_conf_id 解析): 头像/查询用它, 昵称仅显示
+                "species": getattr(result, "player_species", ""),
             },
             "enemy": {
                 "name": result.enemy_name,
@@ -660,6 +662,7 @@ class PvpPipeline:
                 # 前端据此显示"敌方疑似被遮挡", 不把 hp=0 当真值渲染
                 "occluded": (result.enemy_hp_color <= 0.0
                              and result.enemy_name_conf < 0.9),
+                "species": getattr(result, "enemy_species", ""),
             },
             "in_battle": result.in_battle,
             "errors": result.errors,

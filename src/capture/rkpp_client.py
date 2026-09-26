@@ -286,12 +286,17 @@ def _parse_pet_info(bip: dict, *, common: Optional[dict] = None) -> dict:
     """
     out = {"pet_id": None, "name": "", "level": 0, "hp": None, "hp_max": 0, "pos": None,
            "skills": [], "skill_map": {}, "conf_id": None, "base_conf_id": None,
-           "bar_entries": []}
+           "bar_entries": [], "species": ""}
     if not isinstance(bip, dict):
         return out
     out["pet_id"] = _as_int(bip.get("pet_id"))
     out["conf_id"] = _as_int(bip.get("conf_id"))
     out["base_conf_id"] = _as_int(bip.get("base_conf_id"))
+    # 物种身份: base_conf_id 是物种图鉴 ID(实测 3070=护主犬/3071=音速犬/
+    # 3492=兽花蕾), 玩家改昵称不影响; conf_id 是战斗实例 ID(wiki 查不到)。
+    # 昵称(服务器 name)做显示名, 物种名做头像与查询。
+    out["species"] = (pet_name_by_id(out["conf_id"])
+                      or pet_name_by_id(out["base_conf_id"]) or "")
 
     # 1) 服务器直接下发的名字(field 23, hex 明文) — 最贴近客户端实际显示
     name = _decode_cn_hex(bip.get("name"))
@@ -400,6 +405,8 @@ class RkppEventClient:
         self._enemy_casts: list = []               # 敌方施法记录 [{round, skill}]（本局）
         self._enemy_last_cast = ""                 # 敌方最近一次释放的技能名
         self._bar_entries: list = []               # 我方上场宠 (pos, skill_id) 条目(校准用)
+        self._player_species = ""
+        self._enemy_species = ""
         self._player_name = ""
         self._player_hp_val = 0
         self._player_hp_max = 0
@@ -451,6 +458,8 @@ class RkppEventClient:
             self._enemy_casts = []
             self._enemy_last_cast = ""
             self._bar_entries = []
+            self._player_species = ""
+            self._enemy_species = ""
             self._player_name = ""
             self._player_hp_val = 0
             self._player_hp_max = 0
@@ -580,6 +589,8 @@ class RkppEventClient:
         self._enemy_casts = []
         self._enemy_last_cast = ""
         self._bar_entries = []
+        self._player_species = ""
+        self._enemy_species = ""
         self._round_no = 0
         self._player_hp_val = 0
         self._player_hp_max = 0
@@ -893,12 +904,14 @@ class RkppEventClient:
                 self._on_field_pid = pid
                 # 我方上场宠的 (槽位, 技能ID) 条目 → OCR 槽位校准闭环的数据源
                 self._bar_entries = list(player_info.get("bar_entries") or [])
+                self._player_species = player_info.get("species") or ""
                 own = player_info.get("skills")
                 if own:
                     self._set_skill_bar(own)
                 else:
                     self._set_skill_bar(self._pet_skills.get(pid))
         if enemy_info:
+            self._enemy_species = enemy_info.get("species") or ""
             nm = enemy_info.get("name")
             if nm:
                 self._enemy_name = nm
@@ -955,6 +968,9 @@ class RkppEventClient:
                 result.enemy_last_cast = self._enemy_last_cast
                 # 我方上场宠 (pos, skill_id) 条目: bridge 层与 OCR 槽位名做校准
                 result._rkpp_bar_entries = [dict(e) for e in self._bar_entries]  # type: ignore[attr-defined]
+                # 物种身份(base_conf_id 解析): 昵称显示名, 物种做头像
+                result.player_species = self._player_species  # type: ignore[attr-defined]
+                result.enemy_species = self._enemy_species  # type: ignore[attr-defined]
             else:
                 # 非战斗态清空精灵名（与 PvpPipeline 语义一致，防串场）
                 result.player_name = ""

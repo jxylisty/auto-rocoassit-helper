@@ -791,8 +791,9 @@ function updatePVPData(data) {
     const playerHpPct = typeof playerHp === 'number' ? Math.min(100, Math.round((playerHp / playerHpMax) * 100)) : 100;
     const playerHpColor = playerHpPct > 50 ? 'green' : playerHpPct > 20 ? 'yellow' : 'red';
 
-    const playerAvatar = getPetAvatar(p.name);
-    const enemyAvatar = getPetAvatar(e.name);
+    // 头像按物种名解析(改昵称的精灵昵称不在图鉴里); 显示名保持昵称
+    const playerAvatar = getPetAvatar(p.species || p.name);
+    const enemyAvatar = getPetAvatar(e.species || e.name);
 
     const playerAttrIcons = (p.types || []).map(t => `<img class="attr-badge-img" src="${getAttrIcon(t)}" title="${t}">`).join('');
     const enemyAttrIcons = (e.types || []).map(t => `<img class="attr-badge-img" src="${getAttrIcon(t)}" title="${t}">`).join('');
