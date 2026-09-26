@@ -376,6 +376,33 @@ class ResourceUpdater:
             (ASSETS_DIR / "pet_title_index.json").write_text(
                 json.dumps(title_index, ensure_ascii=False, indent=2), encoding="utf-8")
 
+            # ---------- 7. 重建前端头像映射表(pet_asset_map.js) ----------
+            # 新下载的立绘文件名是 {seq3}_{title}.webp, 前端 PET_ASSET_MAP 按
+            # 精灵名查文件 — 不同步重建的话, 新精灵的图下载了也显示不出来
+            try:
+                asset_map_path = WEB_IMG_DIR.parent / "pet_asset_map.js"
+                existing: Dict[str, str] = {}
+                if asset_map_path.exists():
+                    m = re.search(r"\{(.*)\};", asset_map_path.read_text(encoding="utf-8"), re.S)
+                    if m:
+                        existing = {k: v for k, v in re.findall(
+                            r'"([^"]+)":\s*"([^"]+\.webp)"', m.group(1))}
+                for img_file in (WEB_IMG_DIR / "pets").glob("*.webp"):
+                    stem = img_file.stem
+                    if "_" in stem:
+                        title = stem.split("_", 1)[1]
+                    else:
+                        title = stem
+                    if title and title not in existing:
+                        existing[title] = img_file.name
+                entries = "".join(
+                    f'  "{k}": "{v}",\n' for k, v in sorted(existing.items()))
+                asset_map_path.write_text(
+                    'window.PET_ASSET_MAP = {\n' + entries + '};\n', encoding="utf-8")
+                self._notify(f"🗺️ 头像映射表已重建: {len(existing)} 条", 0.98)
+            except Exception:
+                pass
+
             pet_count = len(list((WEB_IMG_DIR / "pets").glob("*.webp")))
             skill_count = len(list((WEB_IMG_DIR / "skills").glob("*.webp")))
             icon_count = len(list((WEB_IMG_DIR / "icons").glob("*.webp")))
