@@ -1,0 +1,13 @@
+{
+  "name": "lkwg-pvp-assistant",
+  "version": "2.0.0",
+  "description": "洛克王国 PVP 助手桌面客户端",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

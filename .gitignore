@@ -65,6 +65,15 @@ env/
 !docs/**/*.jpg
 !data/vision/elements/*.png
 !data/vision/exports/*.png
+!src-tauri/icons/*.png
+!src-tauri/icons/*.ico
+
+# ========================================
+# Tauri / Rust / Node 构建产物
+# ========================================
+src-tauri/target/
+node_modules/
+package-lock.json
 
 # ========================================
 # 二进制/大文件

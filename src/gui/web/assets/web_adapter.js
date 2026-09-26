@@ -19,8 +19,25 @@
 
     console.info(`[WebAdapter] 激活前后端解耦模式 (服务端: ${API_BASE})`);
 
-    // 弹窗窗口单例管理 (模拟桌面悬浮窗)
+    // 弹窗窗口单例管理 (浏览器模式下模拟桌面悬浮窗)
     const subWindows = {};
+
+    function isTauriEnv() {
+        return typeof window !== 'undefined' && (!!window.__TAURI__ || !!window.__TAURI_INTERNALS__);
+    }
+
+    async function tauriInvoke(cmd, args = {}) {
+        if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
+            return window.__TAURI__.core.invoke(cmd, args);
+        }
+        if (window.__TAURI__ && typeof window.__TAURI__.invoke === 'function') {
+            return window.__TAURI__.invoke(cmd, args);
+        }
+        if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
+            return window.__TAURI_INTERNALS__.invoke(cmd, args);
+        }
+        throw new Error("Tauri API not found");
+    }
 
     function toggleSubWindow(key, url, width, height) {
         try {
@@ -52,22 +69,73 @@
             if (propKey in target) {
                 return target[propKey];
             }
-            // 客户端窗口行为拦截 (浏览器模式下模拟多窗口挂件)
+            // 客户端窗口行为拦截 (Tauri 模式调用原生置顶窗口，浏览器模式模拟多窗口)
             if (propKey === "widget_toggle") {
                 return async function () {
+                    if (isTauriEnv()) {
+                        try {
+                            const visible = await tauriInvoke('toggle_subwindow', { label: 'float' });
+                            return { success: true, visible };
+                        } catch (err) {
+                            console.warn('[WebAdapter] Tauri 原生悬浮窗调用失败，回退到浏览器窗口:', err);
+                        }
+                    }
                     toggleSubWindow("FloatConsoleWindow", `${API_BASE}/float`, 380, 520);
                     return { success: true };
                 };
             }
             if (propKey === "pvp_float_toggle") {
                 return async function () {
+                    if (isTauriEnv()) {
+                        try {
+                            const visible = await tauriInvoke('toggle_subwindow', { label: 'pvp_float' });
+                            return { success: true, visible };
+                        } catch (err) {
+                            console.warn('[WebAdapter] Tauri 原生 PVP 悬浮窗调用失败，回退到浏览器窗口:', err);
+                        }
+                    }
                     toggleSubWindow("PvpFloatWindow", `${API_BASE}/pvp_float`, 420, 620);
                     return { success: true };
                 };
             }
             if (propKey === "ai_widget_toggle") {
                 return async function () {
+                    if (isTauriEnv()) {
+                        try {
+                            const visible = await tauriInvoke('toggle_subwindow', { label: 'float' });
+                            return { success: true, visible };
+                        } catch (err) {
+                            console.warn('[WebAdapter] Tauri 原生悬浮窗调用失败，回退到浏览器窗口:', err);
+                        }
+                    }
                     toggleSubWindow("AiFloatWindow", `${API_BASE}/float`, 360, 500);
+                    return { success: true };
+                };
+            }
+            if (propKey === "window_close" || propKey === "close_window") {
+                return async function () {
+                    if (isTauriEnv()) {
+                        try {
+                            await tauriInvoke('close_app');
+                            return { success: true };
+                        } catch (err) {
+                            console.warn('[WebAdapter] Tauri close_app 失败:', err);
+                        }
+                    }
+                    window.close();
+                    return { success: true };
+                };
+            }
+            if (propKey === "minimize_window" || propKey === "window_minimize") {
+                return async function () {
+                    if (isTauriEnv()) {
+                        try {
+                            await tauriInvoke('minimize_window', { label: 'main' });
+                            return { success: true };
+                        } catch (err) {
+                            console.warn('[WebAdapter] Tauri minimize_window 失败:', err);
+                        }
+                    }
                     return { success: true };
                 };
             }
@@ -127,7 +195,9 @@
 
     function connectWs() {
         const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.location.host || '127.0.0.1:17365';
+        const wsHost = (window.location.protocol.startsWith('http') && window.location.host)
+            ? window.location.host
+            : '127.0.0.1:17365';
         const wsUrl = `${wsProto}//${wsHost}/ws`;
 
         try {
