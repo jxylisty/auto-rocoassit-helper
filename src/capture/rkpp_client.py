@@ -622,9 +622,11 @@ class RkppEventClient:
         # 槽位证据: 验证 skill_round_data 的 pos 填充率与链式顺序
         # (OCR 槽位校准依赖它; 缺失则退化多局收敛方案)
         if self._bar_entries:
-            self._log("[技能槽位] " + str([
+            ordered = sorted(self._bar_entries,
+                             key=lambda e: (e.get("pos") if isinstance(e.get("pos"), int) else 99))
+            self._log("[技能槽位](按槽位排序) " + str([
                 (e.get("pos"), e.get("skill_id"), e.get("original_skill_id"), e.get("name"))
-                for e in self._bar_entries]))
+                for e in ordered]))
 
     def _collect_team(self, teams: Any, side: str):
         """收集一方的全部精灵与「当前上场」那只。"""

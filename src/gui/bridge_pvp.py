@@ -249,70 +249,81 @@ class PvpEngineMixin:
                         "info")
 
     def _merge_ocr_skill_bar(self, result, pipeline) -> None:
-        """抓包源(rkpp)下: 我方技能栏完全由截屏 OCR 产出。
+        """抓包源(rkpp)下: 我方技能栏 = 槽位ID→wiki权威名 为主, OCR 兜底。
 
-        抓包侧已不再产出技能名(result.skills 恒为空)，故此处 OCR 识别到的槽位直接
-        写入；识别为空的槽位保持空串（不拿抓包的错误名兜底）。
-        防抖(槽位级): 某帧某槽识别失败/为空时沿用上一帧该槽的稳定值, 不整栏清空
-        (识别结果显示层与判定层分离); 全栏失败沿用整栏缓存; 新一局开局清空缓存。
-        注意: read_skill_bar 返回前已经过技能名词库纠错, 垃圾值("VE"/"游泥表皮")
-        不会进来。
+        2026-09-26 真机对局实锤: 包内启发式名与真实技能组 4/4 全错(串成
+        别的宠的技能), 而槽位ID→wiki名 3/4 精确命中玩家实际技能组。
+        优先级: 槽位ID 的 校准表→wiki 解析名 → OCR(帧读) → 上一帧缓存。
+        4 槽 wiki 名全齐时直接跳过截图 OCR(省每帧最多 3s 的 RapidOCR,
+        技能栏也不再依赖游戏窗口可见)。OCR 读数仅用于补 wiki 缺口并写入
+        校准表; 新一局开局(battle_start)清缓存。
         """
         if getattr(result, "battle_start", False):
             self._ocr_skill_cache = None
-        info = self._find_game_window()
-        if not info:
-            self._apply_ocr_skill_cache(result)
-            return
-        left, top, right, bottom = info.rect
-        w, h = right - left, bottom - top
-        if w < 50 or h < 50:
-            self._apply_ocr_skill_cache(result)
-            return
-        frame = self._get_fast_capture().capture(rect=(left, top, w, h))
-        if frame is None or frame.size == 0:
-            self._apply_ocr_skill_cache(result)
-            return
-        ocr_skills = pipeline.read_skill_bar(frame)
-        # OCR 槽位校准闭环: battle_enter 的 skill_round_data 带我方上场宠的
-        # (pos=HUD槽位, skill_id), OCR 按同样 4 个槽位读出准确名字 → id→名
-        # 零猜测写入校准表(最高优先级数据源), 敌方施法反查也吃这张表。
-        bar_entries = getattr(result, "_rkpp_bar_entries", None) or []
-        if bar_entries:
-            try:
-                from src.pvp.skill_calibration import record as cal_record, take_conflicts
-                pairs = {}
-                for ent in bar_entries:
-                    pos = ent.get("pos")
-                    sid = ent.get("skill_id")
-                    if not sid or not isinstance(pos, int) or not (1 <= pos <= 4):
-                        continue
-                    nm = ocr_skills[pos - 1] if pos - 1 < len(ocr_skills) else ""
-                    if nm:
-                        pairs[str(sid)] = nm
-                if pairs:
-                    changed = cal_record(pairs, source="ocr_slot")
-                    for c in take_conflicts():
-                        self._enqueue_log(
-                            f"[技能校准] ID {c['id']} 名字冲突: 保留'{c['kept']}', 新值'{c['new']}'",
-                            "warning")
-                    if changed:
-                        self._enqueue_log(
-                            f"[技能校准] +{len(changed)} 条: " +
-                            ", ".join(f"{c['id']}={c['name']}" for c in changed[:4]),
-                            "info")
-            except Exception:
-                pass
+        bar_entries = sorted(
+            (getattr(result, "_rkpp_bar_entries", None) or []),
+            key=lambda e: (e.get("pos") if isinstance(e.get("pos"), int) else 99))
+
+        # 1) 槽位 ID → 校准表/wiki 权威名(无需截图)
+        from src.pvp.skill_ids import resolve_skill_name as _rsn
+        from src.pvp.skill_calibration import record as cal_record
+        wiki_by_pos: dict = {}
+        gap_pairs: dict = {}
+        for ent in bar_entries:
+            pos = ent.get("pos")
+            sid = ent.get("skill_id")
+            if not sid or not isinstance(pos, int) or not (1 <= pos <= 4):
+                continue
+            nm = _rsn(sid)
+            if nm:
+                wiki_by_pos[pos] = nm
+
+        # 2) 有缺口才截图 OCR(读 HUD 槽位名兜底, 顺带补校准表)
+        ocr_skills: list = []
+        if len(wiki_by_pos) < 4:
+            info = self._find_game_window()
+            if info:
+                left, top, right, bottom = info.rect
+                w, h = right - left, bottom - top
+                if w >= 50 and h >= 50:
+                    frame = self._get_fast_capture().capture(rect=(left, top, w, h))
+                    if frame is not None and frame.size > 0:
+                        ocr_skills = pipeline.read_skill_bar(frame)
+                        for ent in bar_entries:
+                            pos = ent.get("pos")
+                            sid = ent.get("skill_id")
+                            if not sid or not isinstance(pos, int) or not (1 <= pos <= 4):
+                                continue
+                            if sid in wiki_by_pos or str(sid) in wiki_by_pos:
+                                continue
+                            ocr_nm = ocr_skills[pos - 1] if pos - 1 < len(ocr_skills) else ""
+                            if ocr_nm:
+                                gap_pairs[str(sid)] = ocr_nm
+                        if gap_pairs:
+                            try:
+                                changed = cal_record(gap_pairs, source="ocr_slot")
+                                if changed:
+                                    self._enqueue_log(
+                                        "[技能校准] wiki 缺口补齐: " +
+                                        ", ".join(f"{c['id']}={c['name']}" for c in changed[:4]),
+                                        "info")
+                            except Exception:
+                                pass
+
+        # 3) 逐槽合成: wiki 权威名 → 本帧 OCR → 上一帧缓存 → 空
         cache = getattr(self, "_ocr_skill_cache", None)
         merged = []
         for i in range(4):
-            new = ocr_skills[i] if i < len(ocr_skills) else ""
-            if new:
-                merged.append(new)                      # 本帧读到 → 更新
+            wiki_nm = wiki_by_pos.get(i + 1, "")
+            ocr_nm = ocr_skills[i] if i < len(ocr_skills) else ""
+            if wiki_nm:
+                merged.append(wiki_nm)
+            elif ocr_nm:
+                merged.append(ocr_nm)
             elif cache and i < len(cache) and cache[i]:
-                merged.append(cache[i])                 # 本帧没读到 → 沿用旧值
+                merged.append(cache[i])
             else:
-                merged.append("")                       # 从未读到 → 空
+                merged.append("")
         if not any(merged):
             self._apply_ocr_skill_cache(result)
             return
