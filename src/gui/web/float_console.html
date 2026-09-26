@@ -1114,6 +1114,9 @@ let _pvDetailDirty = false;     // 折叠期间数据来过 → 展开时补画�
 function _ensurePvContainers(bodyEl) {
     // 骨架常显: 保证 #pvCompact / #pvDetail 容器存在(卡片常显原则)
     if (!document.getElementById('pvCompact')) {
+        // 初始空态提示功成身退: 数据骨架一旦建立就不再显示
+        const _es = bodyEl.querySelector('.empty-state');
+        if (_es) _es.style.display = 'none';
         bodyEl.insertAdjacentHTML('afterbegin',
             '<div id="pvCompact"></div>' +
             '<div class="pv-detail-fold" id="pvDetail">' +

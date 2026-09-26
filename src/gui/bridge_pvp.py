@@ -375,11 +375,24 @@ class PvpEngineMixin:
                 calculate_all_panels, calculate_damage_full,
                 calculate_world_speed_range, calculate_resonance_impact_damages)
 
+            # 物种兜底: 昵称(改名精灵)查不到图鉴时用抓包解析的物种名
+            # (base_conf_id → wiki), 再不行敌方走中性面板, 不放弃技能卡
             self_pet = get_pet_by_name(result.player_name)
+            if not self_pet:
+                _sp = (getattr(result, "player_species", "") or "").strip()
+                self_pet = get_pet_by_name(_sp) if _sp else None
             enemy_pet = get_pet_by_name(result.enemy_name)
-            if not (self_pet and enemy_pet):
+            if not enemy_pet:
+                _sp = (getattr(result, "enemy_species", "") or "").strip()
+                enemy_pet = get_pet_by_name(_sp) if _sp else None
+            if not self_pet:
                 data["calc_error"] = "精灵数据未就绪或名字未识别"
                 return
+            if not enemy_pet:
+                # 团体战 Boss/未知敌方: 中性种族继续推算(克制倍率按 1.0)
+                enemy_pet = {"race": {"hp": 400, "attack": 100, "mattack": 100,
+                                      "defense": 100, "mdefense": 100, "speed": 100},
+                             "types": [], "skills": []}
 
             # 自动流派推导: 物攻高用物攻, 魔攻高用魔攻
             race = self_pet.get("race", {})
