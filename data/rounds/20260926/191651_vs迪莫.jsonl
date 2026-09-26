@@ -1,0 +1,22 @@
+{"t": "2026-09-26 19:16:51", "event": "match_start", "player": "燃薪虫", "enemy": "迪莫"}
+{"t": "2026-09-26 19:16:51", "event": "skills_seen", "turn": 1, "skills": ["引燃", "充分燃烧", "抽枝"]}
+{"t": "2026-09-26 19:17:20", "event": "skills_seen", "turn": 2, "skills": ["引燃", "充分燃烧", "抽枝", "藤绞"]}
+{"t": "2026-09-26 19:17:28", "event": "player_hp_change", "from": 521, "to": 152, "delta": -369, "caused_by": "enemy"}
+{"t": "2026-09-26 19:17:29", "event": "enemy_hp_change", "from": 1.0, "to": 0.406, "delta_pct": -0.594, "caused_by": "player"}
+{"t": "2026-09-26 19:17:29", "event": "player_hp_change", "from": 152, "to": 521, "delta": 369, "caused_by": "enemy"}
+{"t": "2026-09-26 19:17:45", "event": "round_sync", "turn": 3, "source": "rkpp"}
+{"t": "2026-09-26 19:17:52", "event": "switch_enemy", "from": "迪莫", "to": "帕帕斯卡"}
+{"t": "2026-09-26 19:18:01", "event": "player_hp_change", "from": 521, "to": 380, "delta": -141, "caused_by": "enemy"}
+{"t": "2026-09-26 19:18:10", "event": "round_sync", "turn": 4, "source": "rkpp"}
+{"t": "2026-09-26 19:18:10", "event": "enemy_hp_change", "from": 1.0, "to": 0.931, "delta_pct": -0.069, "caused_by": "player"}
+{"t": "2026-09-26 19:18:10", "event": "player_hp_change", "from": 380, "to": 521, "delta": 141, "caused_by": "enemy"}
+{"t": "2026-09-26 19:18:18", "event": "enemy_hp_change", "from": 0.931, "to": 1.0, "delta_pct": 0.069, "caused_by": "player"}
+{"t": "2026-09-26 19:18:23", "event": "player_hp_change", "from": 521, "to": 217, "delta": -304, "caused_by": "enemy"}
+{"t": "2026-09-26 19:18:28", "event": "round_sync", "turn": 5, "source": "rkpp"}
+{"t": "2026-09-26 19:18:28", "event": "enemy_hp_change", "from": 1.0, "to": 0.532, "delta_pct": -0.468, "caused_by": "player"}
+{"t": "2026-09-26 19:18:28", "event": "player_hp_change", "from": 217, "to": 469, "delta": 252, "caused_by": "enemy"}
+{"t": "2026-09-26 19:18:52", "event": "enemy_hp_change", "from": 0.532, "to": 1.0, "delta_pct": 0.468, "caused_by": "player"}
+{"t": "2026-09-26 19:19:05", "event": "round_sync", "turn": 6, "source": "rkpp"}
+{"t": "2026-09-26 19:19:05", "event": "player_hp_change", "from": 469, "to": 409, "delta": -60, "caused_by": "enemy"}
+{"t": "2026-09-26 19:19:15", "event": "switch_enemy", "from": "帕帕斯卡", "to": "火神"}
+{"t": "2026-09-26 19:19:27", "event": "match_end", "duration_sec": 155}

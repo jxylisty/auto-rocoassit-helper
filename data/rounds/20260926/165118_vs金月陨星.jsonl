@@ -1,0 +1,5 @@
+{"t": "2026-09-26 16:51:18", "event": "match_start", "player": "燃薪虫", "enemy": "金月陨星"}
+{"t": "2026-09-26 16:51:24", "event": "switch_enemy", "from": "金月陨星", "to": "海盔虫"}
+{"t": "2026-09-26 16:51:24", "event": "skills_seen", "turn": 1, "skills": ["引燃", "充分燃烧", "抽枝", "藤绞"]}
+{"t": "2026-09-26 16:51:41", "event": "switch_enemy", "from": "海盔虫", "to": "热团团"}
+{"t": "2026-09-26 16:51:45", "event": "match_end", "duration_sec": 27}

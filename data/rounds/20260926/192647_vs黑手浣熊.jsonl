@@ -1,0 +1,11 @@
+{"t": "2026-09-26 19:26:47", "event": "match_start", "player": "冰钻布鲁斯", "enemy": "黑手浣熊"}
+{"t": "2026-09-26 19:26:47", "event": "skills_seen", "turn": 1, "skills": ["冰雹", "先发制人", "跺地", "力量增效"]}
+{"t": "2026-09-26 19:27:04", "event": "player_hp_change", "from": 345, "to": 170, "delta": -175, "caused_by": "enemy"}
+{"t": "2026-09-26 19:27:19", "event": "round_sync", "turn": 2, "source": "rkpp"}
+{"t": "2026-09-26 19:27:19", "event": "enemy_hp_change", "from": 1.0, "to": 0.927, "delta_pct": -0.073, "caused_by": "player"}
+{"t": "2026-09-26 19:27:19", "event": "player_hp_change", "from": 170, "to": 145, "delta": -25, "caused_by": "enemy"}
+{"t": "2026-09-26 19:27:33", "event": "round_sync", "turn": 3, "source": "rkpp"}
+{"t": "2026-09-26 19:27:33", "event": "switch_enemy", "from": "黑手浣熊", "to": "雷神之子"}
+{"t": "2026-09-26 19:27:36", "event": "player_hp_change", "from": 145, "to": 78, "delta": -67, "caused_by": "enemy"}
+{"t": "2026-09-26 19:27:50", "event": "round_sync", "turn": 4, "source": "rkpp"}
+{"t": "2026-09-26 19:28:09", "event": "match_end", "duration_sec": 82}

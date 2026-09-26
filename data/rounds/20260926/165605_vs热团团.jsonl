@@ -1,0 +1,4 @@
+{"t": "2026-09-26 16:56:05", "event": "match_start", "player": "海盔虫", "enemy": "热团团"}
+{"t": "2026-09-26 16:56:05", "event": "skills_seen", "turn": 1, "skills": ["火云车", "热身", "引燃", "跌落"]}
+{"t": "2026-09-26 16:56:18", "event": "enemy_hp_change", "from": 1.0, "to": 0.02, "delta_pct": -0.98, "caused_by": "player"}
+{"t": "2026-09-26 16:56:40", "event": "match_end", "duration_sec": 35}
