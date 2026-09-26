@@ -1,0 +1,10 @@
+{"t": "2026-09-26 12:24:28", "event": "match_start", "player": "燃薪虫", "enemy": "金月陨星"}
+{"t": "2026-09-26 12:24:28", "event": "skills_seen", "turn": 1, "skills": ["一拳", "充分燃烧", "抽枝"]}
+{"t": "2026-09-26 12:24:36", "event": "enemy_hp_change", "from": 1.0, "to": 0.607, "delta_pct": -0.393, "caused_by": "player"}
+{"t": "2026-09-26 12:25:20", "event": "skills_seen", "turn": 2, "skills": ["一拳", "充分燃烧", "抽枝", "电弧"]}
+{"t": "2026-09-26 12:25:32", "event": "skills_seen", "turn": 3, "skills": ["一拳", "充分燃烧", "抽枝", "霜天"]}
+{"t": "2026-09-26 12:25:37", "event": "player_hp_change", "from": 521, "to": 510, "delta": -11, "caused_by": "enemy"}
+{"t": "2026-09-26 12:25:54", "event": "skills_seen", "turn": 4, "skills": ["一拳", "充分燃烧", "抽枝", "电弧"]}
+{"t": "2026-09-26 12:27:42", "event": "skills_seen", "turn": 5, "skills": ["一拳", "充分燃烧", "抽枝", "藤绞"]}
+{"t": "2026-09-26 12:27:50", "event": "switch_enemy", "from": "金月陨星", "to": "刺轮砣"}
+{"t": "2026-09-26 12:28:00", "event": "match_end", "duration_sec": 211}

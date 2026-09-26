@@ -1,0 +1,5 @@
+{"t": "2026-09-26 12:17:40", "event": "match_start", "player": "最纯粹的撕咬", "enemy": "金月陨星"}
+{"t": "2026-09-26 12:17:40", "event": "skills_seen", "turn": 1, "skills": ["火云车", "热身", "一拳", "跌落"]}
+{"t": "2026-09-26 12:17:57", "event": "round_sync", "turn": 2, "source": "rkpp"}
+{"t": "2026-09-26 12:17:57", "event": "switch_enemy", "from": "金月陨星", "to": "刺轮砣"}
+{"t": "2026-09-26 12:18:05", "event": "match_end", "duration_sec": 24}

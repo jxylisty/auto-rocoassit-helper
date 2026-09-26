@@ -1,0 +1,9 @@
+{"t": "2026-09-26 12:09:18", "event": "match_start", "player": "燃薪虫", "enemy": "月亮砣"}
+{"t": "2026-09-26 12:09:18", "event": "skills_seen", "turn": 1, "skills": ["一拳", "充分燃烧", "抽枝"]}
+{"t": "2026-09-26 12:09:28", "event": "skills_seen", "turn": 2, "skills": ["一拳", "充分燃烧", "抽枝", "藤绞"]}
+{"t": "2026-09-26 12:09:35", "event": "player_hp_change", "from": 521, "to": 455, "delta": -66, "caused_by": "enemy"}
+{"t": "2026-09-26 12:09:43", "event": "player_hp_change", "from": 455, "to": 402, "delta": -53, "caused_by": "enemy"}
+{"t": "2026-09-26 12:10:02", "event": "round_sync", "turn": 3, "source": "rkpp"}
+{"t": "2026-09-26 12:10:02", "event": "enemy_hp_change", "from": 1.0, "to": 0.098, "delta_pct": -0.902, "caused_by": "player"}
+{"t": "2026-09-26 12:10:09", "event": "round_sync", "turn": 4, "source": "rkpp"}
+{"t": "2026-09-26 12:10:42", "event": "match_end", "duration_sec": 84}

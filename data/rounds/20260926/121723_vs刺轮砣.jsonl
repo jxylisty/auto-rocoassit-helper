@@ -1,0 +1,4 @@
+{"t": "2026-09-26 12:17:23", "event": "match_start", "player": "燃薪虫", "enemy": "刺轮砣"}
+{"t": "2026-09-26 12:17:23", "event": "skills_seen", "turn": 1, "skills": ["一拳", "充分燃烧", "抽枝"]}
+{"t": "2026-09-26 12:17:26", "event": "round_sync", "turn": 2, "source": "rkpp"}
+{"t": "2026-09-26 12:17:31", "event": "match_end", "duration_sec": 8}
