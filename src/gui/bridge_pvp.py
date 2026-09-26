@@ -654,6 +654,7 @@ class PvpEngineMixin:
                         self._rkpp_fail_count = getattr(self, "_rkpp_fail_count", 0) + 1
                         if self._rkpp_fail_count >= 10:      # 连续 ~5s 断连
                             self._rkpp_fail_count = 0
+                            print("[RKPP] 事件流断连, 自动重启解码后端…", flush=True)
                             self._enqueue_log("[RKPP] 事件流断连, 自动重启解码后端…", "warning")
                             self._stop_rkpp_subsystem()
                             self._start_rkpp_subsystem()
@@ -666,7 +667,11 @@ class PvpEngineMixin:
                             continue
                     else:
                         self._rkpp_fail_count = 0
+                    self._rkpp_tick_n = getattr(self, "_rkpp_tick_n", 0) + 1
                     result = rkpp_client.analyze()
+                    if self._rkpp_tick_n % 20 == 1:
+                        print(f"[引擎] rkpp 心跳: 连接={rkpp_client.is_connected()} "
+                              f"战斗中={result.in_battle} 回合={getattr(result, 'round_no', 0)}", flush=True)
                     # 我方技能栏: OCR 优先(准确率高), 抓包结果兜底。
                     # 仅在战斗态截图识别；窗口找不到/截图失败则保留抓包技能栏。
                     if result.in_battle:
@@ -1030,6 +1035,7 @@ class PvpEngineMixin:
                                             daemon=True, name="PvpEngine")
         self._pvp_thread.start()
         label = {"capture": "抓包", "rkpp": "RKPP 解码"}.get(self._pvp_source, "OCR")
+        print(f"[引擎] 启动 数据源={self._pvp_source}", flush=True)
         self._enqueue_log(f"PVP 实时识别引擎已启动 (数据源: {label})", "success")
         return {"success": True, "auto_stopped": auto_stopped, "source": self._pvp_source}
 
@@ -1041,6 +1047,7 @@ class PvpEngineMixin:
             self._pvp_thread = None
         self._stop_capture_subsystem()
         self._stop_rkpp_subsystem()
+        print("[引擎] 停止", flush=True)
         self._enqueue_log("PVP 引擎已停止", "info")
         return {"success": True}
 
