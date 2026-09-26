@@ -65,6 +65,15 @@ class WidgetMixin:
         except Exception:
             pass
 
+    def _main_window_visible(self) -> bool:
+        """主窗口真实可见性(ctypes 直查, 不信事件语义)。"""
+        try:
+            import ctypes
+            hwnd = int(self._window.native.Handle)
+            return bool(ctypes.windll.user32.IsWindowVisible(hwnd))
+        except Exception:
+            return True   # 拿不到句柄时按就绪处理, 不阻塞唤出
+
     def ensure_widget_window(self):
         """首次唤出时才创建悬浮窗; 已存在则直接返回。
 
@@ -74,6 +83,15 @@ class WidgetMixin:
         """
         if getattr(self, "_widget", None) is not None:
             return self._widget
+        # 主窗未就绪(WebView2 启动挂起)时先等: 启动后几秒内按 F2 建窗
+        # 曾伴随进程无声崩溃(实测 2026-09-26 14:14 两次启动), 不再带病建窗
+        for _ in range(40):          # 最多等 20s
+            if self._main_window_visible():
+                break
+            time.sleep(0.5)
+        else:
+            self._enqueue_log("悬浮窗未创建: 主窗口尚未就绪(启动挂起?), 稍后再按 F2", "warning")
+            return None
         with _WIDGET_CREATE_LOCK:
             print("[悬浮窗] 惰性创建开始", flush=True)
             if getattr(self, "_widget", None) is not None:

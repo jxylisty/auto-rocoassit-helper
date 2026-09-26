@@ -94,34 +94,16 @@ def start_gui():
     # 卡密登录态: 后台静默校验(用户版; 开发者版直接放行)
     bridge.start_auth_verify()
 
-# 启动看门狗: WebView2 偶发挂起(残留进程占用用户数据目录等)表现为
-    # "无报错但窗口永不出现"。30s 未 shown → 写诊断日志 + 弹窗, 不再无声卡死。
-    # 不能拿 window.width 判断: hidden 建窗的 width 恒为创建值(1280), 旧实现
-    # 第一轮就 return, 看门狗从未生效。改为等 pywebview 的 shown 事件 ——
-    # 内部 show 流程同样以它为就绪信号, 窗口没真正显示它就不会置位。
-    def _boot_watchdog():
-        import time as _t
-        try:
-            shown = window.events.shown.wait(30)
-        except Exception:
-            shown = True       # 事件机制异常时宁可漏报, 不弹窗误报
-        if shown:
-            return
-        try:
-            detail = ("窗口 30 秒未出现 — 多为 WebView2 运行时挂起或上次实例残留。\n"
-                      "处理: 任务管理器结束所有 python.exe 与 msedgewebview2.exe 后重试,\n"
-                      "  或在终端执行: python main.py --kill-ghosts\n"
-                      "详细启动日志: data\\logs\\startup.log")
-            log_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
-            (log_dir / "data" / "logs").mkdir(parents=True, exist_ok=True)
-            (log_dir / "data" / "logs" / "boot_watchdog.log").write_text(
-                f"{_t.strftime('%Y-%m-%d %H:%M:%S')} {detail}", encoding="utf-8")
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(None, detail, "启动看门狗", 0x30)
-        except Exception:
-            pass
-    import threading as _th
-    _th.Thread(target=_boot_watchdog, daemon=True).start()
+    # 启动看门狗(独立进程): WebView2 初始化偶发挂起时, 主进程 Python 线程
+    # 会被一起饿死("无报错但窗口永不出现", 日志戛然而止), 进程内看门狗
+    # 永远没机会触发 — 只有进程外的看门狗还能行动。
+    if not getattr(sys, "frozen", False):
+        import os as _os
+        import subprocess as _sp
+        _sp.Popen([sys.executable, str(Path(__file__).resolve()),
+                   "--boot-watchdog", str(_os.getpid())],
+                  cwd=str(Path(__file__).parent),
+                  creationflags=0x08000000)   # CREATE_NO_WINDOW
 
     # 信号处理: VSCode 终端终止 → 强制杀进程(webview 消息循环吞 Ctrl+C)
     _cleanup_once = [False]
@@ -231,13 +213,82 @@ def _init_startup_log():
     faulthandler.enable(file=f)
 
 
+def _boot_watchdog_child(parent_pid: int) -> None:
+    """独立进程看门狗: 45s 内主窗口不可见 → 终止挂死实例 + 弹窗提示。
+
+    主进程 WebView2 初始化偶发挂起时, 其内部线程全部停摆(日志戛然而止),
+    只有进程外的看门狗还能行动。窗口可见或父进程自行退出时本进程静默退出。
+    """
+    import ctypes
+    import time
+    user32 = ctypes.windll.user32
+    title = "洛克王国 · PVP 助手控制台"
+    deadline = time.time() + 45
+    while time.time() < deadline:
+        hwnd = user32.FindWindowW(None, title)
+        if hwnd and user32.IsWindowVisible(hwnd):
+            return                      # 启动正常
+        if not _pid_alive(parent_pid):
+            return                      # 父进程已自行退出(正常关闭/用户处理)
+        time.sleep(0.5)
+    # 超时: 写日志 → 终止挂死实例 → 弹窗
+    try:
+        log_dir = Path(__file__).parent / "data" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "boot_watchdog.log").write_text(
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')} 主窗口 45 秒未出现, 已终止挂起实例 "
+            f"PID={parent_pid}", encoding="utf-8")
+    except Exception:
+        pass
+    # 直接 TerminateProcess: 子进程里再拉 taskkill 子子进程偶发静默失败
+    killed = False
+    try:
+        PROCESS_TERMINATE = 0x0001
+        kernel32 = ctypes.windll.kernel32
+        h = kernel32.OpenProcess(PROCESS_TERMINATE, False, int(parent_pid))
+        if h:
+            killed = bool(kernel32.TerminateProcess(h, 1))
+            kernel32.CloseHandle(h)
+    except Exception:
+        pass
+    try:
+        with open(log_dir / "boot_watchdog.log", "a", encoding="utf-8") as f:
+            result_text = "成功" if killed else "失败(需手动 taskkill)"
+            f.write(f" → terminate {result_text}\n")
+    except Exception:
+        pass
+    try:
+        user32.MessageBoxW(
+            None, "窗口 45 秒未出现(WebView2 偶发挂起), 挂起实例已自动终止, 请重新启动; 若连续出现先执行: python main.py --kill-ghosts",
+            "启动看门狗", 0x30)
+    except Exception:
+        pass
+
+
+def _pid_alive(pid: int) -> bool:
+    import ctypes
+    SYNCHRONIZE = 0x00100000
+    kernel32 = ctypes.windll.kernel32
+    h = kernel32.OpenProcess(SYNCHRONIZE, False, int(pid))
+    if not h:
+        return False
+    kernel32.CloseHandle(h)
+    return True
+
+
 def main():
     """主入口"""
     parser = argparse.ArgumentParser(description='洛克王国 PVP 助手')
     parser.add_argument('--throw', action='store_true', help='启动自动丢球工具（无界面）')
     parser.add_argument('--kill-ghosts', action='store_true', help='强制终止所有残留进程后退出')
+    parser.add_argument('--boot-watchdog', type=int, default=0, metavar='PID',
+                        help='内部: 独立进程看门狗, 监视指定 PID 的主窗口可见性')
 
     args = parser.parse_args()
+
+    if args.boot_watchdog:
+        _boot_watchdog_child(args.boot_watchdog)
+        return
 
     if args.kill_ghosts:
         _kill_ghost_processes()

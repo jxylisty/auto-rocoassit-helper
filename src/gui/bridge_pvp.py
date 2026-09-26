@@ -882,6 +882,20 @@ class PvpEngineMixin:
                 else:
                     self._enqueue_log("RKPP 未抓到 key: 将继续运行, 等游戏内重新握手", "warning")
 
+            # 1.5) 清理残留 opencode-server: 上次进程被强杀时子进程会变孤儿,
+            # 占着 relay 端口(8765)让新实例 bind 失败且无任何报错(stdout=DEVNULL),
+            # 表现就是"订阅成功但永远没数据"。
+            try:
+                ps_cmd = (
+                    "Get-CimInstance Win32_Process -Filter \"name='python.exe'\" | "
+                    "Where-Object { \"$(($_.CommandLine))\" -match 'opencode-server' } | "
+                    "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+                )
+                subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd],
+                               capture_output=True, timeout=15)
+            except Exception:
+                pass
+
             # 2) 启动 opencode-server(HTTP relay); 未指定 --key 时自动加载 Key/latest.key
             cmd = [sys.executable, str(script), "opencode-server",
                    "--port", str(port),
