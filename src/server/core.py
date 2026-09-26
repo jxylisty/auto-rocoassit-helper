@@ -54,6 +54,8 @@ class CoreServerManager:
         self.bridge = AppBridge()
         self.api = Api(self.bridge)
         self.bridge.set_api(self.api)
+        self.bridge.set_widget_window(None)
+        self.bridge.set_pvp_float_window(None)
 
         # 禁用旧的单线程 LocalApiServer，避免 17365 端口冲突
         # 新架构的 FastAPI app 会直接原生接管这些端点
@@ -102,12 +104,13 @@ class CoreServerManager:
         """调用业务方法并返回结果 (优先匹配独立领域服务，降级兼容 Api/bridge)"""
         args = args or []
 
-        # 0. 客户端窗口行为拦截 (在 Web 解耦模式下直接返回成功，由前端 web_adapter 接管弹窗)
+        if method_name in ("widget_toggle", "pvp_float_toggle", "ai_widget_toggle"):
+            return {"success": True, "visible": True, "notice": f"{method_name} handled in browser mode"}
+
         if method_name in ("minimize_window", "move_window_by", "window_move_by",
                            "window_resize_by", "window_resize_to", "window_close",
                            "set_on_top", "widget_resize", "pvp_float_resize",
-                           "ai_widget_resize", "move_ai_window_by",
-                           "widget_toggle", "pvp_float_toggle", "ai_widget_toggle"):
+                           "ai_widget_resize", "move_ai_window_by"):
             return {"success": True, "notice": f"{method_name} handled in browser mode"}
 
         target = None

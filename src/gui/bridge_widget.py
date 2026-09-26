@@ -348,8 +348,9 @@ class WidgetMixin:
     def widget_toggle(self) -> dict:
         """显示/隐藏悬浮状态窗(首次唤出时惰性建窗)"""
         try:
-            print(f"[悬浮窗] toggle: visible={self._widget_visible}", flush=True)
-            if self._widget_visible and getattr(self, "_widget", None):
+            cur_visible = getattr(self, "_widget_visible", False)
+            print(f"[悬浮窗] toggle: visible={cur_visible}", flush=True)
+            if cur_visible and getattr(self, "_widget", None):
                 # 作废尚在等待的延迟 show, 再隐藏
                 self._widget_show_gen += 1
                 self._widget.hide()
