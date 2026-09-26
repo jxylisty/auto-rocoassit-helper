@@ -402,12 +402,34 @@ class PvpEngineMixin:
             # 自动流派推导: 物攻高用物攻, 魔攻高用魔攻
             race = self_pet.get("race", {})
             prefer = "mattack" if race.get("mattack", 0) > race.get("attack", 0) else "attack"
-            self_panel = calculate_all_panels(self_pet.get("race", {}))
-            enemy_panel = calculate_all_panels(enemy_pet.get("race", {}))
-            speed_diff = self_panel["speed"] - enemy_panel["speed"]
+            from src.pvp.status_evaluator import evaluate_status
+
+            # 评估双方异常状态与印记 (灼烧、寄生、中毒、冻结、麻痹等，计算属性克制与斩杀线)
+            enemy_status = evaluate_status(
+                buffs=getattr(result, "enemy_buffs", []),
+                target_attrs=enemy_pet.get("types", []),
+                current_hp_pct=result.enemy_hp_pct,
+                max_hp_val=enemy_panel.get("hp"),
+            )
+            player_status = evaluate_status(
+                buffs=getattr(result, "player_buffs", []),
+                target_attrs=self_pet.get("types", []),
+                current_hp_pct=(result.player_hp_val / result.player_hp_max) if result.player_hp_max > 0 else 1.0,
+                current_hp_val=result.player_hp_val,
+                max_hp_val=self_panel.get("hp"),
+            )
+
+            # 速度差: 计入状态修正(如麻痹降速50%)
+            eff_self_speed = self_panel["speed"] * player_status.speed_modifier
+            eff_enemy_speed = enemy_panel["speed"] * enemy_status.speed_modifier
+            speed_diff = eff_self_speed - eff_enemy_speed
 
             # 我方技能伤害(OCR 出的 4 个技能逐个推演)
             calc_skills = []
+            enemy_est_hp = int(enemy_panel["hp"] * result.enemy_hp_pct)
+            dot_val = enemy_status.total_dot_val
+            is_dot_kill = enemy_status.is_dot_lethal or enemy_status.is_freeze_lethal
+
             for sk_name in result.skills:
                 sk = get_skill(sk_name) or {}
                 sk_type = sk.get("type", "物攻")
@@ -420,20 +442,30 @@ class PvpEngineMixin:
                         attacker_attrs=self_pet.get("types", []),
                         defender_attrs=enemy_pet.get("types", []),
                     )
-                    enemy_est_hp = int(enemy_panel["hp"] * result.enemy_hp_pct)
                     dmg_min = dmg["damage"]
                     dmg_max = round(dmg["damage"] * 1.15)
-                    is_kill = enemy_est_hp > 0 and dmg_min >= enemy_est_hp
+                    # 综合斩杀判定: 直伤斩杀 / 直伤+DOT斩杀 / 冻结即死 / 回合末DOT必死
+                    is_direct_kill = enemy_est_hp > 0 and dmg_min >= enemy_est_hp
+                    is_combined_kill = enemy_est_hp > 0 and (dmg_min + dot_val) >= enemy_est_hp
+                    is_kill = is_direct_kill or is_combined_kill or is_dot_kill
+                    kill_type = "direct" if is_direct_kill else ("direct+dot" if is_combined_kill else ("dot" if is_dot_kill else ""))
                     calc_skills.append({
                         "name": sk_name, "power": int(sk_power),
                         "type": sk_type, "attr": sk_attr,
                         "dmg_min": dmg_min, "dmg_max": dmg_max,
                         "mult": dmg["attrMultiplier"],
                         "is_kill": is_kill,
+                        "kill_type": kill_type,
+                        "dot_dmg": dot_val,
                     })
                 else:
-                    calc_skills.append({"name": sk_name, "power": 0, "type": "变化",
-                                        "dmg_min": 0, "dmg_max": 0, "mult": 1, "is_kill": False})
+                    calc_skills.append({
+                        "name": sk_name, "power": 0, "type": "变化",
+                        "dmg_min": 0, "dmg_max": 0, "mult": 1,
+                        "is_kill": is_dot_kill,
+                        "kill_type": "dot" if is_dot_kill else "",
+                        "dot_dmg": dot_val,
+                    })
 
             # 敌方威胁预测: 与主控台 pvp_calc_all_skills 同一套玩家筛选规则 —
             # 1) 按敌方种族值高项只选匹配的物攻/魔攻技能(双刀全显示)
@@ -503,6 +535,26 @@ class PvpEngineMixin:
             data["calc_skills"] = calc_skills
             data["enemy_threats"] = enemy_threats
             data["resonance_impact"] = resonance_data
+            data["enemy_status"] = {
+                "total_dot_pct": enemy_status.total_dot_pct,
+                "total_dot_val": enemy_status.total_dot_val,
+                "freeze_threshold_pct": enemy_status.freeze_threshold_pct,
+                "is_dot_lethal": enemy_status.is_dot_lethal,
+                "is_freeze_lethal": enemy_status.is_freeze_lethal,
+                "speed_modifier": enemy_status.speed_modifier,
+                "tags": enemy_status.tags,
+                "summary": enemy_status.summary_text,
+            }
+            data["player_status"] = {
+                "total_dot_pct": player_status.total_dot_pct,
+                "total_dot_val": player_status.total_dot_val,
+                "freeze_threshold_pct": player_status.freeze_threshold_pct,
+                "is_dot_lethal": player_status.is_dot_lethal,
+                "is_freeze_lethal": player_status.is_freeze_lethal,
+                "speed_modifier": player_status.speed_modifier,
+                "tags": player_status.tags,
+                "summary": player_status.summary_text,
+            }
             data["calc_done"] = True
         except Exception as e:
             data["calc_error"] = str(e)

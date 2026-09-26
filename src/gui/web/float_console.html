@@ -1239,7 +1239,9 @@ function updatePVPData(data) {
                 ? `<span class="skill-dyn-tag">${s.dynamic.statLabel}${s.dynamic.diff >= 0 ? '+' : ''}${s.dynamic.diff} · 档${s.dynamic.tierIndex + 1}</span>`
                 : '';
 
-            return `
+                    const killTagText = s.kill_type === 'dot' ? 'DOT斩杀' : (s.kill_type === 'direct+dot' ? '综合斩杀' : '必杀斩杀');
+                    const dotExtra = s.dot_dmg > 0 ? `<span style="font-size:10px;opacity:0.85;">(+DOT ${s.dot_dmg})</span>` : '';
+                    return `
             <div class="skill-card ${isKill ? 'kill' : ''}">
                 <img class="skill-icon" src="${iconUrl}" onerror="this.src='assets/img/icons/normal.webp'">
                 <div class="skill-main">
@@ -1250,9 +1252,9 @@ function updatePVPData(data) {
                     </div>
                 </div>
                 <div class="skill-dmg-box">
-                    <div class="skill-dmg-num ${isKill ? 'kill' : ''}">${dmgText}</div>
+                    <div class="skill-dmg-num ${isKill ? 'kill' : ''}">${dmgText} ${dotExtra}</div>
                     ${multText ? `<div class="skill-mult">${multText}</div>` : ''}
-                    ${isKill ? `<span class="kill-tag">必杀斩杀</span>` : ''}
+                    ${isKill ? `<span class="kill-tag">${killTagText}</span>` : ''}
                 </div>
             </div>`;
         }).join('');

@@ -32,9 +32,9 @@ SYSTEM_PROMPT = (
     "1. 严格区分我方(Player)与敌方(Enemy)，绝不混淆敌我精灵与技能！\n"
     "2. 很多技能虽然基础直接伤害为0，但具有极其强力的状态效果（如「引燃」可造成10层灼烧，「抽枝」应对回复50%血量和5能），"
     "   务必深入分析技能官方效果描述与精灵被动特性（如燃薪虫的煤渣草特性使灼烧只增不减），切忌将机制状态技能当成无用技能！\n"
-    "3. 状态栏与异常层数（核心战情）：密切关注双方状态栏！"
-    "   若我方有属性强化（如物攻+100%），伤害已大幅提升，应优先打出毁灭爆发；"
-    "   若敌方被挂高层异常（如10层灼烧、冻结），考虑配合机制技能引爆或消耗；若我方被挂危险异常，考虑换宠或解控。\n"
+    "3. 状态栏与异常层数（核心战情与属性克制）："
+    "   异常状态同样享受属性克制与抵抗！灼烧(火系)打草系翻倍造成40%伤害(10层)，火系免疫；寄生(草系)每层2%吸血，草系免疫；中毒(毒系)每层3%，毒/机械免疫；"
+    "   冻结(冰系)锁定血线，当前血量低于冻结阈值直接力竭即死！若敌方已进入DOT必死或冻结斩杀线，优先出防守/聚能等死敌方，避免浪费能量爆发。\n"
     "4. 伤害与克制：注意属性克制倍率（2.0x克制/0.5x抵抗/0.25x双抵抗），有斩杀机会优先斩杀；血量危险注意防守或换宠。\n"
     "5. 能量管理：注意技能消耗，能量不足无法出招，必要时选择聚能(+5能量)或愿力冲击。\n\n"
     "必须严格按以下 JSON 格式回复，不要输出任何多余问候或 markdown 代码块外的杂音:\n"
@@ -98,22 +98,44 @@ def build_prompt(snapshot: dict) -> str:
     p_energy = p.get("energy_val", "?")
     p_buffs = p.get("buffs") or snapshot.get("player_buffs") or []
     p_buff_texts = [b.get("text") or b.get("name") for b in p_buffs if isinstance(b, dict)]
+    p_status = snapshot.get("player_status")
+    p_status_summary = p_status.get("summary") if isinstance(p_status, dict) else ""
+    if not p_status_summary and p_buffs:
+        try:
+            from src.pvp.status_evaluator import evaluate_status
+            p_val = int(p_hp) if str(p_hp).isdigit() else 0
+            p_m = int(p_hp_max) if str(p_hp_max).isdigit() else 0
+            p_pct = (p_val / p_m) if p_m > 0 else 1.0
+            p_status_summary = evaluate_status(p_buffs, p_types, current_hp_pct=p_pct, current_hp_val=p_val, max_hp_val=p_m).summary_text
+        except Exception:
+            pass
+
     lines.append(f"▶ 我方在场精灵: {p_name}" + (f" (物种: {p_species})" if p_species != p_name else ""))
     lines.append(f"  • 属性: {', '.join(p_types) if p_types else '未知'}")
     lines.append(f"  • 血量: {p_hp}/{p_hp_max} | 当前能量: {p_energy}")
     lines.append(f"  • 特性(被动): {p_trait}")
-    lines.append(f"  • 实时状态/强化栏: {', '.join(p_buff_texts) if p_buff_texts else '正常 (无异常/强化)'}")
+    lines.append(f"  • 实时状态/强化栏: {', '.join(p_buff_texts) if p_buff_texts else '正常 (无异常/强化)'}" + (f" 【机制推演: {p_status_summary}】" if p_status_summary and p_status_summary != '正常(无持续负面)' else ""))
     lines.append("")
 
     # 2. 敌方在场
     e_hp = f"{float(e.get('hp_pct') or 0):.0%}"
     e_buffs = e.get("buffs") or snapshot.get("enemy_buffs") or []
     e_buff_texts = [b.get("text") or b.get("name") for b in e_buffs if isinstance(b, dict)]
+    e_status = snapshot.get("enemy_status")
+    e_status_summary = e_status.get("summary") if isinstance(e_status, dict) else ""
+    if not e_status_summary and e_buffs:
+        try:
+            from src.pvp.status_evaluator import evaluate_status
+            e_pct = float(e.get('hp_pct') or 0)
+            e_status_summary = evaluate_status(e_buffs, e_types, current_hp_pct=e_pct).summary_text
+        except Exception:
+            pass
+
     lines.append(f"▶ 敌方在场精灵: {e_name}" + (f" (物种: {e_species})" if e_species != e_name else ""))
     lines.append(f"  • 属性: {', '.join(e_types) if e_types else '未知'}")
     lines.append(f"  • 当前血量百分比: {e_hp}")
     lines.append(f"  • 特性(被动): {e_trait}")
-    lines.append(f"  • 实时状态/异常栏: {', '.join(e_buff_texts) if e_buff_texts else '正常 (无异常/强化)'}")
+    lines.append(f"  • 实时状态/异常栏: {', '.join(e_buff_texts) if e_buff_texts else '正常 (无异常/强化)'}" + (f" 【机制推演: {e_status_summary}】" if e_status_summary and e_status_summary != '正常(无持续负面)' else ""))
     if enemy_last_cast:
         sk_info = get_skill(enemy_last_cast) or {}
         desc = sk_info.get("describe") or ""

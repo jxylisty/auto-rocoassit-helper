@@ -132,7 +132,20 @@ def detect_events(state: _EventState, snap: dict) -> list:
 
     kills = [s for s in (snap.get("calc_skills") or []) if s.get("is_kill")]
     if kills:
-        events.append(("kill", "kill", f"有斩杀机会: {kills[0].get('name')}"))
+        kill_sk = kills[0]
+        kt = kill_sk.get("kill_type", "")
+        if kt == "dot":
+            events.append(("kill", "kill", f"敌方已进DOT斩杀线! 回合末直接阵亡"))
+        elif kt == "direct+dot":
+            events.append(("kill", "kill", f"直伤+DOT可斩杀: {kill_sk.get('name')}"))
+        else:
+            events.append(("kill", "kill", f"有斩杀机会: {kill_sk.get('name')}"))
+    else:
+        e_st = snap.get("enemy_status") or {}
+        if e_st.get("is_dot_lethal"):
+            events.append(("kill", "kill", "敌方已被挂满异常，回合末直接流血阵亡!"))
+        elif e_st.get("is_freeze_lethal"):
+            events.append(("kill", "kill", "敌方血量低于冻结线，即将触发力竭斩杀!"))
 
     lethal = [t for t in (snap.get("enemy_threats") or []) if t.get("is_lethal")]
     if lethal:
