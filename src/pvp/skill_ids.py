@@ -87,21 +87,22 @@ def normalize_skill_id(value: int | str) -> str | None:
 def resolve_skill_name(value: int | str) -> str:
     """抓包技能 ID → 技能名。查不到返回空字符串（调用方自行降级）。
 
-    优先级: OCR 槽位校准表(skill_calibration) → wiki 图鉴索引。
-    两表冲突时以校准表为准(来自真实对局的 OCR 实名); 都查不到宁空勿错,
-    绝不返回启发式猜测名(2026-09-25: 旧索引与启发式导出 41/41 冲突)。
+    优先级: wiki 图鉴索引 → 校准表(skill_calibration, 仅补 wiki 缺口)。
+    实测 2026-09-26: wiki 对真实技能组 4/4 命中, 而残缺帧 OCR 曾把
+    7040260(引燃) 校准成 '一拳' —— 校准表优先会让毒数据压住权威名。
+    wiki 优先后, 校准表只负责 wiki 覆盖不到的 ID, 毒数据自动失效。
     """
     sid = normalize_skill_id(value)
     if sid is None:
         return ""
+    name = _load().get(sid, "")
+    if name:
+        return name
     try:
         from src.pvp.skill_calibration import name_for
-        cal = name_for(sid)
-        if cal:
-            return cal
+        return name_for(sid)
     except Exception:
-        pass
-    return _load().get(sid, "")
+        return ""
 
 
 def resolve_skill_name_or_raw(value: int | str) -> str:
