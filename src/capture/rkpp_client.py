@@ -635,8 +635,9 @@ class RkppEventClient:
         if self._bar_entries:
             ordered = sorted(self._bar_entries,
                              key=lambda e: (e.get("pos") if isinstance(e.get("pos"), int) else 99))
-            self._log("[技能槽位](按槽位排序) " + str([
-                (e.get("pos"), e.get("skill_id"), e.get("original_skill_id"), e.get("name"))
+            self._log("[技能槽位](槽位, ID, 包内名→解析名) " + str([
+                (e.get("pos"), e.get("skill_id"), e.get("name"),
+                 resolve_skill_name(e.get("skill_id") or 0) or "?")
                 for e in ordered]))
 
     def _collect_team(self, teams: Any, side: str):
